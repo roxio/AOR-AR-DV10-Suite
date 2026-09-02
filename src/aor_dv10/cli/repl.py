@@ -138,7 +138,7 @@ Commands:
   sd dir                    SD DIR: list files on the SD card
   sd info                   SD INF: card capacity summary (free/total, approx. free hours)
   sd status                 SD PST: record/playback status
-  sd rec start|stop         SD REC / SD REC/: start/stop recording (auto-generated file name)
+  sd rec start|stop         SD REC / SD REC/: start/stop recording (auto name). Stop is AR-DV1/DV3-only and refused on the DV10.
   sd play <name>|stop       SD PLY<name> / SD PLY/: start/stop playback
   sd rsq [on|off]            SD RSQ: show or set squelch-skip during playback
   sd backup <kind>          SD MMW<kind>: back up receiver settings - kind is one of SRCHBK/
@@ -348,16 +348,26 @@ class Repl:
                 raise ValueError("usage: re on|off")
             self.device.set_result_code_prefixing(_on_off(args[0]))
         elif verb == "vfo":
-            # "vfo [A|B|Z] [mhz] [mode]" - optional frequency/mode are
-            # sent atomically in the same VF write via
-            # enter_vfo_mode()'s keyword args; bare "vfo" or
-            # "vfo <letter>" still sends the exact original
-            # real-hardware-confirmed bare form.
-            vfo = args[0] if args else "A"
-            freq_hz = round(float(args[1]) * 1_000_000) if len(args) > 1 else None
-            mode = args[2] if len(args) > 2 else None
-            self.device.enter_vfo_mode(vfo, frequency_hz=freq_hz, mode=mode)
-            self.console.print(f"VFO {vfo.upper()}")
+            # "vfo [A|B|Z] [mhz] [mode]". The VF command's *embedded*
+            # RF/ST/SH/MD fields (the atomic "VFt RF... MD..." form) are a
+            # silent no-op on real DV10 - confirmed by testing: "vfo A
+            # 145.500000 F0" only switches to VFO-A and leaves the
+            # frequency unchanged (matches the unconfirmed-inference warning
+            # in enter_vfo_mode()). So a frequency/mode here is applied with
+            # the STANDALONE, separately-confirmed RF and MD writes after
+            # first entering the chosen VFO - the same
+            # enter_vfo_mode()+set_frequency_hz() sequence the web server
+            # and CLI use for mem-tune/mem-goto.
+            vfo = (args[0] if args else "A").strip().upper()
+            if vfo not in ("A", "B", "Z"):
+                raise ValueError(f'vfo must be "A", "B", or "Z"')
+            self.device.enter_vfo_mode(vfo)  # bare VFt: select/enter the VFO
+            if len(args) > 1:
+                hz = round(float(args[1]) * 1_000_000)
+                self.device.set_frequency_hz(hz)
+            if len(args) > 2:
+                self.device.set_mode(args[2])
+            self.console.print(f"VFO {vfo}")
         elif verb == "vi":
             for v in self.device.read_vfo_info():
                 freq = f"{v.frequency_hz / 1_000_000:.5f} MHz" if v.frequency_hz is not None else "?"
@@ -1094,6 +1104,15 @@ class Repl:
                 self.device.sd_record_start()
                 self.console.print("recording started")
             else:
+                # AR-DV1's documented remote stop (SD REC /) is not
+                # supported on the AR-DV10 - sending it wedges the radio
+                # (recording there stops with the front-panel ● key only).
+                # Deny instead of poking a command the device can't handle.
+                if self.device.device_family() == "DV10":
+                    raise ValueError(
+                        "sd rec stop is not supported on the AR-DV10 - "
+                        "stop recording with the receiver's front-panel ● (record) key"
+                    )
                 self.device.sd_record_stop()
                 self.console.print("recording stopped")
             return

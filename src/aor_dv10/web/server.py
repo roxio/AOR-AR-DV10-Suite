@@ -425,9 +425,19 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_result_code_prefixing(on_off(args[0]))
         return "ok"
     if verb == "vfo":
-        vfo = args[0] if args else "A"
+        # "vfo [A|B|Z] [mhz] [mode]". On a real DV10 the single atomic VF
+        # write only changes the VFO letter (embedded RF/MD fields are a
+        # silent no-op) - so an optional frequency/mode is applied with the
+        # standalone, confirmed RF and MD writes after selecting the VFO.
+        vfo = (args[0] if args else "A").strip().upper()
+        if vfo not in ("A", "B", "Z"):
+            raise ValueError(f'vfo must be "A", "B", or "Z"')
         device.enter_vfo_mode(vfo)
-        return f"VFO {vfo.upper()}"
+        if len(args) > 1:
+            device.set_frequency_hz(round(float(args[1]) * 1_000_000))
+        if len(args) > 2:
+            device.set_mode(args[2])
+        return f"VFO {vfo}"
     if verb == "power":
         if not args or args[0].lower() not in ("on", "off"):
             raise ValueError("usage: power on|off")
@@ -1071,6 +1081,14 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
         if rest[0].lower() == "start":
             device.sd_record_start()
             return "recording started"
+        # AR-DV1's documented remote stop (SD REC /) is not supported on the
+        # AR-DV10 - sending it wedges the radio; recording there stops with
+        # the front-panel ● key only. Deny instead of poking a bad command.
+        if device.device_family() == "DV10":
+            raise ValueError(
+                "sd rec stop is not supported on the AR-DV10 - "
+                "stop recording with the receiver's front-panel ● (record) key"
+            )
         device.sd_record_stop()
         return "recording stopped"
     if sub == "play":
