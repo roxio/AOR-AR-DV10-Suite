@@ -340,6 +340,7 @@
      auto-fit column. */
   details.panel-accordion-more.memory-acc > .accordion-body { display: block; }
   .memory-acc .memory-pair { grid-column: 1 / -1; }
+  .panel-section.dv10-none { opacity: .5; }
   .panel-section {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 12px 14px 14px; box-shadow: var(--shadow-sm);
@@ -852,7 +853,7 @@
       <div class="lcd-zone lcd-zone-freq">
         <div class="lcd-top-row">
           <div class="vfo-block vfo-a active" id="vfoABlock">
-            <span class="vfo-label">VFO-A</span>
+            <span class="vfo-label" id="vfoALabel">VFO-A</span>
             <span class="mode-tag" id="modeTag">--</span>
           </div>
           <div class="freq"><span id="freq">---.------</span><span class="freq-unit">MHz</span></div>
@@ -1458,6 +1459,11 @@
         </div><!-- /.memory-acc-body -->
       </details>
 
+      <!-- REC + SD accordion: VFO / VFO Search / Scheduled Recording / SD Card -->
+      <details class="panel-accordion-more rec-acc">
+        <summary data-i18n="hRecSd">VFO · Search · Recording · SD Card</summary>
+        <div class="accordion-body rec-acc-body">
+
       <!-- VFO & SCHEDULED RECORDING - two separate quarter-width boxes.
            Wrapper uses display:contents so #vfoTimerPanel CSS still scopes
            the inner field layout, while the two .field boxes are laid out
@@ -1631,6 +1637,13 @@
         </div>
         <pre class="mini-out" id="sdOut"></pre>
       </div>
+        </div><!-- /.rec-acc-body -->
+      </details>
+
+      <!-- Advanced: Spectrum Scope / Select-Scan / Additional Settings -->
+      <details class="panel-accordion-more misc-acc">
+        <summary data-i18n="hScopeMore">Spectrum Scope · Select-Scan · Additional Settings</summary>
+        <div class="accordion-body misc-acc-body">
 
       <!-- SPECTRUM SCOPE (FD/GL) -->
       <div class="panel-section" id="scopePanel">
@@ -1714,6 +1727,8 @@
         </div>
         <pre class="mini-out" id="miscOut"></pre>
       </div>
+        </div><!-- /.misc-acc-body -->
+      </details>
 
     </div>
 
@@ -1875,6 +1890,7 @@ const I18N = {
     toastEnterValue: "enter a value first",
     hMemory: "Memory Channels",
     hMemoryPair: "Memory Channels &amp; Live Memory (Receiver)",
+    hRecSd: "VFO · VFO Search · Scheduled Recording · SD Card",
     hintMemory: "Imports an \"AR-DV10 Connect\" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).",
     lblMemFile: "Backup CSV file",
     btnMemImport: "Import",
@@ -1927,6 +1943,8 @@ const I18N = {
     lblTimerSet: "Set: target / weekly|once / start / end / recording|alarm / days / volume · time: weekly=hh:mm, once=MMDDhhmm",
     hintDV10Unsupported: "Not supported by the AR-DV10 (VFO search and the recording timer are AR-DV1/DV3 features).",
     hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
+    hintDv10NoBackup: "SD card backup/restore (SD MMW / SD MMR) is not supported on the AR-DV10 - AR-DV1/DV3 feature.",
+    hintScopeUnavailable: "Spectrum scope (FD/GL) is only documented for AR-DV1/DV3 - not available on the AR-DV10.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... or -",
     toastTimerBadTime: "time must be hhmm/hh:mm (weekly) or MMDDhhmm (once)",
@@ -1947,6 +1965,7 @@ const I18N = {
     lblSdRestore: "Restore file name",
     btnSdRestore: "Restore",
     hScope: "Spectrum Scope",
+    hScopeMore: "Spectrum Scope · Select-Scan · Additional Settings",
     hintScope: "FD (fast) / GL (normal) - no known way to trigger scope mode over the wire, so this only returns real data if the receiver is already showing the bandscope on its own screen.",
     btnScopeFast: "Fast Scan",
     btnScopeNormal: "Normal Scan",
@@ -2087,6 +2106,7 @@ const I18N = {
     toastEnterValue: "najpierw podaj wartość",
     hMemory: "Kanały pamięci",
     hMemoryPair: "Kanały pamięci i pamięć na żywo (odbiornik)",
+    hRecSd: "VFO · Wyszukiwanie VFO · Zaplanowane nagrywanie · Karta SD",
     hintMemory: "Importuje eksport kopii zapasowej \"AR-DV10 Connect\" (aplikacja PC) i pozwala przeglądać/wyszukiwać/przestrajać na jej podstawie - działa wyłącznie na pliku, nigdy nie czyta ani nie zapisuje pamięci odbiornika na żywo (MX/MA).",
     lblMemFile: "Plik CSV kopii zapasowej",
     btnMemImport: "Importuj",
@@ -2139,6 +2159,8 @@ const I18N = {
     lblTimerSet: "Ustaw: cel / weekly|once / start / koniec / recording|alarm / dni / głośność · czas: weekly=hh:mm, once=MMDDhhmm",
     hintDV10Unsupported: "Nieobsługiwane przez AR-DV10 (wyszukiwanie VFO i timer nagrywania to funkcje AR-DV1/DV3).",
     hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
+    hintDv10NoBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) nie jest obsługiwane na AR-DV10 - funkcja AR-DV1/DV3.",
+    hintScopeUnavailable: "Skop widma (FD/GL) jest udokumentowany tylko dla AR-DV1/DV3 - niedostępny na AR-DV10.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... lub -",
     toastTimerBadTime: "czas musi być hhmm/hh:mm (weekly) lub MMDDhhmm (once)",
@@ -2159,6 +2181,7 @@ const I18N = {
     lblSdRestore: "Nazwa pliku do przywrócenia",
     btnSdRestore: "Przywróć",
     hScope: "Skop widma",
+    hScopeMore: "Skop widma · Lista skanowania · Dodatkowe ustawienia",
     hintScope: "FD (szybki) / GL (normalny) - nie znaleziono sposobu na włączenie trybu skopu przez łącze, więc zwraca realne dane tylko gdy odbiornik sam już pokazuje bandscope na swoim ekranie.",
     btnScopeFast: "Skan szybki",
     btnScopeNormal: "Skan normalny",
@@ -2952,6 +2975,34 @@ function renderDV10Gating(s) {
     recStop.disabled = isDV10;
     recStop.title = isDV10 ? t('hintDv10NoRemoteRecStop') : '';
   }
+  // SD card file backup (SD MMW) and restore (SD MMR) are "No function" on
+  // the AR-DV10 (AR-DV1/DV3 features) - grey out their controls here.
+  const sdBackupBtn = document.querySelector('[onclick*="sdBackup()"]') || document.querySelector('[onclick*="sdBackup " ]');
+  const sdRestoreBtn = document.querySelector('[onclick*="sdRestore()"]') || document.querySelector('[onclick*="sdRestore " ]');
+  ['sdBackupInput', 'sdRestoreInput'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = isDV10; el.title = isDV10 ? t('hintDv10NoBackup') : ''; }
+  });
+  if (sdBackupBtn) { sdBackupBtn.disabled = isDV10; sdBackupBtn.title = isDV10 ? t('hintDv10NoBackup') : ''; }
+  if (sdRestoreBtn) { sdRestoreBtn.disabled = isDV10; sdRestoreBtn.title = isDV10 ? t('hintDv10NoBackup') : ''; }
+}
+
+// -- Spectrum Scope gating -----------------------------------------------
+// FD/GL (frequency/band scope) are only documented for AR-DV1/DV3 - they
+// don't appear at all in the AR-DV10/DV1 command summary (SD REC etc. do,
+// FD/GL don't), and a DV10 can't be put into scope mode. So grey the whole
+// panel out until device_family() reports a DV1 or DV3.
+function renderScopeGating(s) {
+  const fam = s && s.device_family;
+  const enabled = fam === "DV1" || fam === "DV3";
+  const scopePanel = document.getElementById('scopePanel');
+  if (scopePanel) {
+    scopePanel.classList.toggle('dv10-none', !enabled);
+  }
+  ['scopeFast', 'scopeNormal'].forEach((fn) => {
+    const btn = document.querySelector('[onclick*="' + fn + '()"]');
+    if (btn) { btn.disabled = !enabled; btn.title = enabled ? '' : t('hintScopeUnavailable'); }
+  });
 }
 
 // -- device identification / model gating -----------------------------
@@ -3176,6 +3227,7 @@ function renderStatus(s) {
   renderAgcGating(s);
   renderAttGating(s);
   renderDV10Gating(s);
+  renderScopeGating(s);
   renderModelGating(s);
   renderConsole(s);
 
@@ -3350,6 +3402,10 @@ function updateVfoBFromRaw(text) {
   if (el && m) el.textContent = fmtFreq(Math.round(parseFloat(m[1]) * 1_000_000));
 }
 function vfoSearchStart() { sendOut('vs', 'vfoTimerOut'); }
+function reflectActiveVfoLabel(letter) {
+  const el = document.getElementById('vfoALabel');
+  if (el && /^[ABZ]$/i.test(letter || '')) el.textContent = 'VFO-' + letter.toUpperCase();
+}
 function vfoWrite() {
   const letter = outVal('vfoLetterSelect', 'A') || 'A';
   const freq = outVal('vfoFreqInput', '');
@@ -3361,6 +3417,9 @@ function vfoWrite() {
   // DV10 selects the VFO and then applies the frequency/mode through
   // separate standalone RF/MD writes (VF's embedded fields are a no-op).
   sendOut('vfo ' + letter + ' ' + mhz.toFixed(6) + ' ' + mode, 'vfoTimerOut');
+  // The DV1/DV10 doesn't report which VFO is currently active, so keep the
+  // main (left) display's label in step with the last VFO this panel sent.
+  reflectActiveVfoLabel(letter);
 }
 function vfoSettingsShow() { sendOut('ve', 'vfoTimerOut'); }
 function vfoSettingsSet() {
