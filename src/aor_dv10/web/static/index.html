@@ -58,6 +58,15 @@
     --led-idle: #c4c9d0; --hover-border: #c2c7ce;
   }
   * { box-sizing: border-box; }
+
+  /* Keep a reserved gutter for the page scrollbar so content never shifts
+     horizontally when expanding/collapsing the accordions causes the
+     vertical scrollbar to appear/disappear. `stable` reserves the slot
+     even when there is nothing to scroll; `overflow-y: scroll` is the
+     always-compatible fallback. */
+  html { overflow-y: scroll; }
+  html { scrollbar-gutter: stable; }
+
   body {
     margin: 0; min-height: 100vh; color: var(--text);
     background: var(--page-bg);
@@ -303,6 +312,34 @@
 
   /* -- panel grid / sections ---------------------------------------------- */
   .panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  /* Collapsible group bar for the squelch/levels/digital-codes/descrambler
+     panels - everything under it hides behind one toggle. */
+  details.panel-accordion-more {
+    grid-column: 1 / -1;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  }
+  details.panel-accordion-more > summary {
+    cursor: pointer; list-style: none; padding: 10px 12px;
+    user-select: none; color: var(--text);
+    font-weight: 700; font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 8px;
+  }
+  details.panel-accordion-more > summary::-webkit-details-marker { display: none; }
+  details.panel-accordion-more > summary::before {
+    content: "\25B6"; font-size: 9px; color: var(--accent); transition: transform .12s;
+  }
+  details.panel-accordion-more[open] > summary::before { transform: rotate(90deg); }
+  details.panel-accordion-more > div.accordion-body {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px; padding: 0 12px 12px;
+  }
+  /* The Memory Channels + Live Memory pair is itself a 2-col grid; give it
+     the full inner width of the accordion instead of squeezing it into one
+     auto-fit column. */
+  details.panel-accordion-more.memory-acc > .accordion-body { display: block; }
+  .memory-acc .memory-pair { grid-column: 1 / -1; }
   .panel-section {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 12px 14px 14px; box-shadow: var(--shadow-sm);
@@ -581,6 +618,51 @@
 
   /* -- memory channels ----------------------------------------------------- */
   .memory-section { grid-column: 1 / -1; }
+  /* VFO & Scheduled Recording panel: cap at ~1/3 of the layout width and
+     aligned left so it never spans the whole grid row. Fields are laid out
+     on a coherent 1-label/1-input rhythm: fixed-size pieces (vt-short /
+     vt-med) keep their natural width, vt-fill fields take the room left. */
+  /* VFO & Scheduled Recording were one full/third-width box; now they're
+     two separate quarter-width .vfo-box panels shared under a
+     display:contents wrapper (#vfoTimerPanel) so the two boxes are laid
+     out by .panel-grid like the other panels while the field-styling
+     scope below still targets them via #vfoTimerPanel. */
+  #vfoTimerPanel.vfo-contents { display: contents; }
+  #vfoTimerPanel .field-row,
+  #vfoTimerPanel .field-row-pair,
+  #vfoTimerPanel .field-row-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  #vfoTimerPanel .field-row {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 10px;
+  }
+  #vfoTimerPanel .field-row > label {
+    margin: 0 0 3px;
+  }
+  #vfoTimerPanel .field-row-pair,
+  #vfoTimerPanel .field-row-controls {
+    width: 100%;
+  }
+  #vfoTimerPanel input,
+  #vfoTimerPanel select {
+    min-width: 0;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+  #vfoTimerPanel .vt-fill { flex: 1 1 auto; width: auto; }
+  #vfoTimerPanel .vt-med { width: 9em; }
+  #vfoTimerPanel .vt-short { width: 4.5em; }
+  #vfoTimerPanel .field-row-pair.vt-nowrap { flex-wrap: nowrap; }
+  #vfoTimerPanel .field-row-pair .vt-fill { min-width: 6em; }
+  #vfoTimerPanel .panel-btn { margin: 0; }
+  #vfoTimerPanel .field-row-pair .panel-btn { flex: none; }
+  /* Big timer form gets room to breathe on wide screens. */
+  #vfoTimerPanel .vfo-box { min-width: 0; }
   /* Memory Channels (CSV browser) + Live Memory (Receiver) sit side-by-
      side in a narrow pair, per user request 2026-09-01. Their outer
      wrapper spans the full grid column; the two inner panels split it ~
@@ -1026,6 +1108,12 @@
 
     <div class="panel-grid">
 
+      <!-- COLLAPSIBLE: Squelch / Levels / Digital Codes /
+           Descramblers-OFFSET-PRIORITY hidden under one bar. -->
+      <details class="panel-accordion-more">
+        <summary data-i18n="hMoreSettings">More: Squelch / Levels / Codes / Offset · Priority</summary>
+        <div class="accordion-body">
+
       <!-- SQUELCH -->
       <div class="panel-section" id="squelchPanel">
         <div class="section-label" data-i18n="hSquelch">Squelch</div>
@@ -1273,6 +1361,13 @@
             onchange="send('priointerval ' + String(this.value).padStart(2,'0'))" />
         </div>
       </div>
+        </div><!-- /.accordion-body -->
+      </details>
+
+      <!-- MEMORY (pair), selectable under one bar -->
+      <details class="panel-accordion-more memory-acc">
+        <summary data-i18n="hMemoryPair">Memory Channels &amp; Live Memory</summary>
+        <div class="accordion-body memory-acc-body">
 
       <!-- MEMORY PAIR: Memory Channels (CSV) + Live Memory (Receiver),
            side-by-side per request 2026-09-01. -->
@@ -1360,24 +1455,85 @@
         <pre class="mini-out" id="rmemOut"></pre>
       </div>
       </div><!-- /.memory-pair -->
+        </div><!-- /.memory-acc-body -->
+      </details>
 
-      <!-- VFO + SCHEDULED RECORDING/ALARM TIMER (VI/VS/VE, TR) -->
-      <div class="panel-section memory-section">
-        <div class="section-label" data-i18n="hVfoTimer">VFO &amp; Scheduled Recording</div>
-        <div class="hint" data-i18n="hintVfoTimer">VFO A/B info + search (VI/VS/VE), and one scheduled recording/alarm timer (TR) - see TR's spec-reconstruction caveats in aor_dv10.timer.</div>
+      <!-- VFO & SCHEDULED RECORDING - two separate quarter-width boxes.
+           Wrapper uses display:contents so #vfoTimerPanel CSS still scopes
+           the inner field layout, while the two .field boxes are laid out
+           as ordinary panels by .panel-grid (~1/4 width each). -->
+      <div class="vfo-contents" id="vfoTimerPanel">
+
+      <!-- BOX 1: VFO -->
+      <div class="panel-section vfo-box">
+        <div class="section-label" data-i18n="hVfoTimer">VFO</div>
+        <div class="hint" data-i18n="hintVfoTimer">Select or read a VFO (VF/VI).</div>
+
+        <!-- Always available on DV10: select a VFO + read VFO info. -->
         <div class="field-row">
+          <button class="panel-btn small wide" onclick="vfoInfo()" data-i18n="btnVfoInfo">VFO Info</button>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblVfoWrite">Set VFO: letter (A/B/Z) / frequency (MHz) / mode</label>
+          <div class="field-row-pair vt-nowrap">
+            <select id="vfoLetterSelect" class="vt-short">
+              <option value="A" selected>A</option>
+              <option value="B">B</option>
+              <option value="Z">Z</option>
+            </select>
+            <input type="text" id="vfoFreqInput" class="vt-fill" data-i18n-ph="freqPlaceholder" placeholder="MHz, e.g. 145.500000" />
+            <select id="vfoModeInput" class="vt-short" title="Mode: 2-char digital+analog code (e.g. F0 = digital off / FM)">
+              <optgroup label="Analog (digital off)">
+                <option value="F0" selected>FM</option>
+                <option value="F1">AM</option>
+                <option value="F2">SAH</option>
+                <option value="F3">SAL</option>
+                <option value="F4">USB</option>
+                <option value="F5">LSB</option>
+                <option value="F6">CW</option>
+              </optgroup>
+              <optgroup label="Digital over FM">
+                <option value="00">Auto / FM</option>
+                <option value="10">D-STAR</option>
+                <option value="20">YAESU</option>
+                <option value="30">ALINCO</option>
+                <option value="40">D-CR</option>
+                <option value="50">P25</option>
+                <option value="60">dPMR</option>
+                <option value="70">DMR</option>
+                <option value="80">TETRA-DM</option>
+                <option value="90">TETRA-TC</option>
+              </optgroup>
+            </select>
+          </div>
           <div class="field-row-controls">
-            <button class="panel-btn small" onclick="vfoInfo()" data-i18n="btnVfoInfo">VFO Info</button>
+            <button class="panel-btn small wide" onclick="vfoWrite()" data-i18n="btnVfoWrite">Set VFO</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="vfoTimerOut"></pre>
+      </div>
+
+      <!-- BOX 2a: VFO search (VS/VE) - a DV1/DV3 feature -->
+      <div class="panel-section vfo-box">
+        <div class="section-label" data-i18n="hVfoSearchBox">VFO Search</div>
+        <div class="hint" data-i18n="hintVfoSearchBox">Search between VFO-A and VFO-B (VS), delay/free/autostore (VE) - AR-DV1/DV3 only.</div>
+
+        <!-- VS/VE are 'No function' on the AR-DV10 - renderDV10Gating()
+             disables/greys this group when the host is a DV10. -->
+        <div class="dv10-none">
+        <div class="field-row">
+          <label data-i18n="lblVfoSearch">VFO search (VS) &amp; search settings (VE)</label>
+          <div class="field-row-controls">
             <button class="panel-btn small" onclick="vfoSearchStart()" data-i18n="btnVfoSearch">Start VFO Search</button>
-            <button class="panel-btn small" onclick="vfoSettingsShow()" data-i18n="btnVfoSettings">Search Settings</button>
+            <button class="panel-btn small" onclick="vfoSettingsShow()" data-i18n="btnVfoSettings">Show Search Settings</button>
           </div>
         </div>
         <div class="field-row">
           <label data-i18n="lblVfoSettings">Set search settings: delay (ds) / free time (s) / autostore</label>
           <div class="field-row-pair">
-            <input type="text" id="veDelayInput" inputmode="numeric" value="20" />
-            <input type="text" id="veFreeInput" inputmode="numeric" value="0" />
-            <select id="veAutoSelect">
+            <input type="text" id="veDelayInput" class="vt-short" inputmode="numeric" value="20" />
+            <input type="text" id="veFreeInput" class="vt-short" inputmode="numeric" value="0" />
+            <select id="veAutoSelect" class="vt-med">
               <option value="on">ON</option>
               <option value="off" selected>OFF</option>
             </select>
@@ -1386,33 +1542,47 @@
             <button class="panel-btn small" onclick="vfoSettingsSet()" data-i18n="btnSet">Set</button>
           </div>
         </div>
+        </div><!-- /.dv10-none -->
+      </div>
+
+      <!-- BOX 2b: Scheduled recording / alarm timer (TR) - a DV1/DV3 feature -->
+      <div class="panel-section vfo-box">
+        <div class="section-label" data-i18n="hTimerBox">Scheduled Recording</div>
+        <div class="hint" data-i18n="hintTimerBox">Scheduled recording / alarm timer (TR) - AR-DV1/DV3 only.</div>
+
+        <!-- TR is 'No function' on the AR-DV10 - renderDV10Gating()
+             disables/greys this group when the host is a DV10. -->
+        <div class="dv10-none">
         <div class="field-row">
+          <label data-i18n="lblTimerHeader">Scheduled recording / alarm timer (TR)</label>
           <div class="field-row-controls">
             <button class="panel-btn small" onclick="timerShow()" data-i18n="btnTimerShow">Show Timer</button>
             <button class="panel-btn small" onclick="timerOff()" data-i18n="btnTimerOff">Deactivate</button>
           </div>
         </div>
         <div class="field-row">
-          <label data-i18n="lblTimerSet">Set: target / once|weekly / start / end / recording|alarm / days / volume</label>
+          <label data-i18n="lblTimerSet">Set: target / weekly|once / start / end / recording|alarm / days / volume&nbsp;·&nbsp;time: weekly=hh:mm, once=MMDDhhmm</label>
           <div class="field-row-pair">
-            <input type="text" id="timerTargetInput" value="vfo:A" data-i18n-ph="timerTargetPlaceholder" placeholder="vfo:A" />
-            <input type="text" id="timerRepeatInput" value="once" />
+            <input type="text" id="timerTargetInput" class="vt-fill" value="vfo:A" data-i18n-ph="timerTargetPlaceholder" placeholder="vfo:A" />
+            <input type="text" id="timerRepeatInput" class="vt-med" value="weekly" />
           </div>
           <div class="field-row-pair">
-            <input type="text" id="timerStartInput" value="00:00" />
-            <input type="text" id="timerEndInput" value="01:00" />
+            <input type="text" id="timerStartInput" class="vt-short" value="01:00" inputmode="numeric" spellcheck="false" />
+            <input type="text" id="timerEndInput" class="vt-short" value="02:00" inputmode="numeric" spellcheck="false" />
           </div>
           <div class="field-row-pair">
-            <input type="text" id="timerActionInput" value="recording" />
-            <input type="text" id="timerDaysInput" value="-" data-i18n-ph="timerDaysPlaceholder" placeholder="mon,tue,... or -" />
+            <input type="text" id="timerActionInput" class="vt-med" value="recording" />
+            <input type="text" id="timerDaysInput" class="vt-fill" value="-" data-i18n-ph="timerDaysPlaceholder" placeholder="mon,tue,... or -" />
           </div>
           <div class="field-row-controls">
-            <input type="text" id="timerVolumeInput" placeholder="volume" />
+            <input type="text" id="timerVolumeInput" class="vt-short" placeholder="volume" />
             <button class="panel-btn small" onclick="timerSet()" data-i18n="btnSet">Set</button>
           </div>
         </div>
-        <pre class="mini-out" id="vfoTimerOut"></pre>
+        </div><!-- /.dv10-none -->
       </div>
+
+      </div><!-- /.vfo-contents#vfoTimerPanel -->
 
       <!-- SD CARD (dir/info/status/rec/play/rsq/backup/restore) -->
       <div class="panel-section">
@@ -1607,6 +1777,7 @@ const I18N = {
     hintBandwidthDigitalAuto: "Not settable: the receiver auto-selects the IF filter itself while a digital mode is active.",
     hintBandwidthUnknownMode: "No known bandwidth choices for the current mode.",
     hSquelch: "Squelch",
+    hMoreSettings: "More settings: Squelch / Levels / Digital Codes / Descramblers-Offset-Priority",
     lblMode: "Mode",
     optSqAuto: "Auto",
     optSqNoise: "Noise",
@@ -1703,6 +1874,7 @@ const I18N = {
     lblPrioInterval: "Check interval, seconds (TI 1\u201399)",
     toastEnterValue: "enter a value first",
     hMemory: "Memory Channels",
+    hMemoryPair: "Memory Channels &amp; Live Memory (Receiver)",
     hintMemory: "Imports an \"AR-DV10 Connect\" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).",
     lblMemFile: "Backup CSV file",
     btnMemImport: "Import",
@@ -1736,17 +1908,29 @@ const I18N = {
     btnRmemWrite: "Write",
     lblRmemFind: "Find by tag text",
     rmemFindPlaceholder: "text to search for",
-    hVfoTimer: "VFO & Scheduled Recording",
-    hintVfoTimer: "VFO A/B info + search (VI/VS/VE), and one scheduled recording/alarm timer (TR) - see TR's spec-reconstruction caveats in aor_dv10.timer.",
+    hVfoTimer: "VFO",
+    hVfoSearchBox: "VFO Search",
+    hTimerBox: "Scheduled Recording",
+    hintVfoTimer: "Select or read a VFO (VF/VI).",
+    hintVfoSearchBox: "Search between VFO-A and VFO-B (VS); delay/free time/autostore (VE) - AR-DV1/DV3 only.",
+    hintTimerBox: "Scheduled recording / alarm timer (TR) - AR-DV1/DV3 only.",
     btnVfoInfo: "VFO Info",
     btnVfoSearch: "Start VFO Search",
-    btnVfoSettings: "Search Settings",
+    btnVfoSettings: "Show Search Settings",
+    lblVfoSearch: "VFO search (VS) &amp; search settings (VE)",
+    lblVfoWrite: "Set VFO: letter (A/B/Z) / frequency (MHz) / mode",
+    btnVfoWrite: "Set VFO",
     lblVfoSettings: "Set search settings: delay (ds) / free time (s) / autostore",
+    lblTimerHeader: "Scheduled recording / alarm timer (TR)",
     btnTimerShow: "Show Timer",
     btnTimerOff: "Deactivate",
-    lblTimerSet: "Set: target / once|weekly / start / end / recording|alarm / days / volume",
+    lblTimerSet: "Set: target / weekly|once / start / end / recording|alarm / days / volume · time: weekly=hh:mm, once=MMDDhhmm",
+    hintDV10Unsupported: "Not supported by the AR-DV10 (VFO search and the recording timer are AR-DV1/DV3 features).",
+    hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... or -",
+    toastTimerBadTime: "time must be hhmm/hh:mm (weekly) or MMDDhhmm (once)",
+    toastTimerOnceNeedsDate: "'once' schedules need a date: enter start/end as MMDDhhmm (e.g. 03150900)",
     hSdCard: "SD Card",
     btnSdDir: "Dir",
     btnSdInfo: "Info",
@@ -1805,6 +1989,7 @@ const I18N = {
     hintBandwidthDigitalAuto: "Niedostępne: podczas aktywnego trybu cyfrowego odbiornik sam automatycznie dobiera filtr IF.",
     hintBandwidthUnknownMode: "Brak znanych wartości szerokości pasma dla bieżącego trybu.",
     hSquelch: "Squelch (blokada szumów)",
+    hMoreSettings: "Więcej: Squelch / Poziomy / Kody cyfrowe / Deskramblery-Offset-Priorytet",
     lblMode: "Tryb",
     optSqAuto: "Auto",
     optSqNoise: "Szumowa",
@@ -1901,6 +2086,7 @@ const I18N = {
     lblPrioInterval: "Odstęp sprawdzania, sekundy (TI 1–99)",
     toastEnterValue: "najpierw podaj wartość",
     hMemory: "Kanały pamięci",
+    hMemoryPair: "Kanały pamięci i pamięć na żywo (odbiornik)",
     hintMemory: "Importuje eksport kopii zapasowej \"AR-DV10 Connect\" (aplikacja PC) i pozwala przeglądać/wyszukiwać/przestrajać na jej podstawie - działa wyłącznie na pliku, nigdy nie czyta ani nie zapisuje pamięci odbiornika na żywo (MX/MA).",
     lblMemFile: "Plik CSV kopii zapasowej",
     btnMemImport: "Importuj",
@@ -1934,17 +2120,29 @@ const I18N = {
     btnRmemWrite: "Zapisz",
     lblRmemFind: "Szukaj po tekście etykiety",
     rmemFindPlaceholder: "szukany tekst",
-    hVfoTimer: "VFO i zaplanowane nagrywanie",
-    hintVfoTimer: "Informacje i wyszukiwanie VFO A/B (VI/VS/VE) oraz jeden zaplanowany timer nagrywania/alarmu (TR) - zastrzeżenia dot. rekonstrukcji TR w aor_dv10.timer.",
+    hVfoTimer: "VFO",
+    hVfoSearchBox: "Wyszukiwanie VFO",
+    hTimerBox: "Zaplanowane nagrywanie",
+    hintVfoTimer: "Wybierz lub odczytaj VFO (VF/VI).",
+    hintVfoSearchBox: "Szukaj między VFO-A i VFO-B (VS); opóźnienie / czas wolny / autozapis (VE) - tylko AR-DV1/DV3.",
+    hintTimerBox: "Zaplanowane nagrywanie / timer alarmowy (TR) - tylko AR-DV1/DV3.",
     btnVfoInfo: "Info VFO",
     btnVfoSearch: "Start wyszukiwania VFO",
-    btnVfoSettings: "Ustawienia wyszukiwania",
+    btnVfoSettings: "Pokaż ustawienia wyszukiwania",
+    lblVfoSearch: "Wyszukiwanie VFO (VS) i ustawienia (VE)",
+    lblVfoWrite: "Ustaw VFO: litera (A/B/Z) / częstotliwość (MHz) / tryb",
+    btnVfoWrite: "Ustaw VFO",
     lblVfoSettings: "Ustaw wyszukiwanie: opóźnienie (ds) / czas wolny (s) / autozapis",
+    lblTimerHeader: "Zaplanowane nagrywanie / timer alarmowy (TR)",
     btnTimerShow: "Pokaż timer",
     btnTimerOff: "Dezaktywuj",
-    lblTimerSet: "Ustaw: cel / once|weekly / start / koniec / recording|alarm / dni / głośność",
+    lblTimerSet: "Ustaw: cel / weekly|once / start / koniec / recording|alarm / dni / głośność · czas: weekly=hh:mm, once=MMDDhhmm",
+    hintDV10Unsupported: "Nieobsługiwane przez AR-DV10 (wyszukiwanie VFO i timer nagrywania to funkcje AR-DV1/DV3).",
+    hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... lub -",
+    toastTimerBadTime: "czas musi być hhmm/hh:mm (weekly) lub MMDDhhmm (once)",
+    toastTimerOnceNeedsDate: "harmonogram 'once' wymaga daty: podaj start/koniec jako MMDDhhmm (np. 03150900)",
     hSdCard: "Karta SD",
     btnSdDir: "Katalog",
     btnSdInfo: "Info",
@@ -2734,6 +2932,28 @@ function setDot(connected) {
   document.getElementById('connDot').classList.toggle('up', !!connected);
 }
 
+// -- DV10 gating: VFO search (VS/VE) + recording timer (TR) ---------------
+// The "AR-DV10 and AR-DV1 command list summary" marks VS, VE and TR as
+// "No function" on the AR-DV10 - they exist on AR-DV1/DV3 only (and a
+// real DV10 returns error 60 / PC_RESULT_NONE for them). Everything inside
+// the panel's .dv10-none group is therefore disabled/greyed out when the
+// connected device is a DV10.
+function renderDV10Gating(s) {
+  const isDV10 = s && s.device_family === "DV10";
+  document.querySelectorAll('.dv10-none input, .dv10-none select, .dv10-none button').forEach((el) => {
+    el.disabled = isDV10;
+    el.title = isDV10 ? t('hintDV10Unsupported') : '';
+  });
+  // AR-DV10 can't stop recording remotely (SD REC / is AR-DV1-only and
+  // wedges the DV10) - stop happens on the front-panel ● key. Disable the
+  // web Rec Stop button accordingly.
+  const recStop = document.getElementById('sdRecStop') || document.querySelector('[onclick*="sdRecStop"]');
+  if (recStop) {
+    recStop.disabled = isDV10;
+    recStop.title = isDV10 ? t('hintDv10NoRemoteRecStop') : '';
+  }
+}
+
 // -- device identification / model gating -----------------------------
 // Server-driven: DV10Device.model()/device_family()/
 // analog_modes_without_distinction() (device.py) do the actual model
@@ -2955,6 +3175,7 @@ function renderStatus(s) {
   renderBandwidth(s);
   renderAgcGating(s);
   renderAttGating(s);
+  renderDV10Gating(s);
   renderModelGating(s);
   renderConsole(s);
 
@@ -3129,6 +3350,18 @@ function updateVfoBFromRaw(text) {
   if (el && m) el.textContent = fmtFreq(Math.round(parseFloat(m[1]) * 1_000_000));
 }
 function vfoSearchStart() { sendOut('vs', 'vfoTimerOut'); }
+function vfoWrite() {
+  const letter = outVal('vfoLetterSelect', 'A') || 'A';
+  const freq = outVal('vfoFreqInput', '');
+  if (!freq) { toast(t('toastEnterFreq'), true); return; }
+  const mode = outVal('vfoModeInput', 'F0') || 'F0';
+  const mhz = parseFloat(freq);
+  if (Number.isNaN(mhz)) { toast(t('toastEnterFreq'), true); return; }
+  // "vfo <letter> <MHz> <mode>" routes to the server verb, which on a real
+  // DV10 selects the VFO and then applies the frequency/mode through
+  // separate standalone RF/MD writes (VF's embedded fields are a no-op).
+  sendOut('vfo ' + letter + ' ' + mhz.toFixed(6) + ' ' + mode, 'vfoTimerOut');
+}
 function vfoSettingsShow() { sendOut('ve', 'vfoTimerOut'); }
 function vfoSettingsSet() {
   const delay = outVal('veDelayInput', '20');
@@ -3138,14 +3371,40 @@ function vfoSettingsSet() {
 }
 function timerShow() { sendOut('timer', 'vfoTimerOut'); }
 function timerOff() { sendOut('timer off', 'vfoTimerOut'); }
+// Build a TR wire time token from a friendly input string.
+//   weekly: accepts "hh:mm" or "hhmm" -> returns "hhmm".
+//   once:   needs a date too, so accepts "MMDDhhmm" (8 digits) or
+//           "<MMDD> <hh:mm>"/"<MMDD>hhmm". A bare clock-only value for
+//           "once" has no date to attach, so it returns '' (the caller
+//           shows a message) rather than silently picking today - the
+//           radio's own clock may differ and guessing a date would
+//           schedule a recording on the wrong day.
+function normalizeTimerTime(repeat, value) {
+  const digits = (value || '').replace(/[^0-9]/g, '');
+  if (repeat !== 'weekly') {
+    // "once": needs MMDD (month+day) plus hhmm => at least 8 digits.
+    // Allow an optional space between the date and the clock, but we've
+    // stripped non-digits, so just require exactly 8: MMDDhhmm.
+    if (digits.length === 8) return digits;
+    return ''; // unparseable / date missing
+  }
+  // "weekly": time of day only -> hhmm.
+  if (digits.length === 4 && parseInt(digits.slice(0, 2), 10) < 24 && parseInt(digits.slice(2, 4), 10) < 60) return digits;
+  return '';
+}
 function timerSet() {
   const target = outVal('timerTargetInput', 'vfo:A');
   const repeat = outVal('timerRepeatInput', 'once');
-  const start = outVal('timerStartInput', '00:00');
-  const end = outVal('timerEndInput', '01:00');
+  const start = normalizeTimerTime(repeat, outVal('timerStartInput', ''));
+  const end = normalizeTimerTime(repeat, outVal('timerEndInput', ''));
   const action = outVal('timerActionInput', 'recording');
   const days = outVal('timerDaysInput', '-');
   const volume = outVal('timerVolumeInput', '');
+  if (repeat === 'once' && (start.length < 8 || end.length < 8)) {
+    toast(t('toastTimerOnceNeedsDate'), true);
+    return;
+  }
+  if (!start || !end) { toast(t('toastTimerBadTime'), true); return; }
   let cmd = 'timer set ' + target + ' ' + repeat + ' ' + start + ' ' + end + ' ' + action + ' ' + days;
   if (volume) cmd += ' ' + volume;
   sendOut(cmd, 'vfoTimerOut');

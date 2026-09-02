@@ -2648,7 +2648,10 @@ class DV10Device:
 
     def sd_record_stop(self) -> None:
         """Raw SD REC with "/" as the file-name argument - the spec's own
-        documented stop convention (see sd_record_start()'s docstring)."""
+        documented stop convention on AR-DV1/DV3 (see sd_record_start()'s
+        docstring). NOTE: the AR-DV10 does NOT support this remote stop
+        (it wedges the radio) - callers gate on device_family()=="DV10"
+        and refuse it there."""
         self._sd_action("SD REC", "/")
 
     def sd_play(self, name: str) -> None:
@@ -2662,8 +2665,11 @@ class DV10Device:
 
     def sd_play_stop(self) -> None:
         """Raw SD PLY with "/" as the file-name argument - the spec's own
-        documented stop convention (see sd_play()'s docstring)."""
+        documented stop convention (see sd_play()'s docstring).
+        Like SD REC /, the remote "/" stop is only documented for
+        AR-DV1/DV3."""
         self._sd_action("SD PLY", "/")
+
 
     def sd_backup(self, kind: str) -> None:
         """Raw SD MMW<kind>: back up one category of receiver settings to
