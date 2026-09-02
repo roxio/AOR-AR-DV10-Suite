@@ -1,0 +1,26 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Internal development notes - kept locally, not published.
+docs/PROTOCOL.md
+docs/ROADMAP.md
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Debug traces produced by `--debug`/`debug on`/`debug save`
+*.log
+session.log
+
+# Scratch files used while iterating (patch scripts, temp exports, ...)
+_scratch_*
+reasonix.toml

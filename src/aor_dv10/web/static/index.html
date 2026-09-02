@@ -1,0 +1,3217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AOR AR-DV10 Web Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* -- console theme --------------------------------------------------------
+     Dark, technical "instrument panel" palette per request - graphite/black
+     chassis, cyan/blue accent, amber for warnings/signals, red for
+     alerts. Every existing component below already reads its colors from
+     these custom properties (this was true even in the old light theme),
+     so retheming here cascades through the whole app; only a handful of
+     literal (non-variable) colors elsewhere needed individual fixes - see
+     the comments at each one. ------------------------------------------- */
+  :root {
+    color-scheme: dark;
+    --page-bg: #0a0b0d;
+    --chassis-1: #1b1d21; --chassis-2: #131417; --chassis-edge: #303339;
+    --chassis-highlight: rgba(255,255,255,.05);
+    --lcd-bg-1: #05070a; --lcd-bg-2: #0d1015;
+    --accent: #3fc6ff; --accent-dim: #1f6f8c; --accent-glow: rgba(63,198,255,.35);
+    --good: #35d07f; --bad: #ff5c4d; --amber: #ffb648;
+    --text: #e7eaf0; --muted: #8a9099; --label: #62676f;
+    --surface: #18191d; --surface-2: #202226; --surface-3: #26282d; --border: #2c2f35;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+    --shadow-md: 0 1px 3px rgba(0,0,0,.5), 0 10px 24px -14px rgba(0,0,0,.7);
+    --led-idle: #43474f; --hover-border: #3f444d;
+    --radius: 6px; --radius-sm: 3px;
+    --font-ui: 'Inter', -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  }
+
+  /* -- day theme ------------------------------------------------------------
+     Light-gray "day" face for the same panel. The default above stays the
+     dark "night" look; the day/night switch in the topbar sets
+     data-theme="day" on <html> (see applyTheme() in the script), which
+     swaps these custom properties so every component that reads its colors
+     from them rethemes at once. The handful of components with literal
+     (non-variable) colors - LCD gloss shadows, soft-tinted status chips,
+     the raw-log panes, the function-button underline - get explicit
+     overrides in a dedicated section at the end of the stylesheet. ---- */
+  :root[data-theme="day"] {
+    color-scheme: light;
+    --page-bg: #e6e8ec;
+    --chassis-1: #f4f5f7; --chassis-2: #e8eaee; --chassis-edge: #c9cdd4;
+    --chassis-highlight: rgba(255,255,255,.65);
+    --lcd-bg-1: #dde1e6; --lcd-bg-2: #f1f3f5;
+    --accent: #0e7fb8; --accent-dim: #3f87ab; --accent-glow: rgba(14,127,184,.2);
+    --good: #1e9e5f; --bad: #d84c3e; --amber: #b9790f;
+    --text: #2b2f35; --muted: #5c636c; --label: #7d848d;
+    --surface: #f7f8fa; --surface-2: #edf0f3; --surface-3: #e2e5ea; --border: #d2d6dc;
+    --shadow-sm: 0 1px 2px rgba(55,62,72,.16);
+    --shadow-md: 0 1px 3px rgba(55,62,72,.2), 0 10px 24px -14px rgba(55,62,72,.3);
+    --led-idle: #c4c9d0; --hover-border: #c2c7ce;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text);
+    background: var(--page-bg);
+    font-family: var(--font-ui);
+    display: flex; flex-direction: column; align-items: center; padding: 18px 14px 32px;
+  }
+
+  .chassis {
+    width: min(1100px, 97vw); position: relative;
+    background: var(--chassis-1);
+    border: 1px solid var(--chassis-edge); border-radius: 16px;
+    box-shadow: var(--shadow-md);
+    padding: 18px 20px 20px;
+  }
+  /* Decorative chassis mounting screws from the hardware-panel look aren't
+     part of this theme - kept in the markup (harmless) but hidden here. */
+  .screw { display: none; }
+
+  /* -- topbar / nameplate ------------------------------------------------ */
+  .chassis-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin: 0 0 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .nameplate { display: flex; align-items: center; gap: 10px; }
+  .led {
+    width: 9px; height: 9px; border-radius: 50%; flex: none;
+    background: var(--led-idle);
+  }
+  .led.up { background: var(--good); }
+  .nameplate-text {
+    font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    font-weight: 600;
+  }
+  .nameplate-text strong { color: var(--accent); font-weight: 800; }
+
+  /* -- Options & Power controls, moved into the status line 2026-09-01
+     at user request. Compact: short labels, full text in title
+     tooltips, wraps to its own line under 860px so it never crowds
+     the nameplate/language switch on a narrow window. ------------- */
+  .topbar-options {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    flex: 1; justify-content: center; min-width: 0; padding: 0 10px;
+  }
+  .topbar-group { display: flex; align-items: center; gap: 6px; flex: none; }
+  .topbar-group + .topbar-group { border-left: 1px solid var(--border); padding-left: 14px; }
+  .topbar-label {
+    font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--label);
+    font-family: var(--font-mono); font-weight: 700; white-space: nowrap;
+  }
+  .rocker.mini { width: 26px; height: 15px; }
+  .rocker.mini .rocker-track::before { width: 11px; height: 11px; top: 2px; left: 2px; }
+  .rocker.mini input:checked + .rocker-track::before { transform: translateX(11px); }
+  .topbar-slider { gap: 5px; }
+  .topbar-slider input[type=range] { width: 52px; margin-top: 0; }
+  .topbar-slider .readout-chip { font-size: 10.5px; min-width: 1.4em; }
+  .topbar-select {
+    width: auto; padding: 3px 5px; font-size: 10.5px; border-radius: var(--radius-sm);
+  }
+  .topbar-power { gap: 5px; }
+  .topbar-power .panel-btn { padding: 4px 9px; font-size: 10.5px; }
+  @media (max-width: 860px) {
+    .chassis-top { flex-wrap: wrap; }
+    .topbar-options { order: 3; flex-basis: 100%; justify-content: flex-start; padding: 10px 0 0; margin-top: 8px; border-top: 1px solid var(--border); }
+  }
+
+  .lang-switch { display: flex; gap: 4px; flex: none; }
+  .lang-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); padding: 5px 11px; border-radius: 6px;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    cursor: pointer; font-family: var(--font-mono);
+  }
+  .lang-btn:hover { color: var(--text); border-color: var(--hover-border); }
+  .lang-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .theme-switch { display: flex; gap: 4px; flex: none; border-left: 1px solid var(--border); padding-left: 8px; }
+  .topbar-switches { display: flex; align-items: center; gap: 8px; flex: none; }
+  .theme-switch .lang-btn { font-size: 13px; line-height: 1; padding: 4px 8px; }
+
+  /* ============================================================
+     CONSOLE DISPLAY - dark TFT-style face: dual-VFO freq readout,
+     S-meter (conventional S-unit ruler - see the comment on
+     .meter-ticks below for the confirmed-vs-conventional caveat),
+     and a row of REAL device-state chips (attenuator/AGC/squelch
+     type/IF bandwidth - wired up by renderConsole() in the script
+     below, not decorative). ==================================== */
+  .lcd-screen {
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, var(--lcd-bg-2), var(--lcd-bg-1));
+    border: 1px solid var(--chassis-edge); border-radius: var(--radius);
+    box-shadow: inset 0 1px 0 var(--chassis-highlight), inset 0 0 50px rgba(0,0,0,.55), var(--shadow-md);
+    padding: 14px 18px 0; margin-bottom: 14px;
+  }
+  .lcd-zone { padding: 10px 0; }
+  .lcd-zone + .lcd-zone { border-top: 1px solid rgba(255,255,255,.06); }
+
+  /* -- MODE zone: compacted 2026-09-01 to ~1/3 of its original height at
+     user request (DIGITAL/ANALOG side-by-side instead of stacked, tighter
+     matrix buttons, long explanatory text moved from a visible paragraph
+     into an info-dot tooltip). Same day, later: the IF bandwidth select
+     was removed entirely (redundant now that the Bandwidth status chip
+     above - #chipBw - cycles it directly) and "Digital off" moved out of
+     the DIGITAL matrix to sit next to Set Mode under ANALOG instead,
+     which freed enough height to grow the matrix buttons a little more.
+     Every rule below is scoped under .lcd-zone-mode so it never touches
+     the same shared .lcd-caption/.matrix-block/.btn-matrix/.panel-btn
+     classes used by other panels (S-Meter caption, ADVANCED SQUELCH,
+     DIGITAL CODES, etc.). */
+  .lcd-zone-mode { padding-top: 8px; }
+  .lcd-zone-mode .mode-matrix-row { display: flex; gap: 10px; align-items: flex-start; }
+  .lcd-zone-mode .mode-matrix-row .matrix-block { flex: 1 1 50%; min-width: 0; margin-bottom: 0; }
+  .lcd-zone-mode .lcd-caption { margin: 0 0 4px; font-size: 10px; }
+  .lcd-zone-mode .btn-matrix { gap: 4px; margin-bottom: 0; }
+  .lcd-zone-mode .btn-matrix button { padding: 6px 8px; font-size: 12px; min-width: 0; }
+  .lcd-zone-mode .mode-footer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .lcd-zone-mode .mode-footer-row .panel-btn { padding: 4px 10px; font-size: 11px; margin-top: 0; flex: none; }
+  /* #digitalOffBtn isn't inside a .btn-matrix, so it doesn't get the
+     shared ".btn-matrix button.active" highlight - same colors (see
+     that rule's own comment for why amber/orange), scoped to this one
+     relocated button instead. */
+  #digitalOffBtn.active { background: rgba(255,182,72,.14); color: var(--amber); border-color: rgba(255,182,72,.4); }
+
+  /* Small "i" info-dot tooltip trigger - generic, used both on this MODE
+     zone's captions historically and now on the Bandwidth (IF) status
+     chip (#chipBw) up in .lcd-zone-status, so it's a shared rule rather
+     than scoped to one zone. */
+  .info-dot {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border);
+    font-size: 9px; font-weight: 700; color: var(--muted); cursor: help; flex: none;
+  }
+  .info-dot:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .dchip-label .info-dot { margin-left: 4px; vertical-align: -2px; }
+
+  .lcd-top-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+  .vfo-block { flex: none; text-align: center; min-width: 78px; opacity: .5; transition: opacity .15s; }
+  .vfo-block.active { opacity: 1; }
+  .vfo-label {
+    display: block; font-size: 10px; letter-spacing: .1em; font-weight: 700;
+    font-family: var(--font-mono); color: var(--muted); margin-bottom: 3px;
+  }
+  .vfo-block.active .vfo-label { color: var(--accent); }
+  .mode-tag {
+    display: inline-block; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 3px; background: var(--accent); color: #04141c; letter-spacing: .03em;
+  }
+  .mode-tag.digital { background: var(--bad); color: #260602; }
+  .freq-b {
+    display: block; font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .freq {
+    font-family: var(--font-mono); font-weight: 700; font-size: clamp(32px, 6vw, 54px); color: var(--text);
+    letter-spacing: -.01em; font-variant-numeric: tabular-nums;
+    text-align: center; line-height: 1.05;
+    text-shadow: 0 0 20px var(--accent-glow);
+  }
+  .freq-unit { font-size: .34em; color: var(--muted); font-weight: 600; margin-left: 6px; letter-spacing: .04em; }
+
+  .lcd-caption {
+    font-size: 10px; letter-spacing: .1em; color: var(--accent); text-transform: uppercase;
+    margin: 0 0 4px; font-weight: 700;
+  }
+
+  /* -- S-meter: fill bar driven by the real LM dBm reading, but the
+     tick labels below use the CONVENTIONAL amateur-radio S-unit scale
+     (S1..S9, then +10/+20/+40/+60 dB over S9, S9 = -73dBm/6dB-per-unit
+     - the universal convention printed on most radios) purely for
+     label positions. This receiver's own S-unit calibration was never
+     confirmed against real hardware (see docs/PROTOCOL.md) - the fill
+     itself still reflects the real dBm value 1:1, only the axis
+     labels borrow the standard convention rather than inventing one. */
+  .smeter-caption-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .smeter-value { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent); }
+  .smeter-track { display: flex; gap: 2px; height: 10px; }
+  .seg { flex: 1; background: var(--surface-2); border-radius: 1px; transition: background .1s; }
+  .seg.lit.band-green { background: var(--good); }
+  .seg.lit.band-yellow { background: var(--amber); }
+  .seg.lit.band-red { background: var(--bad); }
+  .meter-ticks {
+    display: flex; justify-content: space-between; margin-top: 3px;
+    font-size: 9px; color: var(--label); font-family: var(--font-mono); letter-spacing: .01em;
+  }
+  .smeter-label { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  .sql-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 3px; font-size: 11px; font-family: var(--font-mono);
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .sql-pill.open { color: var(--amber); border-color: rgba(255,182,72,.4); background: rgba(255,182,72,.1); }
+  .sql-pill.digital { color: var(--accent); border-color: rgba(63,198,255,.4); background: rgba(63,198,255,.1); }
+
+  .display-row-meter { display: flex; align-items: flex-end; gap: 12px; }
+  .display-row-meter .smeter-block { flex: 1; min-width: 0; }
+  /* RX-only status - see the HTML comment above #rxStatusChip: this
+     receiver cannot transmit, so this reflects real squelch state
+     (RX idle / RX BUSY on a real squelch opening), never a fake TX. */
+  .rx-status {
+    flex: none; align-self: center; font-family: var(--font-mono); font-size: 11px; font-weight: 800; letter-spacing: .08em;
+    padding: 4px 11px; border-radius: 3px; background: rgba(53,208,127,.12); color: var(--good);
+    border: 1px solid rgba(53,208,127,.35);
+  }
+  .rx-status.busy { background: rgba(255,182,72,.14); color: var(--amber); border-color: rgba(255,182,72,.4); }
+
+  /* -- status chips: real device state, click to cycle (ATT/AGC/SQL
+     TYPE); BW is read-only here (set from the Mode panel below). -- */
+  .status-chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dchip {
+    flex: 1 1 68px; min-width: 64px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 7px;
+    background: var(--surface-2); cursor: pointer; text-align: left;
+    font-family: var(--font-ui); transition: border-color .12s, background .12s;
+  }
+  .dchip:hover { border-color: var(--accent-dim); }
+  .dchip.active { border-color: var(--accent); background: rgba(63,198,255,.08); }
+  .dchip:disabled { opacity: .4; cursor: default; }
+  .dchip:disabled:hover { border-color: var(--border); }
+  .dchip.agc-unavailable { filter: saturate(.6); }
+  .dchip-wide { flex-basis: 130px; }
+  .dchip-label {
+    display: block; font-size: 8.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--label); font-weight: 700; margin-bottom: 2px; white-space: nowrap;
+  }
+  .dchip-value {
+    display: block; font-size: 11.5px; font-family: var(--font-mono); font-weight: 700; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dchip.active .dchip-value { color: var(--accent); }
+  .filter-indicator { margin-top: 4px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .filter-indicator span { display: block; height: 100%; width: 0; background: var(--amber); border-radius: 2px; transition: width .15s; }
+
+  /* ============================================================
+     CONSOLE TOP ROW - display + tuning side by side in one row, per
+     user request (2026-09-01). Stacks to a single column below 900px.
+     The mock spectrum/waterfall/oscilloscope/AF-FFT canvases that used
+     to live here were removed at the same time (also user request) -
+     this receiver has no confirmed way to drive a real scope, see
+     docs/PROTOCOL.md's "Frequency scope: FD / GL" section. ========= */
+  .console-top-row { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+  .console-top-row .lcd-screen { flex: 1 1 58%; min-width: 300px; margin-bottom: 0; }
+  .console-top-row #tunePanel { flex: 1 1 360px; margin-bottom: 0; }
+  @media (max-width: 900px) {
+    .console-top-row { flex-direction: column; }
+  }
+
+  /* -- panel grid / sections ---------------------------------------------- */
+  .panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .panel-section {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px 14px; box-shadow: var(--shadow-sm);
+  }
+  .section-label {
+    font-size: 10px; letter-spacing: .1em; color: var(--label); text-transform: uppercase;
+    margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-weight: 700;
+  }
+
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+
+  /* -- buttons -------------------------------------------------------------- */
+  .panel-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: var(--radius-sm); padding: 6px 10px;
+    font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+    cursor: pointer; box-shadow: var(--shadow-sm);
+    transition: background .12s, border-color .12s, color .12s, transform .05s;
+    white-space: nowrap;
+  }
+  .panel-btn:hover { border-color: var(--hover-border); background: var(--surface-2); }
+  .panel-btn:active { transform: translateY(1px); }
+  .panel-btn.small { padding: 5px 8px; font-size: 11px; }
+  .panel-btn.wide { width: 100%; margin-top: 6px; }
+  /* Confirm/submit actions (ENT, Set Mode) - deliberately NOT the same
+     color as ".btn-matrix button.active" below (which highlights which
+     option is currently selected, not a submit action) - user request
+     2026-09-01: outlined green, same look as the idle/non-busy RX
+     indicator (.rx-status, see status-chip-row), rather than the accent
+     blue every selection highlight already uses. */
+  .panel-btn.accent { background: rgba(53,208,127,.12); color: var(--good); border-color: rgba(53,208,127,.35); }
+  .panel-btn.accent:hover { background: rgba(53,208,127,.2); border-color: var(--good); }
+  .panel-btn.ghost { background: transparent; border: none; color: var(--muted); box-shadow: none; }
+  .panel-btn:disabled { opacity: .4; cursor: default; }
+
+  .btn-matrix { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .btn-matrix button { flex: 1 1 auto; min-width: 52px; }
+  /* Highlights which option is currently selected (digitalMode/
+     analogMode/sqlMode/agcSpeed/attState/sqlTypeSelect/dmrSlotSelect
+     matrices, and #digitalOffBtn which mirrors this look though it
+     lives outside any .btn-matrix - see its own rule below) -
+     deliberately a different color from ".panel-btn.accent" above
+     (confirm/submit actions like ENT/Set Mode) so the two meanings
+     don't look the same. User request 2026-09-01: orange/amber, same
+     look as the SQL-busy/RX-busy indicators (.sql-pill.open,
+     .rx-status.busy) rather than the accent blue confirm buttons used
+     to share with selection highlights.  */
+  .btn-matrix button.active { background: rgba(255,182,72,.14); color: var(--amber); border-color: rgba(255,182,72,.4); }
+  .btn-matrix button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-matrix button:disabled.active { background: none; color: inherit; border-color: inherit; }
+  .hidden-select { display: none; }
+  .matrix-block { margin-bottom: 9px; }
+  .matrix-block:last-child { margin-bottom: 0; }
+
+  .power-on { background: var(--good); border-color: var(--good); color: #fff; }
+  .power-off { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .power-row { display: flex; gap: 6px; margin-top: 8px; }
+  .power-row .panel-btn { flex: 1; }
+
+  /* -- on/off toggle switches ---------------------------------------------- */
+  .rocker-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .rocker-row:last-of-type { margin-bottom: 0; }
+  .rocker-row label { margin: 0; }
+  .rocker { position: relative; width: 36px; height: 20px; flex: none; }
+  .rocker input { opacity: 0; width: 0; height: 0; }
+  .rocker-track {
+    position: absolute; inset: 0; border-radius: 999px; cursor: pointer;
+    background: #34373e; transition: background .15s;
+  }
+  .rocker-track::before {
+    content: ""; position: absolute; width: 16px; height: 16px; top: 2px; left: 2px;
+    background: #fff; border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(20,28,44,.25); transition: transform .15s;
+  }
+  .rocker input:checked + .rocker-track { background: var(--accent); }
+  .rocker input:checked + .rocker-track::before { transform: translateX(16px); }
+
+  /* -- sliders -------------------------------------------------------------- */
+  .slider-row { margin-bottom: 9px; }
+  .slider-row:last-child { margin-bottom: 0; }
+  .slider-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .slider-row-head label { flex: 1; margin-bottom: 0; }
+  .slider-row-head .readout-chip { flex: none; }
+  .readout-chip { font-size: 12px; color: var(--accent); font-family: var(--font-mono); font-weight: 600; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px;
+    background: var(--surface-2); margin-top: 5px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; cursor: pointer;
+    background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 3px rgba(20,28,44,.35);
+    margin-top: -5.5px;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%; border: 2px solid #fff; cursor: pointer;
+    background: var(--accent); box-shadow: 0 1px 3px rgba(20,28,44,.35);
+  }
+
+  select, input[type=text], input[type=number] {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 8px; font-family: var(--font-ui); font-size: 12.5px; border-radius: var(--radius-sm);
+  }
+  select:focus, input[type=text]:focus, input[type=number]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* -- field rows (label + input + inline Set button) ----------------------- */
+  .field-row { margin-bottom: 9px; }
+  .field-row:last-child { margin-bottom: 0; }
+  .field-row-controls { display: flex; gap: 6px; margin-top: 4px; }
+  .field-row-controls input { flex: 1; min-width: 0; }
+  .field-row-controls .panel-btn { flex: none; }
+  .field-row-pair { display: flex; gap: 6px; }
+  .field-row-pair input { flex: 1; min-width: 0; }
+
+  /* -- tuning knob + keypad --------------------------------------------------- */
+  .tune-area { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; flex-wrap: wrap; }
+
+  /* -- big TUNING dial: black/metallic, radial knurled grooves, subtle
+     gloss highlight and drop shadow, thin accent position pointer -
+     driven by wheel/keyboard (existing) plus mouse/touch drag (added in
+     the script below, see initKnobDrag()). ---------------------------- */
+  .tune-knob {
+    width: 100px; height: 100px; border-radius: 50%; flex: none; position: relative; cursor: grab;
+    background:
+      repeating-conic-gradient(from 0deg, #232629 0deg 2.5deg, #0c0d0f 2.5deg 5deg),
+      radial-gradient(circle at 32% 26%, #3a3d42, #101113 72%);
+    background-blend-mode: overlay, normal;
+    border: 1px solid #050505;
+    box-shadow: var(--shadow-md), 0 0 0 3px #050506, inset 0 2px 3px rgba(255,255,255,.08), inset 0 -6px 10px rgba(0,0,0,.6);
+    touch-action: none;
+  }
+  .tune-knob:active { cursor: grabbing; }
+  .tune-knob-face {
+    position: absolute; inset: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #4a4e55, #0e0f11 75%);
+    border: 1px solid #000;
+    transition: transform .05s linear;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.15), inset 0 -4px 8px rgba(0,0,0,.7), 0 1px 1px rgba(0,0,0,.6);
+  }
+  .tune-knob-pointer {
+    position: absolute; top: 6px; left: 50%; width: 4px; height: 17px; transform: translateX(-50%);
+    background: var(--accent); border-radius: 2px; box-shadow: 0 0 6px var(--accent-glow);
+  }
+  .tune-step-readout {
+    text-align: center; margin-top: 6px; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; color: var(--label); text-transform: uppercase;
+  }
+  .tune-side { flex: 1; min-width: 140px; }
+  .step-size-btn { width: 100%; justify-content: center; display: flex; gap: 6px; }
+
+  /* -- small rotary encoders (RF GAIN/SQL, AF GAIN) - same drag/wheel/
+     keyboard interaction as the big dial, via the shared bindKnobDrag()
+     helper, but visually smaller and simpler. Bound to REAL device
+     verbs (lq / vollimit) - see bindMiniKnob() in the script. --------- */
+  .mini-knobs { display: none; gap: 14px; margin-left: auto; flex: none; }
+  .mini-knob-block { text-align: center; }
+  .mini-knob {
+    width: 42px; height: 42px; border-radius: 50%; position: relative; cursor: grab; margin: 0 auto;
+    background: radial-gradient(circle at 34% 28%, #3a3d42, #101113 75%);
+    border: 1px solid #050505;
+    box-shadow: var(--shadow-sm), inset 0 1px 2px rgba(255,255,255,.12), inset 0 -3px 6px rgba(0,0,0,.6);
+    touch-action: none;
+  }
+  .mini-knob:active { cursor: grabbing; }
+  .mini-knob-face {
+    position: absolute; inset: 6px; border-radius: 50%; transition: transform .05s linear;
+  }
+  .mini-knob-pointer {
+    position: absolute; top: 3px; left: 50%; width: 2px; height: 10px; transform: translateX(-50%);
+    background: var(--accent); border-radius: 1px;
+  }
+  .mini-knob-label {
+    display: block; margin-top: 5px; font-size: 8.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--label); font-weight: 700; font-family: var(--font-mono);
+  }
+
+  /* -- function-button row (V/M, A/B, BAND, NAR - real actions; see the
+     onclick handlers) and the BAND quick-jump overlay it opens. ------- */
+  .func-btn {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border); border-bottom: 2px solid #000;
+    color: var(--muted); padding: 7px 2px; border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    cursor: pointer; text-align: center;
+  }
+  .func-btn.wide { display: block; width: 100%; margin-top: 5px; padding: 7px 4px; }
+  .func-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+  .func-btn:active { transform: translateY(1px); border-bottom-width: 1px; }
+  .func-btn.active { color: #04141c; background: linear-gradient(180deg, var(--accent), var(--accent-dim)); border-color: var(--accent); }
+
+  .band-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .band-overlay[hidden] { display: none; }
+  .band-overlay-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-md); padding: 16px; width: min(360px, 100%); max-height: 80vh; overflow-y: auto;
+  }
+  .band-overlay-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .band-overlay-title { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  .band-overlay-close { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; padding: 2px 6px; }
+  .band-overlay-close:hover { color: var(--text); }
+  .band-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .band-chip {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 8px 6px; cursor: pointer; text-align: center; color: var(--text);
+    font-family: var(--font-mono);
+  }
+  .band-chip:hover { border-color: var(--accent); }
+  .band-chip .band-name { display: block; font-size: 12px; font-weight: 700; }
+  .band-chip .band-freq { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .band-overlay-hint { margin-top: 10px; font-size: 10px; color: var(--label); line-height: 1.5; }
+  .hint { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+
+  .keypad { margin-top: 0; }
+  .keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 5px 0; }
+  .keypad-grid button { padding: 5px 0; font-size: 11.5px; }
+
+  .vfo-row { display: flex; gap: 5px; margin-top: 5px; }
+  .vfo-row .panel-btn { flex: 1; padding: 5px 4px; font-size: 11px; }
+  .step-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 6px; }
+  .step-row .panel-btn { flex: 1 1 auto; }
+
+  /* -- compact 2-column split for TUNE: step/VFO buttons beside the
+     keypad instead of stacked below it (added 2026-09-01, user asked
+     to shrink the TUNE panel - it was much taller than the display
+     it now sits next to in .console-top-row). -------------------- */
+  .tune-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  .tune-columns .step-row { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+  .tune-columns .keypad { margin-top: 0; }
+  /* Both columns' content isn't naturally the same height (the keypad
+     column is a bit taller than the BAND-button column), so even though
+     the grid row itself stretches both .tune-col boxes to match, the
+     shorter column's own content used to fall short of the taller one's
+     bottom edge - BAND and ENT ended up on different rows. Making each
+     .tune-col a flex column and pinning its last child to the bottom
+     with margin-top: auto keeps BAND and ENT level with each other
+     regardless of which side is naturally taller. */
+  .tune-columns .tune-col { display: flex; flex-direction: column; }
+  .tune-columns .tune-col > *:last-child { margin-top: auto; }
+  @media (max-width: 420px) {
+    .tune-columns { grid-template-columns: 1fr; }
+    .tune-columns .step-row { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* -- raw console -------------------------------------------------------------
+     Kept as a dark inset pane, deliberately different from the rest of the
+     page: this shows the device's own raw wire-protocol text verbatim, so it
+     reads as a distinct "log" surface rather than another light panel. In the
+     day theme it turns light gray to match (see the day overrides at the end
+     of the stylesheet). */
+  details.service { width: 100%; margin-top: 14px; }
+  details.service summary {
+    cursor: pointer; font-size: 10px; letter-spacing: .1em; color: var(--label);
+    text-transform: uppercase; padding: 4px 2px; font-weight: 700;
+  }
+  .term {
+    margin-top: 8px; background: #12151c; color: #d7dbe3; border: 1px solid #232838; border-radius: var(--radius-sm);
+    height: 160px; overflow-y: auto; padding: 10px 12px; font-size: 12px; font-family: var(--font-mono); white-space: pre-wrap;
+  }
+  .term .line.out { color: #7fd99a; }
+  .term .line.in { color: #d7dbe3; }
+  .term .line.err { color: #ff9b93; }
+  form.cmdform { display: flex; margin-top: 10px; gap: 8px; }
+
+  footer { margin-top: 14px; font-size: 10.5px; color: var(--muted); text-align: center; }
+
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #22252b; color: #fff; border: 1px solid var(--border);
+    padding: 9px 18px; border-radius: 999px; font-size: 12.5px; opacity: 0; transition: opacity .25s;
+    pointer-events: none; max-width: 90vw; text-align: center; box-shadow: 0 8px 24px -8px rgba(0,0,0,.6);
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { background: var(--bad); }
+
+  /* -- memory channels ----------------------------------------------------- */
+  .memory-section { grid-column: 1 / -1; }
+  /* Memory Channels (CSV browser) + Live Memory (Receiver) sit side-by-
+     side in a narrow pair, per user request 2026-09-01. Their outer
+     wrapper spans the full grid column; the two inner panels split it ~
+     50/50. Below 900px they stack. The CSV table inside already scrolls
+     horizontally (overflow-x:auto on .mem-table-wrap), so it stays usable
+     at half width. */
+  .memory-pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    grid-column: 1 / -1; align-items: stretch;
+  }
+  .memory-pair > .panel-section { min-width: 0; }
+  @media (max-width: 900px) {
+    .memory-pair { grid-template-columns: 1fr; }
+  }
+  .mem-table-wrap {
+    margin-top: 8px; max-height: 280px; overflow-y: auto; overflow-x: auto;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  table.mem-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--font-mono); white-space: nowrap; }
+  table.mem-table th, table.mem-table td { padding: 6px 10px; text-align: left; }
+  table.mem-table thead th {
+    position: sticky; top: 0; background: var(--surface-2); color: var(--label);
+    font-size: 10px; letter-spacing: .06em; text-transform: uppercase; font-family: var(--font-ui); font-weight: 700;
+    border-bottom: 1px solid var(--border);
+  }
+  table.mem-table tbody tr:nth-child(odd) { background: var(--surface-2); }
+  table.mem-table tbody tr:hover { background: #23262c; }
+  table.mem-table td.mem-freq { color: var(--accent); font-weight: 600; }
+  table.mem-table td.mem-protect { color: var(--amber); }
+
+  /* -- per-panel output boxes --------------------------------------------
+     Small read-only readouts for the rmem/VFO+timer/SD/scope/select
+     panels below - same dark "log" surface as .term, but scoped to one
+     panel instead of the whole session, wired up client-side by the
+     pendingRoutes queue in send()/ws.onmessage. */
+  .mini-out {
+    margin: 8px 0 0; background: #12151c; color: #7fd99a; border: 1px solid #232838; border-radius: var(--radius-sm);
+    padding: 7px 9px; font-size: 11px; line-height: 1.4; white-space: pre-wrap;
+    word-break: break-word; max-height: 130px; overflow-y: auto;
+    min-height: 1.4em; font-family: var(--font-mono);
+  }
+
+  /* -- day theme: literal-color overrides ----------------------------------
+     These components hardcode colors (LCD gloss shadows, soft-tinted chip
+     fills, the raw-log panes, the function-button underline, the tuning
+     knobs) instead of reading the custom properties at the top, so the
+     light theme restates them here. ------------------------------- */
+  html[data-theme="day"] .lcd-screen {
+    box-shadow: inset 0 1px 0 var(--chassis-highlight), inset 0 0 40px rgba(70,80,92,.12), var(--shadow-md);
+  }
+  html[data-theme="day"] .lcd-zone + .lcd-zone { border-top: 1px solid rgba(35,42,50,.08); }
+  html[data-theme="day"] .mode-tag { color: #fff; }
+  html[data-theme="day"] .mode-tag.digital { color: #fff; }
+  html[data-theme="day"] #digitalOffBtn.active,
+  html[data-theme="day"] .btn-matrix button.active,
+  html[data-theme="day"] .sql-pill.open,
+  html[data-theme="day"] .rx-status.busy {
+    background: rgba(185,121,15,.14); border-color: rgba(185,121,15,.45);
+  }
+  html[data-theme="day"] .sql-pill.digital { border-color: rgba(14,127,184,.4); background: rgba(14,127,184,.1); }
+  html[data-theme="day"] .dchip.active { background: rgba(14,127,184,.1); }
+  html[data-theme="day"] .rx-status,
+  html[data-theme="day"] .panel-btn.accent { background: rgba(30,158,95,.12); border-color: rgba(30,158,95,.4); }
+  html[data-theme="day"] .panel-btn.accent:hover { background: rgba(30,158,95,.2); border-color: var(--good); }
+  html[data-theme="day"] .rocker-track { background: #ccd1d7; }
+  html[data-theme="day"] .func-btn { border-bottom-color: #9aa2ab; }
+  html[data-theme="day"] .func-btn.active { color: #fff; }
+  html[data-theme="day"] .band-overlay { background: rgba(50,57,66,.42); }
+  html[data-theme="day"] table.mem-table tbody tr:hover { background: #e1e4e9; }
+  html[data-theme="day"] .term,
+  html[data-theme="day"] .mini-out {
+    background: #eceff2; color: #33383f; border-color: #c9cdd4;
+  }
+  html[data-theme="day"] .term .line.out { color: #1e7d4d; }
+  html[data-theme="day"] .term .line.in { color: #33383f; }
+  html[data-theme="day"] .term .line.err { color: #c23b30; }
+  html[data-theme="day"] .toast { background: #eef0f3; color: #2b2f35; border-color: var(--border); box-shadow: 0 8px 24px -8px rgba(55,62,72,.35); }
+  html[data-theme="day"] .toast.err { background: var(--bad); color: #fff; }
+  /* Tuning knobs follow the theme too (user request 2026-09-01): the big
+     dial and the mini rotary encoders switch from dark metallic to a
+     light-gray/bright-steel face in day mode. */
+  html[data-theme="day"] .tune-knob {
+    background:
+      repeating-conic-gradient(from 0deg, #c7cdd4 0deg 2.5deg, #b6bcc4 2.5deg 5deg),
+      radial-gradient(circle at 32% 26%, #f6f7f9, #d6dae0 72%);
+    border: 1px solid #9aa2ab;
+    box-shadow: var(--shadow-md), 0 0 0 3px #d3d7dc, inset 0 2px 3px rgba(255,255,255,.6), inset 0 -6px 10px rgba(120,128,140,.25);
+  }
+  html[data-theme="day"] .tune-knob-face {
+    background: radial-gradient(circle at 34% 28%, #fafbfc, #d9dde3 75%);
+    border: 1px solid #9aa2ab;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.7), inset 0 -4px 8px rgba(120,128,140,.28), 0 1px 1px rgba(60,66,74,.2);
+  }
+  html[data-theme="day"] .mini-knob {
+    background: radial-gradient(circle at 34% 28%, #f6f7f9, #d6dae0 75%);
+    border: 1px solid #9aa2ab;
+    box-shadow: var(--shadow-sm), inset 0 1px 2px rgba(255,255,255,.7), inset 0 -3px 6px rgba(120,128,140,.28);
+  }
+</style>
+
+</head>
+<body>
+  <div class="chassis">
+    <span class="screw tl"></span><span class="screw tr"></span>
+    <span class="screw bl"></span><span class="screw br"></span>
+
+    <div class="chassis-top">
+      <div class="nameplate">
+        <span class="led" id="connDot"></span>
+        <span class="nameplate-text" id="namePlateText">AOR <strong>AR-DV10</strong></span>
+      </div>
+
+      <!-- OPTIONS / POWER - moved up into the status line 2026-09-01 at
+           user request (was its own panel-section further down); same
+           ids/verbs/status-sync as before (setMatrixSelect() etc. don't
+           care whether backlightMode's <select> is visible or hidden),
+           just laid out compactly with short labels + full text in
+           title tooltips. Wraps to its own line under 860px. -->
+      <div class="topbar-options" id="topbarOptions">
+        <div class="topbar-group">
+          <label class="rocker mini" data-i18n-title="lblKeyBeep" title="Key beep"><input type="checkbox" id="beepToggle" onchange="send('beep ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+          <span class="topbar-label" data-i18n="lblBeepShort">Beep</span>
+        </div>
+        <div class="topbar-group">
+          <label class="rocker mini" data-i18n-title="titleResultCodes" title="Prefixes responses with a numeric result code - diagnostic only"><input type="checkbox" id="reToggle" onchange="send('re ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+          <span class="topbar-label" data-i18n="lblResultCodesShort">RE</span>
+        </div>
+        <div class="topbar-group topbar-slider" data-i18n-title="lblBeepLevel" title="Beep volume (BP)">
+          <span class="topbar-label" data-i18n="lblBeepLevelShort">BP</span>
+          <input type="range" id="bpRange" min="0" max="7" value="2"
+            oninput="document.getElementById('bpVal').textContent = String(this.value)"
+            onchange="send('beeplvl ' + String(this.value))" />
+          <span id="bpVal" class="readout-chip">2</span>
+        </div>
+        <div class="topbar-group topbar-slider" data-i18n-title="lblContrast" title="LCD contrast (LN)">
+          <span class="topbar-label" data-i18n="lblContrastShort">LN</span>
+          <input type="range" id="lnRange" min="0" max="63" value="25"
+            oninput="document.getElementById('lnVal').textContent = String(this.value).padStart(2,'0')"
+            onchange="send('contrast ' + String(this.value).padStart(2,'0'))" />
+          <span id="lnVal" class="readout-chip">25</span>
+        </div>
+        <div class="topbar-group">
+          <span class="topbar-label" data-i18n="lblBacklightShort">BL</span>
+          <select id="backlightMode" class="topbar-select" onchange="send('backlight ' + this.value)" data-i18n-title="lblBacklight" title="LCD backlight (LB)">
+            <option value="0" data-i18n="optBacklightOff">Off</option>
+            <option value="1" data-i18n="optBacklightCont">Continuous</option>
+            <option value="2" data-i18n="optBacklightAuto">Auto</option>
+          </select>
+        </div>
+        <div class="topbar-group topbar-power">
+          <span class="topbar-label" data-i18n="lblPowerShort">PWR</span>
+          <button class="panel-btn small power-on" onclick="send('power on')" data-i18n="btnPowerOnShort" data-i18n-title="btnPowerOn" title="Power ON">ON</button>
+          <button class="panel-btn small power-off" onclick="send('power off')" data-i18n="btnPowerOffShort" data-i18n-title="btnPowerOff" title="Power OFF">OFF</button>
+        </div>
+      </div>
+
+      <div class="topbar-switches">
+        <div class="lang-switch" role="group" aria-label="Language / Język">
+          <button type="button" class="lang-btn" data-lang="en" onclick="setLanguage('en')">EN</button>
+          <button type="button" class="lang-btn" data-lang="pl" onclick="setLanguage('pl')">PL</button>
+        </div>
+        <div class="theme-switch" role="group" aria-label="Theme / Motyw">
+          <button type="button" class="lang-btn" data-theme="day" onclick="setTheme('day')" data-i18n-title="themeDay" title="Day theme" aria-label="Day theme">☀</button>
+          <button type="button" class="lang-btn" data-theme="night" onclick="setTheme('night')" data-i18n-title="themeNight" title="Night theme" aria-label="Night theme">☾</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONSOLE TOP ROW: display + tuning side by side in one row, per
+         user request (2026-09-01). The mock spectrum/waterfall/
+         oscilloscope/AF-FFT from the previous revision were removed at
+         the same time, also at the user's request - this receiver has
+         no confirmed way to drive a real scope (see docs/PROTOCOL.md's
+         "Frequency scope: FD / GL" section), so the mock versions were
+         dropped rather than kept as decoration. -->
+    <div class="console-top-row">
+
+    <!-- CONSOLE DISPLAY - dark TFT-style face. freq/VFO-A are the real
+         live-tuned frequency (already polled every status cycle); VFO-B
+         updates when "VFO Info" is read (here or in the VFO & Scheduled
+         Recording panel below) rather than adding a second multi-line
+         (VI) read to every status poll - see updateVfoBFromRaw() in the
+         script below. The mode badge, SQL-MODE badge, S-meter and the
+         four status chips are wired to REAL /api/status fields via
+         renderConsole(). -->
+    <div class="lcd-screen">
+      <div class="lcd-zone lcd-zone-freq">
+        <div class="lcd-top-row">
+          <div class="vfo-block vfo-a active" id="vfoABlock">
+            <span class="vfo-label">VFO-A</span>
+            <span class="mode-tag" id="modeTag">--</span>
+          </div>
+          <div class="freq"><span id="freq">---.------</span><span class="freq-unit">MHz</span></div>
+          <div class="vfo-block vfo-b" id="vfoBBlock" onclick="vfoInfo()" title="Click to read VFO-B (VI)" role="button" tabindex="0">
+            <span class="vfo-label" id="sqlModeBadge">VFO-B</span>
+            <span class="freq-b" id="freqB">---.------</span>
+          </div>
+        </div>
+        <div class="lcd-mode-row">
+          <div class="readout" id="modeReadout">receiving=--</div>
+        </div>
+      </div>
+
+      <div class="lcd-zone lcd-zone-meter">
+        <div class="display-row-meter">
+          <div class="smeter-block">
+            <div class="smeter-caption-row">
+              <span class="lcd-caption" style="margin:0" data-i18n="hSMeter">S-Meter</span>
+              <span class="smeter-value" id="smeterValueLabel">--</span>
+            </div>
+            <div class="smeter-track" id="smeter"></div>
+            <div class="meter-ticks" aria-hidden="true">
+              <span>S1</span><span>S3</span><span>S5</span><span>S7</span><span>S9</span><span>+20</span><span>+40</span><span>+60dB</span>
+            </div>
+          </div>
+          <span class="rx-status" id="rxStatusChip">RX</span>
+        </div>
+        <div class="smeter-label">
+          <span id="smeterDb">--- dB</span>
+          <span class="sql-pill" id="sqlPill">SQL --</span>
+        </div>
+      </div>
+
+      <div class="lcd-zone lcd-zone-status">
+        <div class="status-chip-row">
+          <button type="button" class="dchip" id="chipAtt" onclick="cycleAtt()" title="Click to cycle (ATT)">
+            <span class="dchip-label" data-i18n="lblAttenuator">Attenuator</span>
+            <span class="dchip-value" id="chipAttVal">--</span>
+          </button>
+          <button type="button" class="dchip" id="chipAgc" onclick="cycleAgc()" title="Click to cycle (AGC speed)">
+            <span class="dchip-label" data-i18n="lblAgcSpeed">AGC speed</span>
+            <span class="dchip-value" id="chipAgcVal">--</span>
+          </button>
+          <button type="button" class="dchip" id="chipSqlType" onclick="cycleSqlType()" title="Click to cycle (SQL TYPE)">
+            <span class="dchip-label" data-i18n="lblSqlType">Squelch type (CI)</span>
+            <span class="dchip-value" id="chipSqlVal">--</span>
+          </button>
+          <button type="button" class="dchip dchip-wide" id="chipBw" onclick="cycleBandwidthClick()" title="Click to cycle forward, wraps to the start - scroll to step up/down (IF bandwidth)">
+            <span class="dchip-label">
+              <span data-i18n="lblBandwidth">Bandwidth (IF)</span>
+              <span class="info-dot" data-i18n-title="hintBandwidth" title="Choices depend on the active analog mode - the receiver shares one bandwidth register across every mode, so switching digital mode on and back off can silently reset this. Raw digit selector also available under Misc (&quot;ifbw&quot;).">i</span>
+            </span>
+            <span class="dchip-value" id="chipBwVal">--</span>
+            <div class="filter-indicator"><span id="filterIndicatorFill"></span></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- MODE - moved inside the LCD console face itself 2026-09-01 at
+           user request: same dark screen, no separate card border, as
+           the next zone right after the status chips - not a
+           .panel-section anymore, a .lcd-zone like the others above.
+           Was down in the general panel-grid before that. -->
+      <div class="lcd-zone lcd-zone-mode" id="modePanel">
+        <div class="mode-matrix-row">
+          <div class="matrix-block">
+            <div class="lcd-caption" data-i18n="lblDigital">Digital</div>
+            <div class="btn-matrix" data-select="digitalMode">
+              <button type="button" data-value="0">Auto</button>
+              <button type="button" data-value="1">D-STAR</button>
+              <button type="button" data-value="2">YAESU</button>
+              <button type="button" data-value="3">ALINCO</button>
+              <button type="button" data-value="4">D-CR</button>
+              <button type="button" data-value="5">P25</button>
+              <button type="button" data-value="6">dPMR</button>
+              <button type="button" data-value="7">DMR</button>
+              <button type="button" data-value="8">TETRA-DM</button>
+              <button type="button" data-value="9">TETRA-TC</button>
+            </div>
+            <select id="digitalMode" class="hidden-select">
+              <option value="0">Auto</option><option value="1">D-STAR</option>
+              <option value="2">YAESU</option><option value="3">ALINCO</option>
+              <option value="4">D-CR</option><option value="5">P25</option>
+              <option value="6">dPMR</option><option value="7">DMR</option>
+              <option value="8">TETRA-DM</option><option value="9">TETRA-TC</option>
+              <option value="F" selected>Digital off</option>
+            </select>
+          </div>
+
+          <div class="matrix-block">
+            <div class="lcd-caption" data-i18n="lblAnalog">Analog</div>
+            <div class="btn-matrix" data-select="analogMode">
+              <button type="button" data-value="0">FM</button>
+              <button type="button" data-value="1">AM</button>
+              <button type="button" data-value="2">SAH</button>
+              <button type="button" data-value="3">SAL</button>
+              <button type="button" data-value="4">USB</button>
+              <button type="button" data-value="5">LSB</button>
+              <button type="button" data-value="6">CW</button>
+            </div>
+            <select id="analogMode" class="hidden-select">
+              <option value="0" selected>FM</option><option value="1">AM</option>
+              <option value="2">SAH</option><option value="3">SAL</option>
+              <option value="4">USB</option><option value="5">LSB</option>
+              <option value="6">CW</option>
+            </select>
+
+            <!-- "Digital off" (data-value F) moved here from the DIGITAL
+                 matrix 2026-09-01 at user request - conceptually it means
+                 "use analog instead", so it reads better beside ANALOG's
+                 own controls. Still wired to the same digitalMode hidden
+                 select as before; see the digitalOffBtn wiring right
+                 after initButtonMatrix() in the script for how its
+                 active-state stays in sync despite living outside the
+                 digitalMode .btn-matrix container now. -->
+            <div class="mode-footer-row">
+              <button type="button" class="panel-btn small" id="digitalOffBtn" data-i18n="optDigitalOff">Digital off</button>
+              <button class="panel-btn accent" onclick="setMode()" data-i18n="btnSetMode">Set Mode</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+      <!-- TUNE -->
+      <div class="panel-section" id="tunePanel">
+        <div class="section-label" data-i18n="secTune">Tune</div>
+
+        <div class="tune-area">
+          <div class="tune-knob" id="tuneKnob" tabindex="0" role="slider" aria-label="Tuning knob">
+            <div class="tune-knob-face"><div class="tune-knob-pointer"></div></div>
+          </div>
+          <div class="tune-side">
+            <button type="button" class="panel-btn small step-size-btn" id="stepSizeBtn">
+              <span data-i18n="lblStep">STEP</span> <span id="stepSizeLabel">5 kHz</span>
+            </button>
+            <div class="hint" data-i18n="hintScrollToTune">drag, scroll, or use arrow keys to tune</div>
+
+            <div class="field-row">
+              <label data-i18n="lblDeviceStep">Device tuning step (ST, Hz)</label>
+              <div class="field-row-controls">
+                <select id="stepHzSelect">
+                  <option value="10">10 Hz</option>
+                  <option value="50">50 Hz</option>
+                  <option value="100">100 Hz</option>
+                  <option value="1000">1 kHz</option>
+                  <option value="2500">2.5 kHz</option>
+                  <option value="5000">5 kHz</option>
+                  <option value="6250">6.25 kHz</option>
+                  <option value="8330">8.33 kHz</option>
+                  <option value="9000">9 kHz</option>
+                  <option value="10000" selected>10 kHz</option>
+                  <option value="12500">12.5 kHz</option>
+                  <option value="15000">15 kHz</option>
+                  <option value="20000">20 kHz</option>
+                  <option value="25000">25 kHz</option>
+                  <option value="30000">30 kHz</option>
+                  <option value="50000">50 kHz</option>
+                  <option value="100000">100 kHz</option>
+                </select>
+                <button class="panel-btn small" onclick="send('step ' + document.getElementById('stepHzSelect').value)" data-i18n="btnSet">Set</button>
+              </div>
+              <div class="hint" data-i18n="hintDeviceStep">separate from the knob's own scroll-step above; wire encoding unconfirmed</div>
+            </div>
+          </div>
+          <!-- RF GAIN/SQL (LQ) and AF GAIN (AV/vollimit) - real controls,
+               same drag/wheel/keyboard interaction as the big dial (see
+               bindMiniKnob() in the script), just reusing the exact
+               verbs the equivalent sliders in the Squelch/Levels panels
+               already send, so both stay in sync with each other. -->
+          <div class="mini-knobs">
+            <div class="mini-knob-block">
+              <div class="mini-knob" id="rfGainKnob" tabindex="0" role="slider" aria-label="RF Gain / Squelch">
+                <div class="mini-knob-face"><div class="mini-knob-pointer"></div></div>
+              </div>
+              <span class="mini-knob-label" data-i18n="lblRfGainKnob">RF GAIN/SQL</span>
+            </div>
+            <div class="mini-knob-block">
+              <div class="mini-knob" id="afGainKnob" tabindex="0" role="slider" aria-label="AF Gain">
+                <div class="mini-knob-face"><div class="mini-knob-pointer"></div></div>
+              </div>
+              <span class="mini-knob-label" data-i18n="lblAfGainKnob">AF GAIN</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Compacted 2026-09-01 at user request (TUNE was taller than
+             the display next to it): step buttons + VFO row now sit
+             beside the keypad instead of stacked below it. -->
+        <div class="tune-columns">
+          <div class="tune-col">
+            <div class="step-row">
+              <button class="panel-btn small" onclick="stepFreq(-1)">&minus;1 MHz</button>
+              <button class="panel-btn small" onclick="stepFreq(1)">+1 MHz</button>
+              <button class="panel-btn small" onclick="stepFreq(-0.025)">&minus;25 kHz</button>
+              <button class="panel-btn small" onclick="stepFreq(0.025)">+25 kHz</button>
+              <button class="panel-btn small" onclick="stepFreq(-0.005)">&minus;5 kHz</button>
+              <button class="panel-btn small" onclick="stepFreq(0.005)">+5 kHz</button>
+            </div>
+            <div class="vfo-row">
+              <button class="panel-btn" onclick="send('vfo A')">VFO A</button>
+              <button class="panel-btn" onclick="send('vfo B')">VFO B</button>
+              <button class="panel-btn" onclick="send('vfo Z')">VFO Z</button>
+            </div>
+            <div class="vfo-row">
+              <button class="panel-btn" onclick="send('moveprev')" data-i18n="btnMovePrev">&laquo; prev</button>
+              <button class="panel-btn" onclick="send('movenext')" data-i18n="btnMoveNext">next &raquo;</button>
+            </div>
+            <!-- BAND: client-side quick-jump list only (never a device
+                 command - this receiver has no "band" register). Moved
+                 here 2026-09-01 at user request, under the prev/next
+                 row so it lines up beside ENT in the column next to
+                 it. The A/B/Z cycle button that used to sit next to it
+                 was removed the same time (redundant with the VFO A/
+                 VFO B/VFO Z buttons above). -->
+            <button type="button" class="func-btn wide" onclick="openBandOverlay()" data-i18n="fbBand">BAND</button>
+          </div>
+          <div class="tune-col">
+            <div class="keypad">
+              <input id="freqInput" type="text" inputmode="decimal" autocomplete="off" data-i18n-ph="freqPlaceholder" />
+              <div class="keypad-grid">
+                <button type="button" class="panel-btn" onclick="keypadPress('1')">1</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('2')">2</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('3')">3</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('4')">4</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('5')">5</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('6')">6</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('7')">7</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('8')">8</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('9')">9</button>
+                <button type="button" class="panel-btn ghost" onclick="keypadPress('CE')">CE</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('0')">0</button>
+                <button type="button" class="panel-btn" onclick="keypadPress('.')">.</button>
+              </div>
+              <button type="button" class="panel-btn accent wide" onclick="keypadPress('ENT')" data-i18n="btnEnt">ENT</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Function-button row trimmed away entirely, 2026-09-01: V/M
+             and NAR were removed earlier the same day, A/B/Z (removed
+             just now, redundant with the VFO A/VFO B/VFO Z buttons)
+             was the last one left besides BAND, which moved up into
+             the left tune-col (see the comment by its new button,
+             above). Not currently included: M->V, QMB, FUNC, DNR,
+             BUSY/TX, SPLIT, CLAR, NB - none of these correspond to
+             anything the AR-DV10 actually has (most are Yaesu
+             HF-transceiver-specific: TX/split/RIT/noise-blanker
+             functions this receive-only digital scanner doesn't
+             implement). -->
+      </div>
+    </div>
+
+    <div class="panel-grid">
+
+      <!-- SQUELCH -->
+      <div class="panel-section" id="squelchPanel">
+        <div class="section-label" data-i18n="hSquelch">Squelch</div>
+
+        <div class="matrix-block">
+          <div class="lcd-caption" data-i18n="lblMode">Mode</div>
+          <div class="btn-matrix" data-select="sqlMode">
+            <button type="button" data-value="0" data-i18n="optSqAuto">Auto</button>
+            <button type="button" data-value="1" data-i18n="optSqNoise">Noise</button>
+            <button type="button" data-value="2" data-i18n="optSqLevel">Level</button>
+          </div>
+          <select id="sqlMode" class="hidden-select" onchange="send('sq ' + this.value)">
+            <option value="0">Auto</option><option value="1">Noise</option><option value="2">Level</option>
+          </select>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblLevelSquelch">Level squelch (LQ 00&ndash;99)</label>
+            <span id="lqVal" class="readout-chip">50</span>
+          </div>
+          <input type="range" id="lqRange" min="0" max="99" value="50"
+            oninput="document.getElementById('lqVal').textContent = this.value"
+            onchange="send('lq ' + String(this.value).padStart(2,'0'))" />
+        </div>
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblNoiseSquelch">Noise squelch (NQ 00&ndash;39)</label>
+            <span id="nqVal" class="readout-chip">20</span>
+          </div>
+          <input type="range" id="nqRange" min="0" max="39" value="20"
+            oninput="document.getElementById('nqVal').textContent = this.value"
+            onchange="send('nq ' + String(this.value).padStart(2,'0'))" />
+        </div>
+
+        <!-- ADVANCED SQUELCH (CTCSS / DCS) merged into the Squelch panel
+             2026-09-01 at user request; was its own panel-section. -->
+        <div class="matrix-block">
+          <div class="lcd-caption" data-i18n="lblSqlType">Squelch type (CI)</div>
+          <div class="btn-matrix" data-select="sqlTypeSelect">
+            <button type="button" data-value="0" data-i18n="optSqlTypeOff">OFF</button>
+            <button type="button" data-value="1" data-i18n="optSqlTypeCtcss">CTCSS</button>
+            <button type="button" data-value="2" data-i18n="optSqlTypeRevTone">Reverse Tone</button>
+          </div>
+          <select id="sqlTypeSelect" class="hidden-select" onchange="send('sqltype ' + this.value)">
+            <option value="0">OFF</option><option value="1">CTCSS</option><option value="2">Reverse Tone</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblCtcssTone">Tone (CN)</label>
+          <select id="ctcssToneSelect"></select>
+        </div>
+
+        <div class="rocker-row">
+          <label data-i18n="lblDcsOn">DCS (DI)</label>
+          <label class="rocker"><input type="checkbox" id="dcsToggle" onchange="send('dcs ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblDcsCode">Code (DS)</label>
+          <select id="dcsCodeSelect"></select>
+        </div>
+        <div class="hint" data-i18n="hintTypeTables">tone/code tables and on/off encoding are manual-sourced, not yet wire-confirmed</div>
+      </div>
+
+      <!-- LEVELS -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hLevels">Levels</div>
+
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblVolume">Volume (AG) &mdash; confirmed unsupported by this receiver's firmware (error 60)</label>
+            <span id="volVal" class="readout-chip">50</span>
+          </div>
+          <input type="range" id="volRange" min="0" max="99" value="50"
+            oninput="document.getElementById('volVal').textContent = this.value"
+            onchange="send('vol ' + String(this.value).padStart(2,'0'))" />
+        </div>
+
+        <div class="matrix-block">
+          <div class="lcd-caption" data-i18n="lblAgcSpeed">AGC speed</div>
+          <div class="btn-matrix" data-select="agcSpeed">
+            <button type="button" data-value="0" data-i18n="optAgcFast">Fast</button>
+            <button type="button" data-value="1" data-i18n="optAgcMid">Mid</button>
+            <button type="button" data-value="2" data-i18n="optAgcSlow">Slow</button>
+            <button type="button" data-value="3">RF-G</button>
+          </div>
+          <select id="agcSpeed" class="hidden-select" onchange="send('agcspd ' + this.value)">
+            <option value="0">Fast</option><option value="1">Mid</option>
+            <option value="2">Slow</option><option value="3">RF-G</option>
+          </select>
+        </div>
+
+        <div class="matrix-block">
+          <div class="lcd-caption" data-i18n="lblAttenuator">Attenuator</div>
+          <div class="btn-matrix" data-select="attState">
+            <button type="button" data-value="0" data-i18n="optAttOff">ATT OFF</button>
+            <button type="button" data-value="1" data-i18n="optAttOn">ATT ON</button>
+            <button type="button" data-value="2" data-i18n="optAttAtt10">10dB ATT</button>
+          </div>
+          <select id="attState" class="hidden-select" onchange="send('attst ' + this.value)">
+            <option value="0">ATT OFF</option><option value="1">ATT ON</option><option value="2">10dB ATT</option>
+          </select>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblVolLimit">Volume limit (AV, VOL ATT 00&ndash;15) &mdash; the actual working volume ceiling; the knob itself is analog/local-only</label>
+            <span id="avVal" class="readout-chip">05</span>
+          </div>
+          <input type="range" id="avRange" min="0" max="15" value="5"
+            oninput="document.getElementById('avVal').textContent = String(this.value).padStart(2,'0')"
+            onchange="send('vollimit ' + String(this.value).padStart(2,'0'))" />
+        </div>
+
+        <div class="field-row">
+          <label data-i18n="lblDigitalGain">Digital sound gain (DA, 01.00&ndash;15.94)</label>
+          <div class="field-row-controls">
+            <input type="text" id="daInput" inputmode="decimal" placeholder="01.00" />
+            <button class="panel-btn small" onclick="sendFieldValue('daInput','digain')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblManualGain">Manual gain (RG 000&ndash;110) &mdash; only used when AGC=RF-G</label>
+            <span id="rgVal" class="readout-chip">099</span>
+          </div>
+          <input type="range" id="rgRange" min="0" max="110" value="99"
+            oninput="document.getElementById('rgVal').textContent = String(this.value).padStart(3,'0')"
+            onchange="send('mgain ' + String(this.value).padStart(3,'0'))" />
+        </div>
+      </div>
+
+      <!-- DIGITAL SELECTIVE CODES -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hDigiCodes">Digital Codes</div>
+
+        <div class="field-row">
+          <label data-i18n="lblDmrCC">DMR color code (CC 00&ndash;16)</label>
+          <div class="field-row-controls">
+            <input type="text" id="dmrccInput" inputmode="numeric" placeholder="00" />
+            <button class="panel-btn small" onclick="sendFieldValue('dmrccInput','dmrcc',2)" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblDmrCM">Mute by color code (CM)</label>
+          <label class="rocker"><input type="checkbox" id="dmrCmToggle" onchange="send('dmrcm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+        <div class="matrix-block">
+          <div class="lcd-caption" data-i18n="lblDmrSlot">DMR slot (OT)</div>
+          <div class="btn-matrix" data-select="dmrSlotSelect">
+            <button type="button" data-value="1+2">1+2</button>
+            <button type="button" data-value="2+1">2+1</button>
+            <button type="button" data-value="1">1</button>
+            <button type="button" data-value="2">2</button>
+          </div>
+          <select id="dmrSlotSelect" class="hidden-select" onchange="send('dmrslot ' + this.value)">
+            <option value="1+2">1+2</option><option value="2+1">2+1</option>
+            <option value="1">1</option><option value="2">2</option>
+          </select>
+        </div>
+
+        <div class="field-row">
+          <label data-i18n="lblP25Nac">P25 NAC code (PC 000&ndash;FFF hex)</label>
+          <div class="field-row-controls">
+            <input type="text" id="p25nacInput" placeholder="000" />
+            <button class="panel-btn small" onclick="sendFieldValue('p25nacInput','p25nac',3)" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblP25Pm">Mute by NAC code (PM)</label>
+          <label class="rocker"><input type="checkbox" id="p25PmToggle" onchange="send('p25pm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+
+        <div class="field-row">
+          <label data-i18n="lblNxdnRan">NXDN RAN code (NC 00&ndash;63)</label>
+          <div class="field-row-controls">
+            <input type="text" id="nxdnranInput" inputmode="numeric" placeholder="00" />
+            <button class="panel-btn small" onclick="sendFieldValue('nxdnranInput','nxdnran',2)" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblNxdnNm">Mute by RAN code (NM)</label>
+          <label class="rocker"><input type="checkbox" id="nxdnNmToggle" onchange="send('nxdnnm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+      </div>
+
+      <!-- DESCRAMBLERS / OFFSET / PRIORITY - merged into a single panel
+           2026-09-01 at user request (was three separate panel-sections);
+           each group keeps its own small caption so it stays readable. -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hMergedReception">Descramblers / Offset / Priority</div>
+
+        <div class="lcd-caption" data-i18n="hDescramblers">Descramblers</div>
+        <div class="field-row">
+          <label data-i18n="lblDcrCode">D-CR scramble code (DC 00000&ndash;32767)</label>
+          <div class="field-row-controls">
+            <input type="text" id="dcrcodeInput" inputmode="numeric" placeholder="00000" />
+            <button class="panel-btn small" onclick="sendFieldValue('dcrcodeInput','dcrcode',5)" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblVscr" data-i18n-title="titleVscr" title="Analog voice-inversion descrambler (V.SCR) - FM only, IF 6/15kHz">Analog descrambler (SI, V.SCR)</label>
+          <label class="rocker"><input type="checkbox" id="vscrToggle" onchange="send('descr ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+        <div class="hint" id="vscrFreqHint">SC: --</div>
+
+        <div class="lcd-caption" data-i18n="hOffset">Offset Reception</div>
+        <div class="field-row">
+          <label data-i18n="lblOffsetSlot">Offset slot + direction (OF 00=off, 01&ndash;19=user, 20&ndash;39=preset)</label>
+          <div class="field-row-controls">
+            <input type="text" id="offsetSlotInput" inputmode="numeric" placeholder="00" />
+            <select id="offsetDirSelect"><option value="+">+</option><option value="-">-</option></select>
+            <button class="panel-btn small" onclick="setOffsetSlot()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblOffsetFreq">Offset frequency, MHz, unsigned (OL) &mdash; uses the slot above</label>
+          <div class="field-row-controls">
+            <input type="text" id="offsetFreqInput" inputmode="decimal" placeholder="0.60000" />
+            <button class="panel-btn small" onclick="setOffsetFreq()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+
+        <div class="lcd-caption" data-i18n="hPriority">Priority Reception</div>
+        <div class="rocker-row">
+          <label data-i18n="lblPrioOn">Priority monitor (PO)</label>
+          <label class="rocker"><input type="checkbox" id="prioToggle" onchange="send('prio ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblPrioChannel">Priority channel (PP, bank / channel)</label>
+          <div class="field-row-controls field-row-pair">
+            <input type="text" id="prioBankInput" inputmode="numeric" placeholder="00" />
+            <input type="text" id="prioChanInput" inputmode="numeric" placeholder="01" />
+            <button class="panel-btn small" onclick="setPrioChannel()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="slider-row">
+          <div class="slider-row-head">
+            <label data-i18n="lblPrioInterval">Check interval, seconds (TI 1&ndash;99)</label>
+            <span id="tiVal" class="readout-chip">05</span>
+          </div>
+          <input type="range" id="tiRange" min="1" max="99" value="5"
+            oninput="document.getElementById('tiVal').textContent = String(this.value).padStart(2,'0')"
+            onchange="send('priointerval ' + String(this.value).padStart(2,'0'))" />
+        </div>
+      </div>
+
+      <!-- MEMORY PAIR: Memory Channels (CSV) + Live Memory (Receiver),
+           side-by-side per request 2026-09-01. -->
+      <div class="memory-pair">
+      <!-- MEMORY CHANNELS -->
+      <div class="panel-section" id="memoryPanel">
+        <div class="section-label" data-i18n="hMemory">Memory Channels</div>
+        <div class="hint" data-i18n="hintMemory">Imports an "AR-DV10 Connect" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).</div>
+
+        <div class="field-row">
+          <label data-i18n="lblMemFile">Backup CSV file</label>
+          <div class="field-row-controls">
+            <input type="file" id="memFileInput" accept=".csv,text/csv" />
+            <button class="panel-btn small" onclick="memImport()" data-i18n="btnMemImport">Import</button>
+          </div>
+        </div>
+        <div class="hint" id="memStatus" data-i18n="memNoDb">No memory database imported yet.</div>
+
+        <div class="field-row">
+          <label data-i18n="lblMemSearch">Search by name / bank</label>
+          <div class="field-row-controls">
+            <input type="text" id="memSearchInput" data-i18n-ph="memSearchPlaceholder" placeholder="name contains..." />
+            <input type="text" id="memBankInput" inputmode="numeric" style="max-width:6em" data-i18n-ph="memBankPlaceholder" placeholder="bank" />
+            <button class="panel-btn small" onclick="memSearch()" data-i18n="btnMemSearch">Search</button>
+          </div>
+        </div>
+
+        <div class="mem-table-wrap">
+          <table class="mem-table" id="memTable">
+            <thead>
+              <tr>
+                <th data-i18n="memColBank">Bank-Ch</th>
+                <th data-i18n="memColFreq">Freq (MHz)</th>
+                <th data-i18n="memColMode">Mode</th>
+                <th data-i18n="memColName">Name</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="memTableBody"></tbody>
+          </table>
+        </div>
+        <div class="hint" id="memResultCount"></div>
+
+        <div class="field-row">
+          <button class="panel-btn small" onclick="memExport()" data-i18n="btnMemExport">Export current database (.csv)</button>
+        </div>
+      </div>
+
+      <!-- LIVE MEMORY (receiver's own MA/MX/MR/MW/MB/MQ) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hRmem">Live Memory (Receiver)</div>
+        <div class="hint" data-i18n="hintRmem">Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - unlike the CSV-import browser above, which only ever works on an offline backup file.</div>
+        <div class="field-row">
+          <div class="field-row-pair">
+            <input type="text" id="rmemBankInput" inputmode="numeric" value="0" data-i18n-ph="rmemBankPlaceholder" placeholder="bank" />
+            <input type="text" id="rmemChInput" inputmode="numeric" value="1" data-i18n-ph="rmemChPlaceholder" placeholder="channel" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="rmemRead()" data-i18n="btnRmemRead">Read</button>
+            <button class="panel-btn small" onclick="rmemReadBank()" data-i18n="btnRmemReadBank">Read Bank</button>
+            <button class="panel-btn small" onclick="rmemTune()" data-i18n="btnRmemTune">Tune</button>
+            <button class="panel-btn small" onclick="rmemDelete()" data-i18n="btnRmemDelete">Delete</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblRmemWrite">Write: frequency (MHz) / mode (2-digit) / tag</label>
+          <div class="field-row-pair">
+            <input type="text" id="rmemFreqInput" data-i18n-ph="freqPlaceholder" placeholder="MHz, e.g. 145.500000" />
+            <input type="text" id="rmemModeInput" style="max-width:5em" value="00" />
+          </div>
+          <div class="field-row-controls">
+            <input type="text" id="rmemTagInput" data-i18n-ph="rmemTagPlaceholder" placeholder="tag / name" />
+            <button class="panel-btn small" onclick="rmemWrite()" data-i18n="btnRmemWrite">Write</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblRmemFind">Find by tag text</label>
+          <div class="field-row-controls">
+            <input type="text" id="rmemFindInput" data-i18n-ph="rmemFindPlaceholder" placeholder="text to search for" />
+            <button class="panel-btn small" onclick="rmemFind()" data-i18n="btnMemSearch">Search</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="rmemOut"></pre>
+      </div>
+      </div><!-- /.memory-pair -->
+
+      <!-- VFO + SCHEDULED RECORDING/ALARM TIMER (VI/VS/VE, TR) -->
+      <div class="panel-section memory-section">
+        <div class="section-label" data-i18n="hVfoTimer">VFO &amp; Scheduled Recording</div>
+        <div class="hint" data-i18n="hintVfoTimer">VFO A/B info + search (VI/VS/VE), and one scheduled recording/alarm timer (TR) - see TR's spec-reconstruction caveats in aor_dv10.timer.</div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="vfoInfo()" data-i18n="btnVfoInfo">VFO Info</button>
+            <button class="panel-btn small" onclick="vfoSearchStart()" data-i18n="btnVfoSearch">Start VFO Search</button>
+            <button class="panel-btn small" onclick="vfoSettingsShow()" data-i18n="btnVfoSettings">Search Settings</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblVfoSettings">Set search settings: delay (ds) / free time (s) / autostore</label>
+          <div class="field-row-pair">
+            <input type="text" id="veDelayInput" inputmode="numeric" value="20" />
+            <input type="text" id="veFreeInput" inputmode="numeric" value="0" />
+            <select id="veAutoSelect">
+              <option value="on">ON</option>
+              <option value="off" selected>OFF</option>
+            </select>
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="vfoSettingsSet()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="timerShow()" data-i18n="btnTimerShow">Show Timer</button>
+            <button class="panel-btn small" onclick="timerOff()" data-i18n="btnTimerOff">Deactivate</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblTimerSet">Set: target / once|weekly / start / end / recording|alarm / days / volume</label>
+          <div class="field-row-pair">
+            <input type="text" id="timerTargetInput" value="vfo:A" data-i18n-ph="timerTargetPlaceholder" placeholder="vfo:A" />
+            <input type="text" id="timerRepeatInput" value="once" />
+          </div>
+          <div class="field-row-pair">
+            <input type="text" id="timerStartInput" value="00:00" />
+            <input type="text" id="timerEndInput" value="01:00" />
+          </div>
+          <div class="field-row-pair">
+            <input type="text" id="timerActionInput" value="recording" />
+            <input type="text" id="timerDaysInput" value="-" data-i18n-ph="timerDaysPlaceholder" placeholder="mon,tue,... or -" />
+          </div>
+          <div class="field-row-controls">
+            <input type="text" id="timerVolumeInput" placeholder="volume" />
+            <button class="panel-btn small" onclick="timerSet()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="vfoTimerOut"></pre>
+      </div>
+
+      <!-- SD CARD (dir/info/status/rec/play/rsq/backup/restore) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hSdCard">SD Card</div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sdDir()" data-i18n="btnSdDir">Dir</button>
+            <button class="panel-btn small" onclick="sdInfo()" data-i18n="btnSdInfo">Info</button>
+            <button class="panel-btn small" onclick="sdStatus()" data-i18n="btnSdStatus">Status</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sdRecStart()" data-i18n="btnSdRecStart">Rec Start</button>
+            <button class="panel-btn small" onclick="sdRecStop()" data-i18n="btnSdRecStop">Rec Stop</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSdPlay">Play file</label>
+          <div class="field-row-controls">
+            <input type="text" id="sdPlayInput" data-i18n-ph="sdPlayPlaceholder" placeholder="file name" />
+            <button class="panel-btn small" onclick="sdPlay()" data-i18n="btnSdPlay">Play</button>
+            <button class="panel-btn small" onclick="sdPlayStop()" data-i18n="btnSdPlayStop">Stop</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblSdRsq">Squelch skip on playback</label>
+          <label class="rocker">
+            <input type="checkbox" id="sdRsqToggle" onchange="sdRsqSet(this.checked)" />
+            <span class="rocker-track"></span>
+          </label>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSdBackup">Backup kind (SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM[sic])</label>
+          <div class="field-row-controls">
+            <input type="text" id="sdBackupInput" placeholder="SRCHBK" />
+            <button class="panel-btn small" onclick="sdBackup()" data-i18n="btnSdBackup">Backup</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSdRestore">Restore file name</label>
+          <div class="field-row-controls">
+            <input type="text" id="sdRestoreInput" placeholder="file name" />
+            <button class="panel-btn small" onclick="sdRestore()" data-i18n="btnSdRestore">Restore</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="sdOut"></pre>
+      </div>
+
+      <!-- SPECTRUM SCOPE (FD/GL) -->
+      <div class="panel-section" id="scopePanel">
+        <div class="section-label" data-i18n="hScope">Spectrum Scope</div>
+        <div class="hint" data-i18n="hintScope">FD (fast) / GL (normal) - no known way to trigger scope mode over the wire, so this only returns real data if the receiver is already showing the bandscope on its own screen.</div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="scopeFast()" data-i18n="btnScopeFast">Fast Scan</button>
+            <button class="panel-btn small" onclick="scopeNormal()" data-i18n="btnScopeNormal">Normal Scan</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="scopeOut"></pre>
+      </div>
+
+      <!-- SELECT-SCAN LIST (client-side only, task 14) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hSelectScan">Select-Scan List</div>
+        <div class="hint" data-i18n="hintSelectScan">Client-side only (never written to the receiver) - a custom list of memory channels to cycle through; see aor_dv10.selectscan.</div>
+        <div class="field-row">
+          <div class="field-row-pair">
+            <input type="text" id="selBankInput" inputmode="numeric" value="0" placeholder="bank" />
+            <input type="text" id="selChInput" inputmode="numeric" value="1" placeholder="channel" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="selectAdd()" data-i18n="btnSelectAdd">Add</button>
+            <button class="panel-btn small" onclick="selectRemove()" data-i18n="btnSelectRemove">Remove</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="selectList()" data-i18n="btnSelectList">List</button>
+            <button class="panel-btn small" onclick="selectClear()" data-i18n="btnSelectClear">Clear</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSelectRun">Run: cycles (blank=forever) / dwell seconds</label>
+          <div class="field-row-pair">
+            <input type="text" id="selCyclesInput" inputmode="numeric" placeholder="cycles" />
+            <input type="text" id="selDwellInput" inputmode="numeric" value="2.0" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="selectRun()" data-i18n="btnSelectRun">Run</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="selectOut"></pre>
+      </div>
+
+      <!-- SMALL TYPED COMMANDS (task 15: KL/IF/DL/FR/RN) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hMisc">Additional Settings</div>
+        <div class="field-row">
+          <label data-i18n="lblKlColor">Key backlight color (KL 0&ndash;7)</label>
+          <div class="field-row-controls">
+            <input type="text" id="klcolorInput" inputmode="numeric" placeholder="0-7" />
+            <button class="panel-btn small" onclick="miscSetGet('klcolorInput','klcolor')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblIfbw">IF bandwidth selector (IF)</label>
+          <div class="field-row-controls">
+            <input type="text" id="ifbwInput" placeholder="0-4" />
+            <button class="panel-btn small" onclick="miscSetGet('ifbwInput','ifbw')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblDelay">Delay time, ds (DL)</label>
+          <div class="field-row-controls">
+            <input type="text" id="delayInput" inputmode="numeric" placeholder="0-99" />
+            <button class="panel-btn small" onclick="miscSetGet('delayInput','delay')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblFreetime">Free time, s (FR)</label>
+          <div class="field-row-controls">
+            <input type="text" id="freetimeInput" inputmode="numeric" placeholder="0-99" />
+            <button class="panel-btn small" onclick="miscSetGet('freetimeInput','freetime')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
+        </div>
+        <pre class="mini-out" id="miscOut"></pre>
+      </div>
+
+    </div>
+
+    <!-- Service console -->
+    <details class="service">
+      <summary data-i18n="summaryRawConsole">Raw console (advanced)</summary>
+      <div class="term" id="term"></div>
+      <form class="cmdform" id="cmdForm">
+        <input id="cmdInput" type="text" autocomplete="off" data-i18n-ph="cmdPlaceholder" placeholder="any verb, e.g. raw LM, describe RF, help" />
+        <button type="submit" class="panel-btn" data-i18n="btnSend">Send</button>
+      </form>
+      <div class="hint" data-i18n="rawConsoleNote">Raw command/response text always stays in the device's original (English) format.</div>
+    </details>
+
+    <footer data-i18n="footerNote">Every control here sends the same short verbs as <code>dv10-cli</code>, over one shared WebSocket connection.</footer>
+  </div>
+
+  <!-- BAND quick-jump overlay (opened by the "BAND" function button) -
+       a CLIENT-SIDE convenience list of frequencies, never a device
+       "band" command (the AR-DV10 protocol has no such register - see
+       the BAND button's comment in the TUNE panel above). Picking an
+       entry just sends the same "f <mhz>" command the keypad's ENT key
+       already uses. -->
+  <div class="band-overlay" id="bandOverlay" hidden>
+    <div class="band-overlay-card">
+      <div class="band-overlay-head">
+        <span class="band-overlay-title" data-i18n="bandOverlayTitle">Quick jump</span>
+        <button type="button" class="band-overlay-close" onclick="closeBandOverlay()" aria-label="Close">&times;</button>
+      </div>
+      <div class="band-grid" id="bandGrid"></div>
+      <div class="band-overlay-hint" data-i18n="bandOverlayHint">Client-side presets only - not a device command. Picking one tunes VFO via the normal frequency-set command.</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+// -- i18n ------------------------------------------------------------------
+const I18N = {
+  en: {
+    pageTitle: "AOR AR-DV10 – Web Panel",
+    themeDay: "Day theme (light)",
+    themeNight: "Night theme (dark)",
+    btnSet: "Set",
+    freqPlaceholder: "MHz, e.g. 145.500000",
+    hSMeter: "S-Meter",
+    lblRfGainKnob: "RF GAIN/SQL",
+    lblAfGainKnob: "AF GAIN",
+    fbBand: "BAND",
+    bandOverlayTitle: "Quick jump",
+    bandOverlayHint: "Client-side presets only — not a device command. Picking one tunes the VFO via the normal frequency-set command.",
+    hMode: "Mode",
+    lblDigital: "Digital",
+    lblAnalog: "Analog",
+    optDigitalOff: "Digital off",
+    btnSetMode: "Set Mode",
+    lblBandwidth: "Bandwidth (IF)",
+    lblBandwidthShort: "IF BW",
+    hintBandwidth: "Choices depend on the active analog mode - the receiver shares one bandwidth register across every mode, so switching digital mode on and back off can silently reset this. Raw digit selector also available under Misc (\"ifbw\").",
+    hintNotDistinctOnDevice: "Not selectable on this receiver: SAH and SAL are not functionally distinct on the AR-DV10 - both demodulate identically.",
+    hintBandwidthDigitalAuto: "Not settable: the receiver auto-selects the IF filter itself while a digital mode is active.",
+    hintBandwidthUnknownMode: "No known bandwidth choices for the current mode.",
+    hSquelch: "Squelch",
+    lblMode: "Mode",
+    optSqAuto: "Auto",
+    optSqNoise: "Noise",
+    optSqLevel: "Level",
+    lblLevelSquelch: "Level squelch (LQ 00–99)",
+    lblNoiseSquelch: "Noise squelch (NQ 00–39)",
+    hLevels: "Levels",
+    lblVolume: "Volume (AG) — confirmed unsupported by this receiver's firmware (error 60)",
+    lblAgcSpeed: "AGC speed",
+    hintAgcUnavailable: "AGC is only valid in AM-class modes (AM, USB, LSB, CW). Set an AM-class analog mode first.",
+    hintAtt10DbDv3Only: "10dB attenuator is only available on the AR-DV3. Not supported by this device.",
+    optAgcFast: "Fast",
+    optAgcMid: "Mid",
+    optAgcSlow: "Slow",
+    lblAttenuator: "Attenuator",
+    optAttOff: "ATT OFF",
+    optAttOn: "ATT ON",
+    optAttAtt10: "10dB ATT",
+    lblKeyBeep: "Key beep",
+    lblResultCodes: "Result codes (RE)",
+    titleResultCodes: "Prefixes responses with a numeric result code - diagnostic only",
+    btnPowerOn: "Power ON",
+    btnPowerOff: "Power OFF",
+    lblBeepShort: "Beep",
+    lblResultCodesShort: "RE",
+    lblBeepLevelShort: "BP",
+    lblContrastShort: "LN",
+    btnPowerOnShort: "ON",
+    btnPowerOffShort: "OFF",
+    lblBacklightShort: "BL",
+    lblPowerShort: "PWR",
+    summaryRawConsole: "Raw console (advanced)",
+    cmdPlaceholder: "any verb, e.g. raw LM, describe RF, help",
+    btnSend: "Send",
+    rawConsoleNote: "Raw command/response text always stays in the device's original (English) format.",
+    footerNote: "Every control here sends the same short verbs as dv10-cli, over one shared WebSocket connection.",
+    toastNotConnected: "not connected yet",
+    toastEnterFreq: "enter a frequency first",
+    toastWaitingFreq: "waiting for current frequency...",
+    logDisconnected: "[disconnected - retrying]",
+    sqlOpen: "SQL open",
+    sqlClosed: "SQL closed",
+    sqlUnknown: "SQL --",
+    sqlDigitalDetect: "Digital signal",
+    modeReceiving: "receiving",
+    modeDigital: "digital",
+    modeAnalog: "analog",
+    modeUnknown: "(no reading yet)",
+    secTune: "Tune",
+    lblStep: "STEP",
+    hintScrollToTune: "scroll the knob to tune",
+    btnEnt: "ENT",
+    btnMovePrev: "\u00ab prev",
+    btnMoveNext: "next \u00bb",
+    lblDeviceStep: "Device tuning step (ST, Hz)",
+    hintDeviceStep: "separate from the knob's own scroll-step above; wire encoding unconfirmed",
+    lblVolLimit: "Volume limit (AV, VOL ATT 00\u201315) \u2014 the actual working volume ceiling; the knob itself is analog/local-only",
+    lblDigitalGain: "Digital sound gain (DA, 01.00\u201315.94)",
+    lblManualGain: "Manual gain (RG 000\u2013255) \u2014 only used when AGC=RF-G",
+    lblBeepLevel: "Beep volume (BP 00\u201315)",
+    lblContrast: "LCD contrast (LN 00\u201340)",
+    lblBacklight: "LCD backlight (LB)",
+    optBacklightOff: "Off",
+    optBacklightCont: "Continuous",
+    optBacklightAuto: "Auto",
+    hAdvSquelch: "Advanced Squelch",
+    lblSqlType: "Squelch type (CI)",
+    optSqlTypeOff: "OFF",
+    optSqlTypeCtcss: "CTCSS",
+    optSqlTypeRevTone: "Reverse Tone",
+    lblCtcssTone: "Tone (CN)",
+    lblDcsOn: "DCS (DI)",
+    lblDcsCode: "Code (DS)",
+    hintTypeTables: "CTCSS/DCS/Reverse Tone selection (CI/DI) is confirmed against real hardware; the CN/DS tone and code tables themselves are still manual-sourced, not yet wire-confirmed",
+    hDigiCodes: "Digital Codes",
+    lblDmrCC: "DMR color code (CC 00\u201316)",
+    lblDmrCM: "Mute by color code (CM)",
+    lblDmrSlot: "DMR slot (OT)",
+    lblP25Nac: "P25 NAC code (PC 000\u2013FFF hex)",
+    lblP25Pm: "Mute by NAC code (PM)",
+    lblNxdnRan: "NXDN RAN code (NC 00\u201363)",
+    lblNxdnNm: "Mute by RAN code (NM)",
+    hDescramblers: "Descramblers",
+    hMergedReception: "Descramblers / Offset / Priority",
+    lblDcrCode: "D-CR scramble code (DC 00000\u201332767)",
+    lblVscr: "Analog descrambler (SI, V.SCR)",
+    titleVscr: "Analog voice-inversion descrambler (V.SCR) - FM only, IF 6/15kHz",
+    hOffset: "Offset Reception",
+    lblOffsetSlot: "Offset slot (OF 00=off, 01\u201319=user, 20\u201339=preset)",
+    lblOffsetFreq: "Offset frequency, MHz, signed (OL)",
+    hPriority: "Priority Reception",
+    lblPrioOn: "Priority monitor (PO)",
+    lblPrioChannel: "Priority channel (PP, bank / channel)",
+    lblPrioInterval: "Check interval, seconds (TI 1\u201399)",
+    toastEnterValue: "enter a value first",
+    hMemory: "Memory Channels",
+    hintMemory: "Imports an \"AR-DV10 Connect\" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).",
+    lblMemFile: "Backup CSV file",
+    btnMemImport: "Import",
+    memNoDb: "No memory database imported yet.",
+    lblMemSearch: "Search by name / bank",
+    memSearchPlaceholder: "name contains...",
+    memBankPlaceholder: "bank",
+    btnMemSearch: "Search",
+    memColBank: "Bank-Ch",
+    memColFreq: "Freq (MHz)",
+    memColMode: "Mode",
+    memColName: "Name",
+    btnMemExport: "Export current database (.csv)",
+    btnMemTune: "Tune",
+    memEmptyChannel: "(empty)",
+    toastMemChooseFile: "choose a file first",
+    toastMemImporting: "importing...",
+    toastMemImportFailed: "import failed: ",
+    toastMemTuneFailed: "tune failed: ",
+    toastMemExportFailed: "export failed: ",
+    hRmem: "Live Memory (Receiver)",
+    hintRmem: "Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - unlike the CSV-import browser above, which only ever works on an offline backup file.",
+    rmemBankPlaceholder: "bank",
+    rmemChPlaceholder: "channel",
+    btnRmemRead: "Read",
+    btnRmemReadBank: "Read Bank",
+    btnRmemTune: "Tune",
+    btnRmemDelete: "Delete",
+    lblRmemWrite: "Write: frequency (MHz) / mode (2-digit) / tag",
+    rmemTagPlaceholder: "tag / name",
+    btnRmemWrite: "Write",
+    lblRmemFind: "Find by tag text",
+    rmemFindPlaceholder: "text to search for",
+    hVfoTimer: "VFO & Scheduled Recording",
+    hintVfoTimer: "VFO A/B info + search (VI/VS/VE), and one scheduled recording/alarm timer (TR) - see TR's spec-reconstruction caveats in aor_dv10.timer.",
+    btnVfoInfo: "VFO Info",
+    btnVfoSearch: "Start VFO Search",
+    btnVfoSettings: "Search Settings",
+    lblVfoSettings: "Set search settings: delay (ds) / free time (s) / autostore",
+    btnTimerShow: "Show Timer",
+    btnTimerOff: "Deactivate",
+    lblTimerSet: "Set: target / once|weekly / start / end / recording|alarm / days / volume",
+    timerTargetPlaceholder: "vfo:A",
+    timerDaysPlaceholder: "mon,tue,... or -",
+    hSdCard: "SD Card",
+    btnSdDir: "Dir",
+    btnSdInfo: "Info",
+    btnSdStatus: "Status",
+    btnSdRecStart: "Rec Start",
+    btnSdRecStop: "Rec Stop",
+    lblSdPlay: "Play file",
+    sdPlayPlaceholder: "file name",
+    btnSdPlay: "Play",
+    btnSdPlayStop: "Stop",
+    lblSdRsq: "Squelch skip on playback",
+    lblSdBackup: "Backup kind (SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM[sic])",
+    btnSdBackup: "Backup",
+    lblSdRestore: "Restore file name",
+    btnSdRestore: "Restore",
+    hScope: "Spectrum Scope",
+    hintScope: "FD (fast) / GL (normal) - no known way to trigger scope mode over the wire, so this only returns real data if the receiver is already showing the bandscope on its own screen.",
+    btnScopeFast: "Fast Scan",
+    btnScopeNormal: "Normal Scan",
+    hSelectScan: "Select-Scan List",
+    hintSelectScan: "Client-side only (never written to the receiver) - a custom list of memory channels to cycle through; see aor_dv10.selectscan.",
+    btnSelectAdd: "Add",
+    btnSelectRemove: "Remove",
+    btnSelectList: "List",
+    btnSelectClear: "Clear",
+    lblSelectRun: "Run: cycles (blank=forever) / dwell seconds",
+    btnSelectRun: "Run",
+    hMisc: "Additional Settings",
+    lblKlColor: "Key backlight color (KL 0–7)",
+    lblIfbw: "IF bandwidth selector (IF)",
+    lblDelay: "Delay time, ds (DL)",
+    lblFreetime: "Free time, s (FR)",
+    btnSerial: "Read Serial (RN)",
+  },
+  pl: {
+    pageTitle: "AOR AR-DV10 – Panel sterowania",
+    themeDay: "Motyw dzienny (jasny)",
+    themeNight: "Motyw nocny (ciemny)",
+    btnSet: "Ustaw",
+    freqPlaceholder: "MHz, np. 145.500000",
+    hSMeter: "S-Metr",
+    lblRfGainKnob: "RF GAIN/SQL",
+    lblAfGainKnob: "AF GAIN",
+    fbBand: "BAND",
+    bandOverlayTitle: "Szybki skok",
+    bandOverlayHint: "Tylko ustawienia lokalne (przeglądarki) — to nie jest komenda urządzenia. Wybór strojuje VFO zwykłą komendą ustawienia częstotliwości.",
+    hMode: "Tryb",
+    lblDigital: "Cyfrowy",
+    lblAnalog: "Analogowy",
+    optDigitalOff: "Cyfrowy wyłączony",
+    btnSetMode: "Ustaw tryb",
+    lblBandwidth: "Szerokość pasma (IF)",
+    lblBandwidthShort: "Szer. IF",
+    hintBandwidth: "Dostępne wartości zależą od aktywnego trybu analogowego - odbiornik używa jednego wspólnego rejestru szerokości pasma dla wszystkich trybów, więc włączenie i wyłączenie trybu cyfrowego może po cichu zresetować tę wartość. Surowy selektor cyfrowy dostępny też w sekcji Różne (\"ifbw\").",
+    hintNotDistinctOnDevice: "Niedostępne w tym odbiorniku: tryby SAH i SAL nie różnią się funkcjonalnie na AR-DV10 - oba demodulują identycznie.",
+    hintBandwidthDigitalAuto: "Niedostępne: podczas aktywnego trybu cyfrowego odbiornik sam automatycznie dobiera filtr IF.",
+    hintBandwidthUnknownMode: "Brak znanych wartości szerokości pasma dla bieżącego trybu.",
+    hSquelch: "Squelch (blokada szumów)",
+    lblMode: "Tryb",
+    optSqAuto: "Auto",
+    optSqNoise: "Szumowa",
+    optSqLevel: "Poziomowa",
+    lblLevelSquelch: "Squelch poziomowy (LQ 00–99)",
+    lblNoiseSquelch: "Squelch szumowy (NQ 00–39)",
+    hLevels: "Poziomy",
+    lblVolume: "Głośność (AG) — potwierdzone jako nieobsługiwane przez firmware tego odbiornika (błąd 60)",
+    lblAgcSpeed: "Szybkość AGC",
+    hintAgcUnavailable: "AGC jest dostępne tylko w trybach klasy AM (AM, USB, LSB, CW). Najpierw ustaw tryb analogowy klasy AM.",
+    hintAtt10DbDv3Only: "Tłumik 10dB jest dostępny tylko w AR-DV3. To urządzenie go nie obsługuje.",
+    optAgcFast: "Szybki",
+    optAgcMid: "Średni",
+    optAgcSlow: "Wolny",
+    lblAttenuator: "Tłumik",
+    optAttOff: "TŁUM. WYŁ.",
+    optAttOn: "TŁUM. WŁ.",
+    optAttAtt10: "TŁUM. 10dB",
+    lblKeyBeep: "Sygnał klawiszy",
+    lblResultCodes: "Kody wynikowe (RE)",
+    titleResultCodes: "Poprzedza odpowiedzi numerycznym kodem wyniku - tylko do diagnostyki",
+    btnPowerOn: "Zasilanie WŁ.",
+    btnPowerOff: "Zasilanie WYŁ.",
+    lblBeepShort: "Sygnał",
+    lblResultCodesShort: "RE",
+    lblBeepLevelShort: "BP",
+    lblContrastShort: "LN",
+    btnPowerOnShort: "WŁ.",
+    btnPowerOffShort: "WYŁ.",
+    lblBacklightShort: "BL",
+    lblPowerShort: "ZASIL.",
+    summaryRawConsole: "Konsola surowa (zaawansowane)",
+    cmdPlaceholder: "dowolna komenda, np. raw LM, describe RF, help",
+    btnSend: "Wyślij",
+    rawConsoleNote: "Tekst surowych poleceń/odpowiedzi zawsze pozostaje w oryginalnym (angielskim) formacie urządzenia.",
+    footerNote: "Każdy element sterujący wysyła te same krótkie polecenia co dv10-cli, przez jedno wspólne połączenie WebSocket.",
+    toastNotConnected: "jeszcze nie połączono",
+    toastEnterFreq: "najpierw podaj częstotliwość",
+    toastWaitingFreq: "oczekiwanie na aktualną częstotliwość...",
+    logDisconnected: "[rozłączono - ponawiam próbę]",
+    sqlOpen: "SQL otwarty",
+    sqlClosed: "SQL zamknięty",
+    sqlUnknown: "SQL --",
+    sqlDigitalDetect: "Sygnał cyfrowy",
+    modeReceiving: "odbiór",
+    modeDigital: "cyfrowo",
+    modeAnalog: "analogowo",
+    modeUnknown: "(brak jeszcze odczytu)",
+    secTune: "Strojenie",
+    lblStep: "KROK",
+    hintScrollToTune: "przewiń pokrętłem, aby strojić",
+    btnEnt: "ENT",
+    btnMovePrev: "« wstecz",
+    btnMoveNext: "dalej »",
+    lblDeviceStep: "Krok strojenia urządzenia (ST, Hz)",
+    hintDeviceStep: "niezależne od kroku przewijania pokętła powyżej; kodowanie niepotwierdzone",
+    lblVolLimit: "Limit głośności (AV, VOL ATT 00–15) — rzeczywisty, działający pułap głośności; sam pokrętło jest analogowe/lokalne",
+    lblDigitalGain: "Cyfrowe wzmocnienie dźwięku (DA, 01.00–15.94)",
+    lblManualGain: "Wzmocnienie ręczne (RG 000–255) — tylko przy AGC=RF-G",
+    lblBeepLevel: "Głośność sygnału (BP 00–15)",
+    lblContrast: "Kontrast LCD (LN 00–40)",
+    lblBacklight: "Podświetlenie LCD (LB)",
+    optBacklightOff: "Wył.",
+    optBacklightCont: "Ciągłe",
+    optBacklightAuto: "Auto",
+    hAdvSquelch: "Zaawansowany squelch",
+    lblSqlType: "Typ squelcha (CI)",
+    optSqlTypeOff: "WYŁ.",
+    optSqlTypeCtcss: "CTCSS",
+    optSqlTypeRevTone: "Reverse Tone",
+    lblCtcssTone: "Ton (CN)",
+    lblDcsOn: "DCS (DI)",
+    lblDcsCode: "Kod (DS)",
+    hintTypeTables: "wybór CTCSS/DCS/Reverse Tone (CI/DI) jest potwierdzony na realnym sprzęcie; same tabele tonów/kodów (CN/DS) wciąż pochodzą z instrukcji, niepotwierdzone na łączu",
+    hDigiCodes: "Kody cyfrowe",
+    lblDmrCC: "Kod koloru DMR (CC 00–16)",
+    lblDmrCM: "Wycisz wg kodu koloru (CM)",
+    lblDmrSlot: "Slot DMR (OT)",
+    lblP25Nac: "Kod NAC P25 (PC 000–FFF hex)",
+    lblP25Pm: "Wycisz wg kodu NAC (PM)",
+    lblNxdnRan: "Kod RAN NXDN (NC 00–63)",
+    lblNxdnNm: "Wycisz wg kodu RAN (NM)",
+    hDescramblers: "Dekodery skramblowania",
+    hMergedReception: "Dekodery / odbiór z offsetem / odbiór priorytetowy",
+    lblDcrCode: "Kod skramblowania D-CR (DC 00000–32767)",
+    lblVscr: "Deskrambler analogowy (SI, V.SCR)",
+    titleVscr: "Analogowy deskrambler odwrócenia głosu (V.SCR) - tylko FM, IF 6/15kHz",
+    hOffset: "Odbiór z offsetem",
+    lblOffsetSlot: "Slot offsetu (OF 00=wył., 01–19=użytkownika, 20–39=preset)",
+    lblOffsetFreq: "Częstotliwość offsetu, MHz, ze znakiem (OL)",
+    hPriority: "Odbiór priorytetowy",
+    lblPrioOn: "Monitor priorytetu (PO)",
+    lblPrioChannel: "Kanał priorytetowy (PP, bank / kanał)",
+    lblPrioInterval: "Odstęp sprawdzania, sekundy (TI 1–99)",
+    toastEnterValue: "najpierw podaj wartość",
+    hMemory: "Kanały pamięci",
+    hintMemory: "Importuje eksport kopii zapasowej \"AR-DV10 Connect\" (aplikacja PC) i pozwala przeglądać/wyszukiwać/przestrajać na jej podstawie - działa wyłącznie na pliku, nigdy nie czyta ani nie zapisuje pamięci odbiornika na żywo (MX/MA).",
+    lblMemFile: "Plik CSV kopii zapasowej",
+    btnMemImport: "Importuj",
+    memNoDb: "Nie zaimportowano jeszcze bazy pamięci.",
+    lblMemSearch: "Szukaj po nazwie / banku",
+    memSearchPlaceholder: "nazwa zawiera...",
+    memBankPlaceholder: "bank",
+    btnMemSearch: "Szukaj",
+    memColBank: "Bank-Kan.",
+    memColFreq: "Częst. (MHz)",
+    memColMode: "Tryb",
+    memColName: "Nazwa",
+    btnMemExport: "Eksportuj bieżącą bazę (.csv)",
+    btnMemTune: "Przestrój",
+    memEmptyChannel: "(pusty)",
+    toastMemChooseFile: "najpierw wybierz plik",
+    toastMemImporting: "importowanie...",
+    toastMemImportFailed: "import nieudany: ",
+    toastMemTuneFailed: "przestrojenie nieudane: ",
+    toastMemExportFailed: "eksport nieudany: ",
+    hRmem: "Pamięć na żywo (odbiornik)",
+    hintRmem: "Czyta/zapisuje bezpośrednio pamięć odbiornika (MA/MX/MR/MW) - w odróżnieniu od przeglądarki importu CSV powyżej, która działa wyłącznie na pliku kopii zapasowej.",
+    rmemBankPlaceholder: "bank",
+    rmemChPlaceholder: "kanał",
+    btnRmemRead: "Odczytaj",
+    btnRmemReadBank: "Odczytaj bank",
+    btnRmemTune: "Przestrój",
+    btnRmemDelete: "Usuń",
+    lblRmemWrite: "Zapisz: częstotliwość (MHz) / tryb (2 cyfry) / etykieta",
+    rmemTagPlaceholder: "etykieta / nazwa",
+    btnRmemWrite: "Zapisz",
+    lblRmemFind: "Szukaj po tekście etykiety",
+    rmemFindPlaceholder: "szukany tekst",
+    hVfoTimer: "VFO i zaplanowane nagrywanie",
+    hintVfoTimer: "Informacje i wyszukiwanie VFO A/B (VI/VS/VE) oraz jeden zaplanowany timer nagrywania/alarmu (TR) - zastrzeżenia dot. rekonstrukcji TR w aor_dv10.timer.",
+    btnVfoInfo: "Info VFO",
+    btnVfoSearch: "Start wyszukiwania VFO",
+    btnVfoSettings: "Ustawienia wyszukiwania",
+    lblVfoSettings: "Ustaw wyszukiwanie: opóźnienie (ds) / czas wolny (s) / autozapis",
+    btnTimerShow: "Pokaż timer",
+    btnTimerOff: "Dezaktywuj",
+    lblTimerSet: "Ustaw: cel / once|weekly / start / koniec / recording|alarm / dni / głośność",
+    timerTargetPlaceholder: "vfo:A",
+    timerDaysPlaceholder: "mon,tue,... lub -",
+    hSdCard: "Karta SD",
+    btnSdDir: "Katalog",
+    btnSdInfo: "Info",
+    btnSdStatus: "Status",
+    btnSdRecStart: "Start nagrywania",
+    btnSdRecStop: "Stop nagrywania",
+    lblSdPlay: "Odtwórz plik",
+    sdPlayPlaceholder: "nazwa pliku",
+    btnSdPlay: "Odtwórz",
+    btnSdPlayStop: "Stop",
+    lblSdRsq: "Pomijanie squelch przy odtwarzaniu",
+    lblSdBackup: "Rodzaj kopii zapasowej (SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM[sic])",
+    btnSdBackup: "Kopia zapasowa",
+    lblSdRestore: "Nazwa pliku do przywrócenia",
+    btnSdRestore: "Przywróć",
+    hScope: "Skop widma",
+    hintScope: "FD (szybki) / GL (normalny) - nie znaleziono sposobu na włączenie trybu skopu przez łącze, więc zwraca realne dane tylko gdy odbiornik sam już pokazuje bandscope na swoim ekranie.",
+    btnScopeFast: "Skan szybki",
+    btnScopeNormal: "Skan normalny",
+    hSelectScan: "Lista skanowania wybranych kanałów",
+    hintSelectScan: "Tylko po stronie klienta (nigdy nie zapisywane do odbiornika) - własna lista kanałów pamięci do cyklicznego przełączania; zob. aor_dv10.selectscan.",
+    btnSelectAdd: "Dodaj",
+    btnSelectRemove: "Usuń",
+    btnSelectList: "Lista",
+    btnSelectClear: "Wyczyść",
+    lblSelectRun: "Uruchom: cykle (puste=bez końca) / czas zatrzymania (s)",
+    btnSelectRun: "Uruchom",
+    hMisc: "Dodatkowe ustawienia",
+    lblKlColor: "Kolor podświetlenia klawiszy (KL 0–7)",
+    lblIfbw: "Selektor szerokości pasma IF (IF)",
+    lblDelay: "Czas opóźnienia, ds (DL)",
+    lblFreetime: "Czas wolny, s (FR)",
+    btnSerial: "Odczytaj numer seryjny (RN)",
+  },
+};
+
+// Mirrors aor_dv10.device.DIGITAL_MODES / ANALOG_MODES - kept here (rather
+// than trusting the server's English mode_description string) so the mode
+// readout can actually be localised. Analog names (FM/AM/...) and most
+// digital protocol names (D-STAR/YAESU/...) are proper nouns, identical in
+// both languages - only "Digital off" differs, via I18N.optDigitalOff.
+const DIGITAL_MODE_NAMES = {
+  "0": "Auto", "1": "D-STAR", "2": "YAESU", "3": "ALINCO", "4": "D-CR",
+  "5": "P25", "6": "dPMR", "7": "DMR", "8": "TETRA-DM", "9": "TETRA-TC",
+};
+const ANALOG_MODE_NAMES = {
+  "0": "FM", "1": "AM", "2": "SAH", "3": "SAL", "4": "USB", "5": "LSB", "6": "CW",
+};
+
+let currentLang = "en";
+let currentTheme = "night";
+
+function t(key) {
+  const table = I18N[currentLang] || I18N.en;
+  return (key in table) ? table[key] : (I18N.en[key] !== undefined ? I18N.en[key] : key);
+}
+
+function detectDefaultLang() {
+  try {
+    const saved = localStorage.getItem("dv10.lang");
+    if (saved === "en" || saved === "pl") return saved;
+  } catch (e) { /* storage unavailable - fall through */ }
+  return (navigator.language || "").toLowerCase().startsWith("pl") ? "pl" : "en";
+}
+
+function detectDefaultTheme() {
+  try {
+    const saved = localStorage.getItem("dv10.theme");
+    if (saved === "day" || saved === "night") return saved;
+  } catch (e) { /* storage unavailable - fall through */ }
+  return "night";
+}
+
+function digitalModeName(code) {
+  if (code === "F") return t("optDigitalOff");
+  return DIGITAL_MODE_NAMES[code] || code;
+}
+
+function formatModeReadout(raw) {
+  if (!raw || raw.length < 3) return t("modeUnknown");
+  const rx = raw[0], sel = raw[1], an = raw[2];
+  return t("modeReceiving") + "=" + digitalModeName(rx) + ", "
+    + t("modeDigital") + "=" + digitalModeName(sel) + ", "
+    + t("modeAnalog") + "=" + (ANALOG_MODE_NAMES[an] || an);
+}
+
+function applyLanguage(lang) {
+  currentLang = (lang === "pl") ? "pl" : "en";
+  document.documentElement.lang = currentLang;
+  document.title = t("pageTitle");
+
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+    el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph")));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.setAttribute("title", t(el.getAttribute("data-i18n-title")));
+  });
+  document.querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.lang === currentLang);
+  });
+
+  try { localStorage.setItem("dv10.lang", currentLang); } catch (e) { /* per-viewer convenience only */ }
+
+  refreshStepLabel();
+  if (lastStatus) renderStatus(lastStatus);
+}
+
+function setLanguage(lang) {
+  applyLanguage(lang);
+}
+
+function applyTheme(theme) {
+  currentTheme = (theme === "day") ? "day" : "night";
+  document.documentElement.dataset.theme = currentTheme;
+  document.querySelectorAll(".theme-switch .lang-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.theme === currentTheme);
+  });
+  try { localStorage.setItem("dv10.theme", currentTheme); } catch (e) { /* per-viewer convenience only */ }
+}
+
+function setTheme(theme) {
+  applyTheme(theme);
+}
+
+// -- console / toast ---------------------------------------------------
+const term = document.getElementById('term');
+const toastEl = document.getElementById('toast');
+let toastTimer = null;
+
+function addLine(text, cls) {
+  const div = document.createElement('div');
+  div.className = 'line ' + cls;
+  div.textContent = text;
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
+}
+
+function toast(text, isErr) {
+  toastEl.textContent = text;
+  toastEl.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+}
+
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+let ws;
+let wsReady = false;
+
+// FIFO of per-panel output-box element ids, one entry per command sent -
+// see send()'s "out" option and the panel sections (rmem/VFO+
+// timer/SD/scope/select/misc) that use it.
+let pendingRoutes = [];
+
+function connectWs() {
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { wsReady = true; };
+  ws.onmessage = (ev) => {
+    addLine(ev.data, ev.data.startsWith('error:') ? 'err' : 'out');
+    if (ev.data.startsWith('error:')) toast(ev.data, true);
+    const route = pendingRoutes.length ? pendingRoutes.shift() : null;
+    if (route) {
+      const target = (typeof route === 'string') ? route : route.out;
+      if (target) {
+        const el = document.getElementById(target);
+        if (el) el.textContent = ev.data;
+      }
+      if (route && route.onData) { try { route.onData(ev.data); } catch (e) { /* ignore */ } }
+    }
+  };
+  ws.onclose = () => { wsReady = false; pendingRoutes = []; addLine(t('logDisconnected'), 'err'); setTimeout(connectWs, 1500); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+connectWs();
+
+function send(cmd, opts) {
+  opts = opts || {};
+  if (!wsReady) { toast(t('toastNotConnected'), true); return; }
+  if (!opts.quiet) addLine('DV10> ' + cmd, 'in');
+  // route can carry a mini-out element id (out) and/or a callback
+  // (onData) - see updateVfoBFromRaw()'s use of onData to parse the VI
+  // response without adding it to every status-poll cycle.
+  pendingRoutes.push({ out: opts.out || null, onData: opts.onData || null });
+  ws.send(cmd);
+}
+
+document.getElementById('cmdForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('cmdInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  send(cmd);
+  input.value = '';
+});
+
+// -- frequency controls ----------------------------------------------------
+let lastFreqMhz = null;
+
+function setFrequency() {
+  const v = document.getElementById('freqInput').value;
+  if (!v) { toast(t('toastEnterFreq'), true); return; }
+  send('f ' + parseFloat(v).toFixed(6));
+}
+
+function stepFreq(deltaMhz) {
+  if (lastFreqMhz === null) { toast(t('toastWaitingFreq'), true); return; }
+  const next = Math.max(0, lastFreqMhz + deltaMhz);
+  // Optimistic update: lastFreqMhz used to be
+  // refreshed ONLY by renderStatus(), which only runs once per 1.5s
+  // pollStatus() cycle. Several knob turns (wheel notches or held arrow
+  // keys) inside that window all computed their delta from the SAME
+  // stale lastFreqMhz, so they all sent the identical target frequency
+  // instead of accumulating - the knob felt like it "caught up" only
+  // once per poll tick. Updating lastFreqMhz here immediately, before
+  // the round trip even starts, makes consecutive turns compound right
+  // away; renderStatus() still overwrites it with the confirmed value on
+  // the next poll, so a rejected/clamped write (or another client's
+  // change) self-corrects within one poll cycle either way.
+  lastFreqMhz = next;
+  send('f ' + next.toFixed(6));
+}
+
+// -- keypad --------------------------------------------------------------
+function keypadPress(key) {
+  const input = document.getElementById('freqInput');
+  if (key === 'CE') { input.value = ''; input.focus(); return; }
+  if (key === 'ENT') { setFrequency(); return; }
+  if (key === '.' && (input.value || '').includes('.')) { input.focus(); return; }
+  input.value = (input.value || '') + key;
+  input.focus();
+}
+
+// -- tuning knob -----------------------------------------------------------
+const STEP_SIZES = [0.001, 0.005, 0.025, 1];
+let stepIndex = 1; // default 5 kHz
+
+function stepSizeLabelText() {
+  const v = STEP_SIZES[stepIndex];
+  return v >= 1 ? v.toFixed(0) + ' MHz' : Math.round(v * 1000) + ' kHz';
+}
+
+function refreshStepLabel() {
+  const el = document.getElementById('stepSizeLabel');
+  if (el) el.textContent = stepSizeLabelText();
+}
+
+document.getElementById('stepSizeBtn').addEventListener('click', () => {
+  stepIndex = (stepIndex + 1) % STEP_SIZES.length;
+  refreshStepLabel();
+});
+
+let knobRotation = 0;
+const tuneKnob = document.getElementById('tuneKnob');
+const tuneKnobFace = tuneKnob.querySelector('.tune-knob-face');
+
+function turnKnob(dir) {
+  knobRotation += dir * 15;
+  tuneKnobFace.style.transform = 'rotate(' + knobRotation + 'deg)';
+  stepFreq(dir * STEP_SIZES[stepIndex]);
+}
+
+tuneKnob.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  turnKnob(e.deltaY < 0 ? 1 : -1);
+}, { passive: false });
+
+tuneKnob.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); turnKnob(1); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); turnKnob(-1); }
+});
+
+// -- tuning knob: mouse/touch drag (wheel + arrow keys are already wired
+// above) - vertical movement turns the dial, matching a physical knob
+// under a dragging finger/cursor more naturally than trying to track
+// angle around a small on-screen circle. A few pixels of movement per
+// "click" of rotation, same STEP_SIZES[stepIndex] the wheel/keys use. --
+(function initKnobDrag() {
+  let dragging = false, lastY = 0, accum = 0;
+  const PX_PER_STEP = 10;
+  function down(y) { dragging = true; lastY = y; accum = 0; tuneKnob.classList.add('dragging'); }
+  function move(y) {
+    if (!dragging) return;
+    accum += lastY - y;
+    lastY = y;
+    while (Math.abs(accum) >= PX_PER_STEP) {
+      turnKnob(accum > 0 ? 1 : -1);
+      accum += accum > 0 ? -PX_PER_STEP : PX_PER_STEP;
+    }
+  }
+  function up() { dragging = false; tuneKnob.classList.remove('dragging'); }
+
+  tuneKnob.addEventListener('mousedown', (e) => { e.preventDefault(); down(e.clientY); });
+  window.addEventListener('mousemove', (e) => move(e.clientY));
+  window.addEventListener('mouseup', up);
+
+  tuneKnob.addEventListener('touchstart', (e) => { down(e.touches[0].clientY); }, { passive: true });
+  tuneKnob.addEventListener('touchmove', (e) => { move(e.touches[0].clientY); e.preventDefault(); }, { passive: false });
+  tuneKnob.addEventListener('touchend', up);
+})();
+
+// -- generic rotary-encoder drag/wheel/keyboard binder, used for the two
+// small RF GAIN/SQL and AF GAIN knobs below - same interaction model as
+// the big tuning dial above, but bound to a value range + a real
+// "<verb> <value>" device command instead of frequency stepping. -------
+function bindMiniKnob(knobId, rangeId, verb, pad) {
+  const knob = document.getElementById(knobId);
+  const range = document.getElementById(rangeId);
+  if (!knob || !range) return;
+  const face = knob.querySelector('.mini-knob-face');
+  const min = parseInt(range.min, 10), max = parseInt(range.max, 10);
+
+  function currentValue() { return parseInt(range.value, 10) || 0; }
+  function paint(v) {
+    const pct = (v - min) / (max - min || 1);
+    if (face) face.style.transform = 'rotate(' + (-135 + pct * 270) + 'deg)';
+  }
+  function apply(v) {
+    v = Math.max(min, Math.max(min, Math.min(max, Math.round(v))));
+    range.value = v;
+    const valEl = document.getElementById(rangeId.replace('Range', 'Val'));
+    if (valEl) valEl.textContent = pad ? String(v).padStart(pad, '0') : String(v);
+    paint(v);
+    send(verb + ' ' + (pad ? String(v).padStart(pad, '0') : v));
+  }
+  knob.__mkPaint = paint;
+
+  let dragging = false, lastY = 0, accum = 0;
+  const PX_PER_STEP = 6;
+  knob.addEventListener('mousedown', (e) => { e.preventDefault(); dragging = true; lastY = e.clientY; accum = 0; });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    accum += lastY - e.clientY; lastY = e.clientY;
+    while (Math.abs(accum) >= PX_PER_STEP) { apply(currentValue() + (accum > 0 ? 1 : -1)); accum += accum > 0 ? -PX_PER_STEP : PX_PER_STEP; }
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+
+  knob.addEventListener('touchstart', (e) => { dragging = true; lastY = e.touches[0].clientY; accum = 0; }, { passive: true });
+  knob.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const y = e.touches[0].clientY;
+    accum += lastY - y; lastY = y;
+    while (Math.abs(accum) >= PX_PER_STEP) { apply(currentValue() + (accum > 0 ? 1 : -1)); accum += accum > 0 ? -PX_PER_STEP : PX_PER_STEP; }
+    e.preventDefault();
+  }, { passive: false });
+  knob.addEventListener('touchend', () => { dragging = false; });
+
+  knob.addEventListener('wheel', (e) => { e.preventDefault(); apply(currentValue() + (e.deltaY < 0 ? 1 : -1)); }, { passive: false });
+  knob.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); apply(currentValue() + 1); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); apply(currentValue() - 1); }
+  });
+
+  paint(currentValue());
+}
+bindMiniKnob('rfGainKnob', 'lqRange', 'lq', 2);
+bindMiniKnob('afGainKnob', 'avRange', 'vollimit', 2);
+
+// -- BAND quick-jump overlay (client-side presets, see the BAND
+// button's HTML comment - never a device command). Ranges reflect the practical
+// span a wideband digital receiver like the DV10 actually covers, not
+// just the amateur allocations - VHF/UHF/DMR/analog PMR entries are
+// included alongside the classic HF ham bands. -------------------------
+const BAND_PRESETS = [
+  { name: '160m', mhz: 1.900 }, { name: '80m', mhz: 3.650 },
+  { name: '60m', mhz: 5.3565 }, { name: '40m', mhz: 7.100 },
+  { name: '30m', mhz: 10.125 }, { name: '20m', mhz: 14.200 },
+  { name: '17m', mhz: 18.130 }, { name: '15m', mhz: 21.250 },
+  { name: '12m', mhz: 24.950 }, { name: '10m', mhz: 28.400 },
+  { name: 'AIR', mhz: 124.000 }, { name: 'VHF PMR', mhz: 154.600 },
+  { name: '2m', mhz: 145.500 }, { name: '70cm', mhz: 433.500 },
+];
+function renderBandGrid() {
+  const grid = document.getElementById('bandGrid');
+  if (!grid || grid.childElementCount) return;
+  grid.innerHTML = BAND_PRESETS.map((b) =>
+    `<div class="band-chip" onclick="jumpToBand(${b.mhz})">` +
+    `<span class="band-name">${b.name}</span><span class="band-freq">${b.mhz.toFixed(3)} MHz</span></div>`
+  ).join('');
+}
+function openBandOverlay() { renderBandGrid(); document.getElementById('bandOverlay').hidden = false; }
+function closeBandOverlay() { document.getElementById('bandOverlay').hidden = true; }
+function jumpToBand(mhz) {
+  lastFreqMhz = mhz;
+  send('f ' + mhz.toFixed(6));
+  closeBandOverlay();
+}
+document.getElementById('bandOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'bandOverlay') closeBandOverlay();
+});
+
+// -- mode --------------------------------------------------------------
+// NOTE: order here is digital-then-analog, matching MD's read format and
+// this project's CLI/help convention - DV10Device.set_mode() takes that
+// same 2-character convention and pads it into the wire's actual
+// 3-character "dan" shape internally (a real AR-DV10 firmware quirk found
+// by testing - a plain 2-character write, in either order, is silently
+// accepted but never applied). Don't "fix" this by sending d/a directly
+// as a bare 2-character value here.
+function setMode() {
+  const d = document.getElementById('digitalMode').value;
+  const a = document.getElementById('analogMode').value;
+  send('m ' + d + a);
+}
+
+// -- button-matrix controls (visual stand-ins for the hidden <select>s) ---
+const matrixRefreshers = {};
+
+function initButtonMatrix(root) {
+  const targetId = root.dataset.select;
+  const select = document.getElementById(targetId);
+  if (!select) return;
+  const buttons = Array.from(root.querySelectorAll('button'));
+  function refresh() {
+    buttons.forEach((b) => b.classList.toggle('active', b.dataset.value === select.value));
+  }
+  buttons.forEach((b) => {
+    b.addEventListener('click', () => {
+      if (select.value === b.dataset.value) return;
+      select.value = b.dataset.value;
+      refresh();
+      select.dispatchEvent(new Event('change'));
+    });
+  });
+  refresh();
+  matrixRefreshers[targetId] = refresh;
+}
+document.querySelectorAll('.btn-matrix[data-select]').forEach(initButtonMatrix);
+
+// "Digital off" (data-value F) was moved out of the DIGITAL matrix into
+// the ANALOG column 2026-09-01 at user request - it's still logically
+// one of digitalMode's values, just physically relocated, so it can't
+// rely on initButtonMatrix()'s normal "scan buttons inside this .btn-
+// matrix container" wiring above. Instead of wrapping matrixRefreshers
+// (initButtonMatrix()'s own click handlers call their closed-over
+// refresh() directly, not through matrixRefreshers, so a wrapper placed
+// there never actually runs on a normal matrix-button click - found via
+// the D-STAR/etc. buttons leaving this one stuck showing active),
+// listen for the select's own "change" event instead: every path that
+// changes digitalMode's value already dispatches it (initButtonMatrix's
+// click handler below, and this button's own click), so it's a reliable
+// single hook for staying in sync no matter which side changed it.
+(function wireDigitalOffButton() {
+  const btn = document.getElementById('digitalOffBtn');
+  const select = document.getElementById('digitalMode');
+  if (!btn || !select) return;
+  const syncActive = () => btn.classList.toggle('active', select.value === 'F');
+  select.addEventListener('change', syncActive);
+  btn.addEventListener('click', () => {
+    if (select.value === 'F') return;
+    select.value = 'F';
+    matrixRefreshers.digitalMode && matrixRefreshers.digitalMode();
+    select.dispatchEvent(new Event('change'));
+  });
+  syncActive();
+})();
+
+// -- generic "type a value, click Set" helper for the field-rows -----------
+// (DMR/P25/NXDN/D-CR codes, offset slot, priority interval, etc.) - these
+// are plain text fields rather than validated widgets because the exact
+// wire digit-width for several of them is still a documented best guess.
+function sendFieldValue(inputId, verb, pad) {
+  const el = document.getElementById(inputId);
+  let v = (el.value || '').trim();
+  if (!v) { toast(t('toastEnterValue'), true); return; }
+  if (pad) {
+    const n = parseInt(v, 10);
+    if (!Number.isNaN(n)) v = String(n).padStart(pad, '0');
+  }
+  send(verb + ' ' + v);
+}
+
+// OF carries its own direction sign and OL's frequency is unsigned and
+// always paired with an explicit slot number - see
+// aor_dv10.device.DV10Device.set_offset_slot()/set_offset_freq().
+function setOffsetSlot() {
+  const slotEl = document.getElementById('offsetSlotInput');
+  const dirEl = document.getElementById('offsetDirSelect');
+  const slot = (slotEl.value || '').trim();
+  if (!slot) { toast(t('toastEnterValue'), true); return; }
+  const n = parseInt(slot, 10);
+  if (Number.isNaN(n)) { toast(t('toastEnterValue'), true); return; }
+  send('offset ' + String(n).padStart(2, '0') + ' ' + (dirEl ? dirEl.value : '+'));
+}
+
+function setOffsetFreq() {
+  const slotEl = document.getElementById('offsetSlotInput');
+  const el = document.getElementById('offsetFreqInput');
+  const slot = (slotEl.value || '').trim();
+  const v = (el.value || '').trim();
+  if (!slot || !v) { toast(t('toastEnterValue'), true); return; }
+  const slotN = parseInt(slot, 10);
+  const n = parseFloat(v);
+  if (Number.isNaN(slotN) || Number.isNaN(n)) { toast(t('toastEnterValue'), true); return; }
+  send('offsetfreq ' + String(slotN).padStart(2, '0') + ' ' + Math.abs(n).toFixed(5));
+}
+
+function setPrioChannel() {
+  const bank = (document.getElementById('prioBankInput').value || '').trim();
+  const chan = (document.getElementById('prioChanInput').value || '').trim();
+  if (!bank || !chan) { toast(t('toastEnterValue'), true); return; }
+  send('priochan ' + String(parseInt(bank, 10)).padStart(2, '0') + ' ' + String(parseInt(chan, 10)).padStart(2, '0'));
+}
+
+// -- memory channels ---------------------------------------------------------
+// REST, not the WS verb grammar - browsing/importing/exporting an
+// "AR-DV10 Connect" backup CSV is naturally file-shaped (see
+// aor_dv10.web.server's /api/memory/* endpoints and aor_dv10.memory's
+// module docstring). "Tune" replays a loaded channel's frequency/mode/step
+// through the ordinary f/m/step writes server-side - it is NOT a live
+// MX/MA memory-channel read, same split as the CLI's "mem goto".
+let memHasDb = false;
+
+function memSetStatus(text) {
+  document.getElementById('memStatus').removeAttribute('data-i18n');
+  document.getElementById('memStatus').textContent = text;
+}
+
+async function memImport() {
+  const input = document.getElementById('memFileInput');
+  const file = input.files && input.files[0];
+  if (!file) { toast(t('toastMemChooseFile'), true); return; }
+  toast(t('toastMemImporting'));
+  try {
+    const buf = await file.arrayBuffer();
+    const res = await fetch('/api/memory/import', { method: 'POST', body: buf,
+      headers: { 'Content-Type': 'text/csv' } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    memHasDb = true;
+    memSetStatus(`${file.name}: ${body.banks} banks / ${body.channels} slots (${body.programmed} programmed)`);
+    await memSearch();
+  } catch (e) {
+    toast(t('toastMemImportFailed') + e.message, true);
+  }
+}
+
+function memRenderResults(channels, total) {
+  const body = document.getElementById('memTableBody');
+  body.innerHTML = '';
+  channels.forEach((c) => {
+    const tr = document.createElement('tr');
+    const modeCell = c.is_empty ? t('memEmptyChannel') : (c.mode_description || c.mode || '');
+    tr.innerHTML =
+      `<td>${c.bank_channel}</td>` +
+      `<td class="mem-freq">${c.is_empty ? '' : c.frequency_mhz.toFixed(5)}</td>` +
+      `<td>${modeCell}</td>` +
+      `<td${c.protect ? ' class="mem-protect"' : ''}>${c.name || ''}</td>` +
+      '<td></td>';
+    if (!c.is_empty) {
+      const btn = document.createElement('button');
+      btn.className = 'panel-btn small';
+      btn.textContent = t('btnMemTune');
+      btn.onclick = () => memTune(c.bank, c.channel);
+      tr.lastElementChild.appendChild(btn);
+    }
+    body.appendChild(tr);
+  });
+  document.getElementById('memResultCount').textContent =
+    total > channels.length ? `${channels.length} / ${total}` : `${total}`;
+}
+
+async function memSearch() {
+  if (!memHasDb) return;
+  const q = (document.getElementById('memSearchInput').value || '').trim();
+  const bank = (document.getElementById('memBankInput').value || '').trim();
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (bank) params.set('bank', String(parseInt(bank, 10)));
+  try {
+    const res = await fetch('/api/memory?' + params.toString());
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    memRenderResults(body.channels, body.total);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+async function memTune(bank, channel) {
+  try {
+    const res = await fetch(`/api/memory/tune/${bank}/${channel}`, { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    toast(`${body.tuned}: ${body.frequency_mhz.toFixed(5)} MHz`);
+  } catch (e) {
+    toast(t('toastMemTuneFailed') + e.message, true);
+  }
+}
+
+async function memExport() {
+  if (!memHasDb) { toast(t('toastMemChooseFile'), true); return; }
+  try {
+    const res = await fetch('/api/memory/export');
+    if (!res.ok) { const body = await res.json(); throw new Error(body.detail || res.statusText); }
+    const text = await res.text();
+    const blob = new Blob([text], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ardv10_memory_export.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast(t('toastMemExportFailed') + e.message, true);
+  }
+}
+
+// -- CTCSS tone / DCS code pickers ------------------------------------------
+// Mirrors aor_dv10.device.CTCSS_TONES_HZ / DCS_CODES - see that module's
+// docstrings for the same confidence caveat (values are what the receiver's
+// own front panel shows; whether the CI wire format matches these literal
+// strings is unconfirmed).
+const CTCSS_TONES = [
+  "60.0","67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5",
+  "91.5","94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8",
+  "120.0","123.0","127.3","131.8","136.5","141.3","146.2","151.4","156.7",
+  "159.8","162.2","165.5","167.9","171.3","173.8","177.3","179.9","183.5",
+  "186.2","189.9","192.8","196.6","199.5","203.5","206.5","210.7","218.1",
+  "225.7","229.1","233.6","241.8","250.3","254.1",
+];
+const DCS_CODES = [
+  "017","023","025","026","031","032","036","043","047","050","051",
+  "053","054","065","071","072","073","074","114","115","116","122",
+  "125","131","132","134","143","145","152","155","156","162","165",
+  "172","174","205","212","223","225","226","243","244","245","246",
+  "251","252","255","261","263","265","266","271","274","306","311",
+  "315","325","331","332","343","346","351","356","364","365","371",
+  "411","412","413","423","431","432","445","446","452","454","455",
+  "462","464","465","466","503","506","516","523","526","532","546",
+  "565","606","612","624","627","631","632","654","662","664","703",
+  "712","723","731","732","734","743","754",
+];
+
+function populateSelect(selectEl, values, extraFirst) {
+  selectEl.innerHTML = '';
+  (extraFirst || []).forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    selectEl.appendChild(opt);
+  });
+  values.forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    selectEl.appendChild(opt);
+  });
+}
+
+const ctcssToneSelect = document.getElementById('ctcssToneSelect');
+populateSelect(ctcssToneSelect, CTCSS_TONES, ['SRCH']);
+ctcssToneSelect.addEventListener('change', () => send('tonefreq ' + ctcssToneSelect.value));
+
+const dcsCodeSelect = document.getElementById('dcsCodeSelect');
+populateSelect(dcsCodeSelect, DCS_CODES, ['SRCH']);
+dcsCodeSelect.addEventListener('change', () => send('dcscode ' + dcsCodeSelect.value));
+
+// -- segmented S-meter -----------------------------------------------------
+const SMETER_SEGMENTS = 24;
+const smeterTrack = document.getElementById('smeter');
+for (let i = 0; i < SMETER_SEGMENTS; i++) {
+  const seg = document.createElement('span');
+  seg.className = 'seg ' + (i >= SMETER_SEGMENTS * 0.85 ? 'band-red' : i >= SMETER_SEGMENTS * 0.65 ? 'band-yellow' : 'band-green');
+  smeterTrack.appendChild(seg);
+}
+const smeterSegEls = smeterTrack.querySelectorAll('.seg');
+
+// -- status polling ------------------------------------------------------
+function fmtFreq(hz) {
+  // No " MHz" suffix here - the big freq readout has its own static
+  // .freq-unit span (see index.html), and VFO-B/CENTER labels are
+  // compact enough not to need one repeated on every update either.
+  if (hz === null || hz === undefined) return '---.------';
+  return (hz / 1_000_000).toFixed(6);
+}
+
+// IF bandwidth picker: the option list itself is mode-dependent (server-
+// driven via /api/status's if_bandwidth_options_hz, see renderStatus()
+// below), not a fixed <option> set baked into the HTML like most other
+// selects here - see DV10Device.get_if_bandwidth_options_hz()'s docstring
+// for why (one shared IF register, meaning depends on the active mode).
+function fmtBandwidthHz(hz) {
+  if (hz >= 1000) {
+    const khz = hz / 1000;
+    return (Number.isInteger(khz) ? khz.toFixed(0) : khz.toFixed(1)) + ' kHz';
+  }
+  return hz + ' Hz';
+}
+
+// Was a <select id="ifBandwidthSelect">'s option-list/value/title
+// upkeep; that select was removed 2026-09-01 (redundant once the
+// Bandwidth status chip - #chipBw, see cycleBandwidthClick/Wheel below -
+// could cycle the same real if_bandwidth_options_hz/if_bandwidth_hz
+// fields directly). Kept the same "0 known choices" detection, just
+// retargeted at disabling the chip and explaining why, instead of a
+// <select>'s option list.
+const BW_CHIP_DEFAULT_TITLE = 'Click to cycle forward, wraps to the start - scroll to step up/down (IF bandwidth)';
+function renderBandwidth(s) {
+  const chip = document.getElementById('chipBw');
+  if (!chip) return;
+  const entries = s.if_bandwidth_options_hz
+    ? Object.values(s.if_bandwidth_options_hz).sort((a, b) => a - b)
+    : [];
+  chip.disabled = entries.length === 0;
+  if (entries.length === 0) {
+    // MD's raw "dan" value - s.mode[1] is the selected DIGITAL mode code
+    // ("F" = digital off). Confirmed against real hardware: IF isn't
+    // user-settable at all while a digital mode is active (the receiver
+    // auto-selects the filter) - distinct from simply not knowing the
+    // choices for an unrecognised analog mode, worth explaining
+    // separately rather than leaving the greyed-out control unexplained.
+    const digitalSel = s.mode && s.mode.length >= 2 ? s.mode[1] : null;
+    chip.title = (digitalSel && digitalSel !== 'F')
+      ? t('hintBandwidthDigitalAuto')
+      : t('hintBandwidthUnknownMode');
+  } else {
+    chip.title = BW_CHIP_DEFAULT_TITLE;
+  }
+}
+
+// -- AGC gating ---------------------------------------------------------
+// Per the AR-DV3 wire spec, the AC (AGC speed) register is only valid in
+// AM-class analog modes - AM/USB/LSB/CW (other modes return a result
+// code 30; see device.py's AGC_SPEEDS note, which flags an unconfirmed
+// real-DV10 test that succeeded in FM, so this gating is a UI-level
+// restriction in line with the documented rule rather than a hard device
+// guard - the "Set AGC" button stays off the wire here, but nothing
+// prevents a raw `agcspd`/`agc` from the CLI/console tab). Driven by the
+// live s.mode analog code (s.mode[2]) like renderBandwidth() above, not
+// the locally-picked analogMode matrix value - the receiver decides.
+const AGC_COMPATIBLE_ANALOG_MODES = [1, 4, 5, 6]; // AM, USB, LSB, CW
+const AGC_CHIP_DEFAULT_TITLE = 'Click to cycle (AGC speed)';
+
+function isAgcCompatibleMode(s) {
+  const an = s && s.mode && s.mode.length >= 3 ? parseInt(s.mode[2], 10) : NaN;
+  return AGC_COMPATIBLE_ANALOG_MODES.includes(an);
+}
+
+function renderAgcGating(s) {
+  const compatible = isAgcCompatibleMode(s);
+  const chip = document.getElementById('chipAgc');
+
+  // matrix buttons + hidden select + status chip all read the same rule.
+  document.querySelectorAll('.btn-matrix[data-select="agcSpeed"] button').forEach((btn) => {
+    btn.disabled = !compatible;
+    btn.title = compatible ? '' : t('hintAgcUnavailable');
+  });
+  const agcSel = document.getElementById('agcSpeed');
+  if (agcSel) agcSel.disabled = !compatible;
+  if (chip) {
+    chip.disabled = !compatible;
+    chip.title = compatible ? AGC_CHIP_DEFAULT_TITLE : t('hintAgcUnavailable');
+    chip.classList.toggle('agc-unavailable', !compatible);
+  }
+}
+
+// -- ATT gating: the 10dB attenuator state (AT=2) is DV3-only -----------
+// AT is a 3-state selector whose labels follow a real DV10's effect
+// (0=ATT OFF, 1=ATT ON, 2=10dB ATT) - see ATTENUATOR_STATES in device.py
+// and PROTOCOL.md. The 10dB attenuator state is NOT available on the
+// DV10 or DV1 - it's a DV3-only feature. So the "10dB ATT" matrix button
+// (and its hidden <option value="2">) is greyed out by default and only
+// becomes active once device_family() reports a real DV3.
+function renderAttGating(s) {
+  const isDV3 = s && s.device_family === "DV3";
+  const gate = !isDV3;
+
+  const tenDbBtn = document.querySelector('.btn-matrix[data-select="attState"] button[data-value="2"]');
+  if (tenDbBtn) {
+    tenDbBtn.disabled = gate;
+    tenDbBtn.title = gate ? t('hintAtt10DbDv3Only') : '';
+  }
+  const attSel = document.getElementById('attState');
+  if (attSel) {
+    const opt = attSel.querySelector('option[value="2"]');
+    if (opt) opt.disabled = gate;
+  }
+  const chip = document.getElementById('chipAtt');
+  if (chip) {
+    chip.title = gate ? t('hintAtt10DbDv3Only') : 'Click to cycle (ATT)';
+  }
+}
+
+function setDot(connected) {
+  document.getElementById('connDot').classList.toggle('up', !!connected);
+}
+
+// -- device identification / model gating -----------------------------
+// Server-driven: DV10Device.model()/device_family()/
+// analog_modes_without_distinction() (device.py) do the actual model
+// detection (via WI) and per-family gating decisions; this just reflects
+// whatever /api/status reports. SAH/SAL are the first (and, as of this
+// writing, only) gated pair - not functionally distinct on a real DV10 -
+// but the gating itself is generic (any analog-mode code the server
+// lists), so a future model/finding doesn't need new frontend logic.
+function renderModelGating(s) {
+  if (s.model) {
+    const plate = document.getElementById('namePlateText');
+    if (plate) plate.innerHTML = 'AOR <strong>' + s.model.replace(/^AOR\s+/i, '') + '</strong>';
+  }
+  const gated = new Set(s.analog_modes_without_distinction || []);
+  const analogSelect = document.getElementById('analogMode');
+  if (analogSelect) {
+    Array.from(analogSelect.options).forEach((opt) => { opt.disabled = gated.has(opt.value); });
+  }
+  document.querySelectorAll('.btn-matrix[data-select="analogMode"] button').forEach((btn) => {
+    const isGated = gated.has(btn.dataset.value);
+    btn.disabled = isGated;
+    btn.title = isGated ? t('hintNotDistinctOnDevice') : '';
+  });
+}
+
+// avoid clobbering a control the person is actively dragging/typing
+function isBusy(el) { return document.activeElement === el; }
+
+let lastStatus = null;
+
+// -- console display: real device state (not decorative) --------------
+// AGC speed / attenuator / SQL TYPE reuse the same i18n labels as their
+// own matrix buttons in the Levels/Advanced-Squelch panels below
+// (optAgcFast etc.) rather than duplicating the wording here.
+const AGC_SPEED_I18N = { "0": "optAgcFast", "1": "optAgcMid", "2": "optAgcSlow" };
+function agcSpeedLabel(v) { return v === "3" ? "RF-G" : t(AGC_SPEED_I18N[v] || v); }
+const ATT_STATE_I18N = { "0": "optAttOff", "1": "optAttOn", "2": "optAttAtt10" };
+function attStateLabel(v) { return t(ATT_STATE_I18N[v] || v); }
+const SQL_TYPE_I18N = { "0": "optSqlTypeOff", "1": "optSqlTypeCtcss", "2": "optSqlTypeRevTone" };
+function sqlTypeLabel(v) { return t(SQL_TYPE_I18N[v] || v); }
+const SQL_MODE_I18N = { "0": "optSqAuto", "1": "optSqNoise", "2": "optSqLevel" };
+function sqlModeLabel(v) { return t(SQL_MODE_I18N[v] || v); }
+
+// Conventional (NOT device-confirmed) ham-radio S-unit scale, used only
+// for the S-meter's headline text label (S9 = -73dBm, 6dB/S-unit below,
+// linear dB-over-S9 above - the universal convention printed on most
+// radios). The fill bar itself still tracks the real dBm reading 1:1
+// across the full -120..0 range - this label just borrows the standard
+// convention rather than inventing a receiver-specific calibration that
+// was never confirmed against real hardware (see docs/PROTOCOL.md).
+function dbmToConventionalSLabel(dbm) {
+  if (dbm === null || dbm === undefined) return '--';
+  const overS9 = dbm + 73;
+  if (overS9 >= 0) return '+' + Math.round(overS9) + 'dB';
+  const sUnit = Math.max(1, Math.min(9, Math.round(9 + overS9 / 6)));
+  return 'S' + sUnit;
+}
+
+// -- real device-state chip cycling (click handlers on #chipAtt/#chipAgc/
+// #chipSqlType) - each just sends the next value in the same cycle its
+// equivalent matrix button group below already offers. --------------
+function cycleAtt() {
+  // On non-DV3 devices the 10dB ATT state (2) is unsupported, so cycling
+  // skips it: 0 -> 1 -> 0. On a DV3 it cycles 0 -> 1 -> 2 -> 0.
+  const isDV3 = lastStatus && lastStatus.device_family === "DV3";
+  const cur = String(lastStatus && lastStatus.attenuator_state != null ? lastStatus.attenuator_state : '0');
+  const next = parseInt(cur, 10) + 1;
+  if (next === 2 && !isDV3) send('attst 0');
+  else send('attst ' + String(next % 3));
+}
+function cycleAgc() {
+  if (!isAgcCompatibleMode(lastStatus)) { toast(t('hintAgcUnavailable'), true); return; }
+  const cur = String(lastStatus && lastStatus.agc_speed != null ? lastStatus.agc_speed : '0');
+  send('agcspd ' + String((parseInt(cur, 10) + 1) % 4));
+}
+function cycleSqlType() {
+  // OFF -> CTCSS -> Reverse Tone -> DCS -> OFF. DCS is a separate
+  // command (DI) from CI/TONE_SQUELCH_TYPES - confirmed independent
+  // against real hardware (see aor_dv10.device.TONE_SQUELCH_TYPES) - so
+  // "DCS" here means sending dcs on + sqltype 0, not a 4th CI value.
+  const dcsOn = lastStatus && (lastStatus.dcs_enabled === '1' || lastStatus.dcs_enabled === 1);
+  const ci = String(lastStatus && lastStatus.squelch_tone_type != null ? lastStatus.squelch_tone_type : '0');
+  if (dcsOn) { send('dcs off'); send('sqltype 0'); }
+  else if (ci === '0') { send('sqltype 1'); }
+  else if (ci === '1') { send('sqltype 2'); }
+  else { send('sqltype 0'); send('dcs on'); }
+}
+
+// -- Bandwidth (IF) chip: click cycles forward through the real
+// if_bandwidth_options_hz list for the current mode and wraps back to
+// the first entry once past the end (a single always-forward toggle,
+// same idea as cycleAtt/cycleAgc/cycleSqlType above). The scroll wheel,
+// while the chip is hovered, instead steps one entry up or down per
+// notch and stops at the ends (no wrap) - a regular bidirectional
+// stepper, distinct on purpose from the click's wrap-to-start behavior.
+// A mode with 0 or 1 known choices (digital modes: the receiver
+// auto-selects the filter, see renderBandwidth()) is a no-op either way.
+function bandwidthEntries() {
+  return lastStatus && lastStatus.if_bandwidth_options_hz
+    ? Object.values(lastStatus.if_bandwidth_options_hz).sort((a, b) => a - b)
+    : [];
+}
+function currentBandwidthIndex(entries) {
+  const idx = lastStatus ? entries.indexOf(lastStatus.if_bandwidth_hz) : -1;
+  return idx < 0 ? 0 : idx;
+}
+function cycleBandwidthClick() {
+  const entries = bandwidthEntries();
+  if (entries.length < 2) return;
+  const idx = (currentBandwidthIndex(entries) + 1) % entries.length; // always forward, wraps
+  send('bw ' + entries[idx]);
+}
+function cycleBandwidthWheel(dir) {
+  const entries = bandwidthEntries();
+  if (entries.length < 2) return;
+  const cur = currentBandwidthIndex(entries);
+  const idx = Math.max(0, Math.min(entries.length - 1, cur + dir)); // clamped, no wrap
+  if (idx === cur) return;
+  send('bw ' + entries[idx]);
+}
+const chipBwEl = document.getElementById('chipBw');
+if (chipBwEl) {
+  chipBwEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cycleBandwidthWheel(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+}
+
+function renderConsole(s) {
+  const modeTag = document.getElementById('modeTag');
+  if (modeTag && s.mode && s.mode.length >= 3) {
+    const sel = s.mode[1], an = s.mode[2];
+    const isDigital = sel !== 'F';
+    modeTag.textContent = isDigital ? digitalModeName(sel) : (ANALOG_MODE_NAMES[an] || an);
+    modeTag.classList.toggle('digital', isDigital);
+  }
+
+  // squelch MODE badge (Auto/Noise/Level) above VFO-B, echoing the
+  // reference photo's "LEVEL" badge position - real s.squelch field.
+  const sqlModeEl = document.getElementById('sqlModeBadge');
+  if (sqlModeEl && s.squelch !== null && s.squelch !== undefined) {
+    sqlModeEl.textContent = sqlModeLabel(String(s.squelch)).toUpperCase();
+  }
+
+  // RX status: this receiver cannot transmit at all, so this is real
+  // squelch state (idle vs. busy), never a fake TX/PTT.
+  const rx = document.getElementById('rxStatusChip');
+  if (rx) {
+    const busy = s.squelch_open === true;
+    rx.textContent = busy ? 'RX • BUSY' : 'RX';
+    rx.classList.toggle('busy', busy);
+  }
+
+  const attEl = document.getElementById('chipAttVal');
+  if (attEl && s.attenuator_state !== null && s.attenuator_state !== undefined) {
+    attEl.textContent = attStateLabel(String(s.attenuator_state));
+    const chip = document.getElementById('chipAtt');
+    // "active" = the attenuator is engaged: state 1 (ATT ON) or 2 (10dB),
+    // i.e. any state other than 0 (ATT OFF).
+    if (chip) chip.classList.toggle('active', String(s.attenuator_state) !== '0');
+  }
+  const agcEl = document.getElementById('chipAgcVal');
+  if (agcEl && s.agc_speed !== null && s.agc_speed !== undefined) {
+    agcEl.textContent = agcSpeedLabel(String(s.agc_speed));
+  }
+  const dcsOn = s.dcs_enabled === '1' || s.dcs_enabled === 1;
+  const sqlTypeEl = document.getElementById('chipSqlVal');
+  if (sqlTypeEl) {
+    if (dcsOn) sqlTypeEl.textContent = 'DCS';
+    else if (s.squelch_tone_type !== null && s.squelch_tone_type !== undefined) sqlTypeEl.textContent = sqlTypeLabel(String(s.squelch_tone_type));
+    const chip = document.getElementById('chipSqlType');
+    if (chip) chip.classList.toggle('active', dcsOn || String(s.squelch_tone_type) !== '0');
+  }
+  const bwEl = document.getElementById('chipBwVal');
+  if (bwEl) {
+    bwEl.textContent = (s.if_bandwidth_hz !== null && s.if_bandwidth_hz !== undefined) ? fmtBandwidthHz(s.if_bandwidth_hz) : '--';
+  }
+  const fillEl = document.getElementById('filterIndicatorFill');
+  if (fillEl) {
+    // Rank within the current mode's own choices, narrowest=rank 1 up
+    // to widest=rank N, as a fraction of N - not a raw value/max_hz
+    // ratio. Per user request 2026-09-01, for FM's 4 choices: 100 kHz
+    // (widest, rank 4/4) = 100%, 30 kHz (rank 3/4) = 75%, 15 kHz (rank
+    // 2/4) = 50%, 6 kHz (narrowest, rank 1/4) = 25%. Same formula
+    // regardless of how many choices the current mode actually has.
+    const entries = s.if_bandwidth_options_hz ? Object.values(s.if_bandwidth_options_hz).sort((a, b) => a - b) : [];
+    const idx = (entries.length && s.if_bandwidth_hz !== null && s.if_bandwidth_hz !== undefined)
+      ? entries.indexOf(s.if_bandwidth_hz)
+      : -1;
+    fillEl.style.width = (idx >= 0 ? ((idx + 1) / entries.length) * 100 : 0) + '%';
+  }
+
+  const smVal = document.getElementById('smeterValueLabel');
+  if (smVal) smVal.textContent = dbmToConventionalSLabel(s.smeter_dbm);
+
+  // keep the RF GAIN/SQL and AF GAIN knob faces in sync with server
+  // state even when the person isn't actively dragging them.
+  const rfKnob = document.getElementById('rfGainKnob');
+  if (rfKnob && rfKnob.__mkPaint && s.squelch_level !== null && s.squelch_level !== undefined && !isBusy(document.getElementById('lqRange'))) {
+    rfKnob.__mkPaint(parseInt(s.squelch_level, 10));
+  }
+  const afKnob = document.getElementById('afGainKnob');
+  if (afKnob && afKnob.__mkPaint && s.volume_limit !== null && s.volume_limit !== undefined && !isBusy(document.getElementById('avRange'))) {
+    afKnob.__mkPaint(parseInt(s.volume_limit, 10));
+  }
+}
+
+function renderStatus(s) {
+  setDot(!!s.connected);
+
+  if (s.frequency_hz !== null && s.frequency_hz !== undefined) {
+    lastFreqMhz = s.frequency_hz / 1_000_000;
+    document.getElementById('freq').textContent = fmtFreq(s.frequency_hz);
+    const freqInput = document.getElementById('freqInput');
+    if (!isBusy(freqInput)) freqInput.placeholder = lastFreqMhz.toFixed(6);
+  }
+
+  document.getElementById('modeReadout').textContent = formatModeReadout(s.mode);
+  renderBandwidth(s);
+  renderAgcGating(s);
+  renderAttGating(s);
+  renderModelGating(s);
+  renderConsole(s);
+
+  if (s.squelch !== null && s.squelch !== undefined) {
+    const sqlSel = document.getElementById('sqlMode');
+    if (!isBusy(sqlSel)) { sqlSel.value = s.squelch; matrixRefreshers.sqlMode && matrixRefreshers.sqlMode(); }
+  }
+
+  if (s.agc_speed !== null && s.agc_speed !== undefined) {
+    const agcSel = document.getElementById('agcSpeed');
+    if (!isBusy(agcSel)) { agcSel.value = s.agc_speed; matrixRefreshers.agcSpeed && matrixRefreshers.agcSpeed(); }
+  }
+
+  if (s.attenuator_state !== null && s.attenuator_state !== undefined) {
+    const attSel = document.getElementById('attState');
+    if (!isBusy(attSel)) { attSel.value = s.attenuator_state; matrixRefreshers.attState && matrixRefreshers.attState(); }
+  }
+
+  if (s.smeter_dbm !== null && s.smeter_dbm !== undefined) {
+    const floor = -120, ceiling = 0;
+    const dbm = Math.max(floor, Math.min(ceiling, s.smeter_dbm));
+    const pct = (dbm - floor) / (ceiling - floor);
+    const lit = Math.round(pct * smeterSegEls.length);
+    smeterSegEls.forEach((seg, i) => seg.classList.toggle('lit', i < lit));
+    document.getElementById('smeterDb').textContent = s.smeter_dbm + ' dB';
+  }
+  const pill = document.getElementById('sqlPill');
+  if (s.squelch_state === 3) { pill.textContent = t('sqlDigitalDetect'); pill.classList.remove('open'); pill.classList.add('digital'); }
+  else if (s.squelch_open === true) { pill.textContent = t('sqlOpen'); pill.classList.remove('digital'); pill.classList.add('open'); }
+  else if (s.squelch_open === false) { pill.textContent = t('sqlClosed'); pill.classList.remove('open'); pill.classList.remove('digital'); }
+  else { pill.textContent = t('sqlUnknown'); pill.classList.remove('open'); pill.classList.remove('digital'); }
+
+  // -- extended fields - see renderStatus's existing pattern
+  // above: only touch a control the person isn't actively using, and only
+  // when the server actually returned a value for it.
+  const setSlider = (rangeId, valId, value, pad) => {
+    if (value === null || value === undefined) return;
+    const range = document.getElementById(rangeId);
+    const val = document.getElementById(valId);
+    if (isBusy(range)) return;
+    range.value = parseInt(value, 10) || 0;
+    if (val) val.textContent = pad ? String(range.value).padStart(pad, '0') : String(range.value);
+  };
+  const setMatrixSelect = (selectId, value) => {
+    if (value === null || value === undefined) return;
+    const sel = document.getElementById(selectId);
+    if (!sel || isBusy(sel)) return;
+    sel.value = value;
+    matrixRefreshers[selectId] && matrixRefreshers[selectId]();
+  };
+  const setToggle = (toggleId, value) => {
+    if (value === null || value === undefined) return;
+    const el = document.getElementById(toggleId);
+    if (!el || isBusy(el)) return;
+    el.checked = (value === '1' || value === 1 || value === true);
+  };
+  const setPlaceholder = (id, value) => {
+    if (value === null || value === undefined) return;
+    const el = document.getElementById(id);
+    if (!el || isBusy(el)) return;
+    el.placeholder = value;
+  };
+  const setSelectValue = (id, value) => {
+    if (value === null || value === undefined) return;
+    const el = document.getElementById(id);
+    if (!el || isBusy(el)) return;
+    if ([...el.options].some((o) => o.value === value)) el.value = value;
+  };
+
+  setSlider('lqRange', 'lqVal', s.squelch_level, 2);
+  setSlider('nqRange', 'nqVal', s.noise_squelch_level, 2);
+  setSlider('avRange', 'avVal', s.volume_limit, 2);
+  setSlider('rgRange', 'rgVal', s.manual_gain, 3);
+  setSlider('bpRange', 'bpVal', s.beep_level);  // BP is a single digit 0-7, no zero-padding
+  setSlider('lnRange', 'lnVal', s.lcd_contrast, 2);
+  setSlider('tiRange', 'tiVal', s.priority_interval, 2);
+  setMatrixSelect('backlightMode', s.backlight_mode);
+  setMatrixSelect('dmrSlotSelect', s.dmr_slot);
+  setMatrixSelect('sqlTypeSelect', s.squelch_tone_type);
+  setToggle('dcsToggle', s.dcs_enabled);
+  setToggle('dmrCmToggle', s.dmr_mute_by_color_code);
+  setToggle('p25PmToggle', s.p25_mute_by_nac);
+  setToggle('nxdnNmToggle', s.nxdn_mute_by_ran);
+  setToggle('vscrToggle', s.voice_descrambler_enabled);
+  setToggle('prioToggle', s.priority_enabled);
+  setPlaceholder('dmrccInput', s.dmr_color_code);
+  setPlaceholder('p25nacInput', s.p25_nac);
+  setPlaceholder('nxdnranInput', s.nxdn_ran);
+  setPlaceholder('dcrcodeInput', s.dcr_descramble_code);
+  setPlaceholder('offsetSlotInput', s.offset_slot);
+  setPlaceholder('offsetFreqInput', s.offset_freq);
+  setPlaceholder('daInput', s.digital_gain);
+  setSelectValue('ctcssToneSelect', s.tone_squelch_freq);
+  setSelectValue('dcsCodeSelect', s.dcs_code);
+  if (s.priority_channel) {
+    const parts = String(s.priority_channel).split('-');
+    if (parts.length === 2) {
+      setPlaceholder('prioBankInput', parts[0]);
+      setPlaceholder('prioChanInput', parts[1]);
+    }
+  }
+  if (s.voice_descrambler_freq !== null && s.voice_descrambler_freq !== undefined) {
+    document.getElementById('vscrFreqHint').textContent = 'SC: ' + s.voice_descrambler_freq + ' Hz';
+  }
+}
+
+async function pollStatus() {
+  let s;
+  try {
+    const res = await fetch('/api/status');
+    s = await res.json();
+  } catch (e) {
+    setDot(false);
+    return;
+  }
+  lastStatus = s;
+  renderStatus(s);
+}
+
+// -- panels: rmem/VFO+timer/SD/scope/select/misc. Each
+// handler just builds the same short verb string the CLI/raw console
+// would take and routes the response into that panel's own mini-out box
+// via sendOut()/send(cmd, {out: ...}) above. ------------------------------
+
+function sendOut(cmd, outId) {
+  send(cmd, { out: outId });
+}
+
+function outVal(id, fallback) {
+  const el = document.getElementById(id);
+  const v = (el && el.value || '').trim();
+  return v || fallback || '';
+}
+
+// -- live memory (rmem) ---------------------------------------------------
+function rmemRead() {
+  sendOut('rmem read ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
+}
+function rmemReadBank() {
+  sendOut('rmem readbank ' + outVal('rmemBankInput', '0'), 'rmemOut');
+}
+function rmemTune() {
+  sendOut('rmem tune ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
+}
+function rmemDelete() {
+  sendOut('rmem delete ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
+}
+function rmemWrite() {
+  const freq = outVal('rmemFreqInput', '');
+  if (!freq) { toast(t('toastEnterFreq'), true); return; }
+  const mode = outVal('rmemModeInput', '00');
+  const tag = outVal('rmemTagInput', '');
+  let cmd = 'rmem write ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0') + ' ' + freq + ' ' + mode;
+  if (tag) cmd += ' ' + tag;
+  sendOut(cmd, 'rmemOut');
+}
+function rmemFind() {
+  const q = outVal('rmemFindInput', '');
+  if (!q) { toast(t('toastEnterValue'), true); return; }
+  sendOut('rmem find ' + q, 'rmemOut');
+}
+
+// -- VFO + scheduled recording/alarm timer --------------------------------
+// VFO Info (VI) also updates the console display's VFO-B readout - see
+// the vfo-b block's HTML comment for why this is read-on-demand rather
+// than added to every ~1.5s status poll (a second multi-line device
+// read every cycle for a secondary display that's rarely the focus).
+function vfoInfo() { send('vi', { out: 'vfoTimerOut', onData: updateVfoBFromRaw }); }
+function updateVfoBFromRaw(text) {
+  const m = /VFB\s+RF([\d.]+)/i.exec(text || '');
+  const el = document.getElementById('freqB');
+  if (el && m) el.textContent = fmtFreq(Math.round(parseFloat(m[1]) * 1_000_000));
+}
+function vfoSearchStart() { sendOut('vs', 'vfoTimerOut'); }
+function vfoSettingsShow() { sendOut('ve', 'vfoTimerOut'); }
+function vfoSettingsSet() {
+  const delay = outVal('veDelayInput', '20');
+  const free = outVal('veFreeInput', '0');
+  const auto = document.getElementById('veAutoSelect').value;
+  sendOut('ve ' + delay + ' ' + free + ' ' + auto, 'vfoTimerOut');
+}
+function timerShow() { sendOut('timer', 'vfoTimerOut'); }
+function timerOff() { sendOut('timer off', 'vfoTimerOut'); }
+function timerSet() {
+  const target = outVal('timerTargetInput', 'vfo:A');
+  const repeat = outVal('timerRepeatInput', 'once');
+  const start = outVal('timerStartInput', '00:00');
+  const end = outVal('timerEndInput', '01:00');
+  const action = outVal('timerActionInput', 'recording');
+  const days = outVal('timerDaysInput', '-');
+  const volume = outVal('timerVolumeInput', '');
+  let cmd = 'timer set ' + target + ' ' + repeat + ' ' + start + ' ' + end + ' ' + action + ' ' + days;
+  if (volume) cmd += ' ' + volume;
+  sendOut(cmd, 'vfoTimerOut');
+}
+
+// -- SD card ----------------------------------------------------------------
+function sdDir() { sendOut('sd dir', 'sdOut'); }
+function sdInfo() { sendOut('sd info', 'sdOut'); }
+function sdStatus() { sendOut('sd status', 'sdOut'); }
+function sdRecStart() { sendOut('sd rec start', 'sdOut'); }
+function sdRecStop() { sendOut('sd rec stop', 'sdOut'); }
+function sdPlay() {
+  const name = outVal('sdPlayInput', '');
+  if (!name) { toast(t('toastEnterValue'), true); return; }
+  sendOut('sd play ' + name, 'sdOut');
+}
+function sdPlayStop() { sendOut('sd play stop', 'sdOut'); }
+function sdRsqSet(on) { sendOut('sd rsq ' + (on ? 'on' : 'off'), 'sdOut'); }
+function sdBackup() {
+  const kind = outVal('sdBackupInput', '');
+  if (!kind) { toast(t('toastEnterValue'), true); return; }
+  sendOut('sd backup ' + kind, 'sdOut');
+}
+function sdRestore() {
+  const name = outVal('sdRestoreInput', '');
+  if (!name) { toast(t('toastEnterValue'), true); return; }
+  sendOut('sd restore ' + name, 'sdOut');
+}
+
+// -- spectrum scope ---------------------------------------------------------
+// No known way to trigger scope mode over the wire,
+// so these only return real data if the receiver is already showing the
+// bandscope on its own screen - same caveat as the CLI's "scope" verb.
+function scopeFast() { sendOut('scope fast', 'scopeOut'); }
+function scopeNormal() { sendOut('scope normal', 'scopeOut'); }
+
+// -- select-scan list (client-side only) -------------------------------
+function selectAdd() {
+  sendOut('select add ' + outVal('selBankInput', '0') + ' ' + outVal('selChInput', '0'), 'selectOut');
+}
+function selectRemove() {
+  sendOut('select remove ' + outVal('selBankInput', '0') + ' ' + outVal('selChInput', '0'), 'selectOut');
+}
+function selectList() { sendOut('select list', 'selectOut'); }
+function selectClear() { sendOut('select clear', 'selectOut'); }
+function selectRun() {
+  // "run" blocks the server's WebSocket handler for the whole scan (one
+  // tune + sleep per entry, synchronously) - same as the CLI. Leaving
+  // cycles blank means "forever", which will hang this connection until
+  // stopped from elsewhere; the dwell default (2s) keeps a mistaken click
+  // survivable to wait out or reload past.
+  const cycles = outVal('selCyclesInput', '') || 'none';
+  const dwell = outVal('selDwellInput', '2.0');
+  sendOut('select run ' + cycles + ' ' + dwell, 'selectOut');
+}
+
+// -- small typed commands (task 15: KL/IF/DL/FR/RN) ----------------------
+function miscSetGet(inputId, verb) {
+  const v = outVal(inputId, '');
+  sendOut(v ? (verb + ' ' + v) : verb, 'miscOut');
+}
+
+applyLanguage(detectDefaultLang());
+applyTheme(detectDefaultTheme());
+pollStatus();
+setInterval(pollStatus, 1500);
+</script>
+</body>
+</html>
