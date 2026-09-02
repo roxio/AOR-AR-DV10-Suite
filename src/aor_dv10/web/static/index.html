@@ -200,8 +200,8 @@
   .info-dot:hover { border-color: var(--accent-dim); color: var(--accent); }
   .dchip-label .info-dot { margin-left: 4px; vertical-align: -2px; }
 
-  .lcd-top-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
-  .vfo-block { flex: none; text-align: center; min-width: 78px; opacity: .5; transition: opacity .15s; }
+  .lcd-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap; min-width: 0; }
+  .vfo-block { flex: 0 0 110px; width: 110px; text-align: center; opacity: .5; transition: opacity .15s; overflow: hidden; }
   .vfo-block.active { opacity: 1; }
   .vfo-label {
     display: block; font-size: 10px; letter-spacing: .1em; font-weight: 700;
@@ -217,10 +217,27 @@
     display: block; font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
+  /* Subordinate-VFO readout: shows the two VFOs that aren't the active one,
+     each letter + its frequency (VI / VFO Info), one per line. */
+  .vfo-sub { flex: 0 0 110px; width: 110px; text-align: right; overflow: hidden; }
+  .vfo-sub-line {
+    display: flex; gap: 8px; align-items: baseline; justify-content: space-between;
+    font-family: var(--font-mono); line-height: 1.25; white-space: nowrap;
+    opacity: .6;
+  }
+  .vfo-sub-line .sub-label { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .05em; flex: 0 0 auto; }
+  .vfo-sub-line .sub-freq  { flex: 1 1 0; min-width: 0; text-align: right; overflow: hidden; font-size: 14px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* Active VFO's letter is shown on the big display; the other two lines below
+     are the two remaining VFOs. */
+  .lcd-top-row[data-active-vfo="A"] .vfo-sub-line[data-onactive="A"],
+  .lcd-top-row[data-active-vfo="B"] .vfo-sub-line[data-onactive="B"],
+  .lcd-top-row[data-active-vfo="Z"] .vfo-sub-line[data-onactive="Z"] { display: none; }
+  .lcd-top-row[data-active-vfo=""]  .vfo-sub-line[data-onactive] { display: none; }
   .freq {
+    flex: 1 1 auto; min-width: 0; text-align: center;
     font-family: var(--font-mono); font-weight: 700; font-size: clamp(32px, 6vw, 54px); color: var(--text);
     letter-spacing: -.01em; font-variant-numeric: tabular-nums;
-    text-align: center; line-height: 1.05;
+    line-height: 1.05;
     text-shadow: 0 0 20px var(--accent-glow);
   }
   .freq-unit { font-size: .34em; color: var(--muted); font-weight: 600; margin-left: 6px; letter-spacing: .04em; }
@@ -256,6 +273,20 @@
   }
   .sql-pill.open { color: var(--amber); border-color: rgba(255,182,72,.4); background: rgba(255,182,72,.1); }
   .sql-pill.digital { color: var(--accent); border-color: rgba(63,198,255,.4); background: rgba(63,198,255,.1); }
+
+  /* Live decoding-mode readout as three compact "pill" chips (mirrors the
+     .sql-pill look) instead of one wrapped sentence. */
+  .lcd-mode-row { margin-top: 8px; }
+  .mode-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; }
+  .mode-chip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: 2px 9px; border-radius: 3px; font-family: var(--font-mono);
+    font-size: 11px; border: 1px solid var(--border); color: var(--muted);
+    background: var(--surface-2);
+  }
+  .mode-chip.digital { color: var(--accent); border-color: rgba(63,198,255,.4); background: rgba(63,198,255,.1); }
+  .mode-chip-k { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
+  .mode-chip-v { font-weight: 700; }
 
   .display-row-meter { display: flex; align-items: flex-end; gap: 12px; }
   .display-row-meter .smeter-block { flex: 1; min-width: 0; }
@@ -842,28 +873,53 @@
     <div class="console-top-row">
 
     <!-- CONSOLE DISPLAY - dark TFT-style face. freq/VFO-A are the real
-         live-tuned frequency (already polled every status cycle); VFO-B
-         updates when "VFO Info" is read (here or in the VFO & Scheduled
-         Recording panel below) rather than adding a second multi-line
-         (VI) read to every status poll - see updateVfoBFromRaw() in the
-         script below. The mode badge, SQL-MODE badge, S-meter and the
-         four status chips are wired to REAL /api/status fields via
+         live-tuned frequency (already polled every status cycle); the two
+         remaining VFOs (e.g. B & Z when A is active) are shown in the
+         subordinate panel when "VFO Info" is read (here or in the VFO &
+         Scheduled Recording panel below), rather than adding a second
+         multi-line (VI) read to every status poll - see
+         applyVfoInfoRaw()/renderSubordinateVfos() in the script below.
+         The mode badge, S-meter and the four status chips are wired to
+         REAL /api/status fields via
          renderConsole(). -->
     <div class="lcd-screen">
       <div class="lcd-zone lcd-zone-freq">
-        <div class="lcd-top-row">
+        <div class="lcd-top-row" id="lcdTopRow" data-active-vfo="">
           <div class="vfo-block vfo-a active" id="vfoABlock">
             <span class="vfo-label" id="vfoALabel">VFO-A</span>
             <span class="mode-tag" id="modeTag">--</span>
           </div>
           <div class="freq"><span id="freq">---.------</span><span class="freq-unit">MHz</span></div>
-          <div class="vfo-block vfo-b" id="vfoBBlock" onclick="vfoInfo()" title="Click to read VFO-B (VI)" role="button" tabindex="0">
-            <span class="vfo-label" id="sqlModeBadge">VFO-B</span>
-            <span class="freq-b" id="freqB">---.------</span>
+          <div class="vfo-sub" id="vfoSubPanel" title="Other VFOs (VFO Info / VI)">
+            <div class="vfo-sub-line" data-onactive="A">
+              <span class="sub-label" id="subLblA">VFO-A</span>
+              <span class="sub-freq" id="subFreqA">---.------</span>
+            </div>
+            <div class="vfo-sub-line" data-onactive="B">
+              <span class="sub-label" id="subLblB">VFO-B</span>
+              <span class="sub-freq" id="subFreqB">---.------</span>
+            </div>
+            <div class="vfo-sub-line" data-onactive="Z">
+              <span class="sub-label" id="subLblZ">VFO-Z</span>
+              <span class="sub-freq" id="subFreqZ">---.------</span>
+            </div>
           </div>
         </div>
         <div class="lcd-mode-row">
-          <div class="readout" id="modeReadout">receiving=--</div>
+          <div class="mode-chips" id="modeChips">
+            <span class="mode-chip">
+              <span class="mode-chip-k" data-i18n="modeReceiving">receiving</span>
+              <span class="mode-chip-v" id="chipRx">--</span>
+            </span>
+            <span class="mode-chip digital">
+              <span class="mode-chip-k" data-i18n="modeDigital">digital</span>
+              <span class="mode-chip-v" id="chipDig">--</span>
+            </span>
+            <span class="mode-chip">
+              <span class="mode-chip-k" data-i18n="modeAnalog">analog</span>
+              <span class="mode-chip-v" id="chipAn">--</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1054,9 +1110,9 @@
               <button class="panel-btn small" onclick="stepFreq(0.005)">+5 kHz</button>
             </div>
             <div class="vfo-row">
-              <button class="panel-btn" onclick="send('vfo A')">VFO A</button>
-              <button class="panel-btn" onclick="send('vfo B')">VFO B</button>
-              <button class="panel-btn" onclick="send('vfo Z')">VFO Z</button>
+              <button class="panel-btn" onclick="selectVfo('A')">VFO A</button>
+              <button class="panel-btn" onclick="selectVfo('B')">VFO B</button>
+              <button class="panel-btn" onclick="selectVfo('Z')">VFO Z</button>
             </div>
             <div class="vfo-row">
               <button class="panel-btn" onclick="send('moveprev')" data-i18n="btnMovePrev">&laquo; prev</button>
@@ -1945,6 +2001,7 @@ const I18N = {
     hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
     hintDv10NoBackup: "SD card backup/restore (SD MMW / SD MMR) is not supported on the AR-DV10 - AR-DV1/DV3 feature.",
     hintScopeUnavailable: "Spectrum scope (FD/GL) is only documented for AR-DV1/DV3 - not available on the AR-DV10.",
+    hintDv10NoPower: "Remote power ON/OFF is not supported on the AR-DV10 (a battery handheld) - AR-DV1/DV3 feature.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... or -",
     toastTimerBadTime: "time must be hhmm/hh:mm (weekly) or MMDDhhmm (once)",
@@ -2161,6 +2218,7 @@ const I18N = {
     hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
     hintDv10NoBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) nie jest obsługiwane na AR-DV10 - funkcja AR-DV1/DV3.",
     hintScopeUnavailable: "Skop widma (FD/GL) jest udokumentowany tylko dla AR-DV1/DV3 - niedostępny na AR-DV10.",
+    hintDv10NoPower: "Zdalne włączanie/wyłączanie zasilania nie jest obsługiwane na AR-DV10 (przenośne na baterię) - funkcja AR-DV1/DV3.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... lub -",
     toastTimerBadTime: "czas musi być hhmm/hh:mm (weekly) lub MMDDhhmm (once)",
@@ -2244,6 +2302,17 @@ function digitalModeName(code) {
   return DIGITAL_MODE_NAMES[code] || code;
 }
 
+function applyModeChips(raw) {
+  const setV = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v == null || v === '') ? '--' : v; };
+  if (!raw || raw.length < 3) {
+    setV('chipRx', '--'); setV('chipDig', '--'); setV('chipAn', '--');
+    return;
+  }
+  const rx = raw[0], sel = raw[1], an = raw[2];
+  setV('chipRx', digitalModeName(rx));
+  setV('chipDig', digitalModeName(sel));
+  setV('chipAn', (ANALOG_MODE_NAMES[an] || an));
+}
 function formatModeReadout(raw) {
   if (!raw || raw.length < 3) return t("modeUnknown");
   const rx = raw[0], sel = raw[1], an = raw[2];
@@ -2348,8 +2417,8 @@ function send(cmd, opts) {
   if (!wsReady) { toast(t('toastNotConnected'), true); return; }
   if (!opts.quiet) addLine('DV10> ' + cmd, 'in');
   // route can carry a mini-out element id (out) and/or a callback
-  // (onData) - see updateVfoBFromRaw()'s use of onData to parse the VI
-  // response without adding it to every status-poll cycle.
+  // (onData) - see vfoInfo()'s use of onData to run applyVfoInfoRaw() on
+  // the VI response without adding it to every status-poll cycle.
   pendingRoutes.push({ out: opts.out || null, onData: opts.onData || null });
   ws.send(cmd);
 }
@@ -2985,6 +3054,12 @@ function renderDV10Gating(s) {
   });
   if (sdBackupBtn) { sdBackupBtn.disabled = isDV10; sdBackupBtn.title = isDV10 ? t('hintDv10NoBackup') : ''; }
   if (sdRestoreBtn) { sdRestoreBtn.disabled = isDV10; sdRestoreBtn.title = isDV10 ? t('hintDv10NoBackup') : ''; }
+  // Remote power ON/OFF (ZP/QP) is a DV1/DV3 feature; a DV10 is a battery
+  // handheld that can't be switched on/off over the wire - grey it out.
+  document.querySelectorAll('.topbar-power .power-on, .topbar-power .power-off').forEach((btn) => {
+    btn.disabled = isDV10;
+    btn.title = isDV10 ? t('hintDv10NoPower') : '';
+  });
 }
 
 // -- Spectrum Scope gating -----------------------------------------------
@@ -3142,13 +3217,6 @@ function renderConsole(s) {
     modeTag.classList.toggle('digital', isDigital);
   }
 
-  // squelch MODE badge (Auto/Noise/Level) above VFO-B, echoing the
-  // reference photo's "LEVEL" badge position - real s.squelch field.
-  const sqlModeEl = document.getElementById('sqlModeBadge');
-  if (sqlModeEl && s.squelch !== null && s.squelch !== undefined) {
-    sqlModeEl.textContent = sqlModeLabel(String(s.squelch)).toUpperCase();
-  }
-
   // RX status: this receiver cannot transmit at all, so this is real
   // squelch state (idle vs. busy), never a fake TX/PTT.
   const rx = document.getElementById('rxStatusChip');
@@ -3222,7 +3290,7 @@ function renderStatus(s) {
     if (!isBusy(freqInput)) freqInput.placeholder = lastFreqMhz.toFixed(6);
   }
 
-  document.getElementById('modeReadout').textContent = formatModeReadout(s.mode);
+  applyModeChips(s.mode);
   renderBandwidth(s);
   renderAgcGating(s);
   renderAttGating(s);
@@ -3395,16 +3463,62 @@ function rmemFind() {
 // the vfo-b block's HTML comment for why this is read-on-demand rather
 // than added to every ~1.5s status poll (a second multi-line device
 // read every cycle for a secondary display that's rarely the focus).
-function vfoInfo() { send('vi', { out: 'vfoTimerOut', onData: updateVfoBFromRaw }); }
-function updateVfoBFromRaw(text) {
-  const m = /VFB\s+RF([\d.]+)/i.exec(text || '');
-  const el = document.getElementById('freqB');
-  if (el && m) el.textContent = fmtFreq(Math.round(parseFloat(m[1]) * 1_000_000));
+function vfoInfo() { send('vi', { out: 'vfoTimerOut', onData: applyVfoInfoRaw }); }
+
+// VI returns three lines: VFx RFffff.fffff ... (one per VFO A/B/Z). Keep
+// all three frequencies so the subordinate readout can show the two VFOs
+// that aren't active (B & Z when A is, etc.). Only filled on demand via
+// VFO Info (vi) - not part of the every-1.5s status poll.
+const vfoFreqCache = { A: null, B: null, Z: null };
+function applyVfoInfoRaw(text) {
+  const t = text || '';
+  // server "vi" verb renders each VFO as: "VFO-A 145.00000 MHz  step=..."
+  let re = /VFO-([ABZ])\s+([\d.]+)\s*MHz/gi;
+  let m;
+  while ((m = re.exec(t))) {
+    const letter = m[1].toUpperCase();
+    vfoFreqCache[letter] = Math.round(parseFloat(m[2]) * 1_000_000);
+  }
+  // fallback: raw wire shape "VFx RFffff.fffff ..." if ever surfaced
+  re = /\bVF([ABZ])\s+RF([\d.]+)/gi;
+  while ((m = re.exec(t))) {
+    const letter = m[1].toUpperCase();
+    vfoFreqCache[letter] = Math.round(parseFloat(m[2]) * 1_000_000);
+  }
+  renderSubordinateVfos(getActiveVfo());
+}
+function activeVfoDefault() { return 'A'; }
+function getActiveVfo() {
+  const el = document.getElementById('lcdTopRow');
+  return (el && el.dataset.activeVfo) || activeVfoDefault();
+}
+function renderSubordinateVfos(letter) {
+  const l = String(letter || '').toUpperCase();
+  (['A', 'B', 'Z']).forEach((v) => {
+    if (v === l) return; // don't render the big active VFO in the sub panel
+    const freqEl = document.getElementById('subFreq' + v);
+    if (freqEl) freqEl.textContent = vfoFreqCache[v] ? fmtFreq(vfoFreqCache[v]) : '---.------';
+  });
 }
 function vfoSearchStart() { sendOut('vs', 'vfoTimerOut'); }
 function reflectActiveVfoLabel(letter) {
+  const l = String(letter || '').toUpperCase();
   const el = document.getElementById('vfoALabel');
-  if (el && /^[ABZ]$/i.test(letter || '')) el.textContent = 'VFO-' + letter.toUpperCase();
+  if (el && /^[ABZ]$/.test(l)) el.textContent = 'VFO-' + l;
+  const row = document.getElementById('lcdTopRow');
+  if (row && /^[ABZ]$/.test(l)) row.dataset.activeVfo = l;
+  renderSubordinateVfos(l);
+}
+// Route the TUNE panel's VFO A/B/Z buttons: select the VFO on the wire and
+// keep the main display + subordinate readout in step (the radio doesn't
+// report which VFO is currently active, so we track it here, and VI is
+// fetched on demand to keep the other two VFOs' numbers fresh).
+function selectVfo(letter) {
+  const l = String(letter || '').toUpperCase();
+  if (!/^[ABZ]$/.test(l)) return;
+  send('vfo ' + l);
+  reflectActiveVfoLabel(l);
+  vfoInfo(); // refresh A/B/Z frequencies shown in the subordinate panel
 }
 function vfoWrite() {
   const letter = outVal('vfoLetterSelect', 'A') || 'A';
@@ -3528,6 +3642,11 @@ function miscSetGet(inputId, verb) {
 
 applyLanguage(detectDefaultLang());
 applyTheme(detectDefaultTheme());
+// Default view: main display shows the received VFO-A; subordinate panel
+// lists the OTHER two VFOs (B & Z here). VFO frequencies populate when
+// VFO Info (vi) is read.
+reflectActiveVfoLabel(getActiveVfo() || 'A');
+vfoInfo();
 pollStatus();
 setInterval(pollStatus, 1500);
 </script>
