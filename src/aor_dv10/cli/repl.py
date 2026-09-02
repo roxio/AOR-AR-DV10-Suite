@@ -142,8 +142,9 @@ Commands:
   sd play <name>|stop       SD PLY<name> / SD PLY/: start/stop playback
   sd rsq [on|off]            SD RSQ: show or set squelch-skip during playback
   sd backup <kind>          SD MMW<kind>: back up receiver settings - kind is one of SRCHBK/
-                          SRCHGRP/MEMCH/SCANGRP/SYSYEM (sic - see aor_dv10.device.SD_BACKUP_KIND_*)
-  sd restore <name>         SD MMR<name>: restore a prior "sd backup" (usually the same kind token)
+                          SRCHGRP/MEMCH/SCANGRP/SYSYEM (sic). AR-DV1/DV3 only, refused on the DV10
+  sd restore <name>         SD MMR<name>: restore a prior "sd backup" (usually the same kind token).
+                          AR-DV1/DV3 only, refused on the DV10
   mem load <path>          Load an "AR-DV10 Connect" memory-bank backup CSV export
   mem find <text>          Search loaded channel names (case-insensitive substring)
   mem list [bank]          List programmed channels, optionally filtered to one bank (00-39)
@@ -1144,6 +1145,12 @@ class Repl:
                 raise ValueError(
                     "usage: sd backup <kind> - one of SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM"
                 )
+            # SD MMW (file backup) is "No function" on the AR-DV10 and is only
+            # supported on AR-DV1/DV3. Deny rather than poking the radio.
+            if self.device.device_family() == "DV10":
+                raise ValueError(
+                    "sd backup is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
+                )
             self.device.sd_backup(rest[0])
             self.console.print(f"backed up {rest[0]}")
             return
@@ -1151,6 +1158,11 @@ class Repl:
         if sub == "restore":
             if not rest:
                 raise ValueError("usage: sd restore <name>")
+            # SD MMR (file restore) is "No function" on the AR-DV10 - see above.
+            if self.device.device_family() == "DV10":
+                raise ValueError(
+                    "sd restore is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
+                )
             self.device.sd_restore(rest[0])
             self.console.print(f"restored {rest[0]}")
             return

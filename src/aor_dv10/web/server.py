@@ -1110,11 +1110,21 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
     if sub == "backup":
         if not rest:
             return "usage: sd backup <kind> - one of SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM"
+        # SD MMW (file backup) is "No function" on the AR-DV10, AR-DV1/DV3 only.
+        if device.device_family() == "DV10":
+            raise ValueError(
+                "sd backup is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
+            )
         device.sd_backup(rest[0])
         return f"backed up {rest[0]}"
     if sub == "restore":
         if not rest:
             return "usage: sd restore <name>"
+        # SD MMR (file restore) is "No function" on the AR-DV10, AR-DV1/DV3 only.
+        if device.device_family() == "DV10":
+            raise ValueError(
+                "sd restore is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
+            )
         device.sd_restore(rest[0])
         return f"restored {rest[0]}"
     return f"unknown 'sd' subcommand: {sub!r}"
