@@ -1,3 +1,4 @@
+
 # AOR AR-DV10 control suite
 
 Control software for the AOR AR-DV10 digital voice receiver over USB: a
@@ -6,7 +7,7 @@ line, a desktop GUI, and a web panel that's itself a "graphical command
 line" in the browser. All four sit on one `DV10Device` API, so protocol
 fixes and new commands only need to be made once.
 
-<img width="1133" height="471" alt="DV10-webpanel" src="https://github.com/user-attachments/assets/69e68c61-a441-4382-b312-dd1161585ae8" />
+<img width="1133" height="471" alt="DV10-webpanel" src="https://github.com/user-attachments/assets/c9062085-49a0-4de0-92e1-10ebbfc8aea1" />
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
@@ -23,7 +24,9 @@ fixes and new commands only need to be made once.
             SerialTransport   SimulatorTransport
              (real USB)      (fake device, no hardware needed)
 ```
-<img width="1133" height="338" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/319c739f-bb07-4722-ae93-4682e3a038b8" />
+
+<img width="885" height="338" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/529fa03c-b2b1-4f0a-9f92-369ae52b63ed" />
+
 
 `dv10-cli --web` runs the CLI *and* the web panel together, from one
 command, sharing one `DV10Device` / one serial connection - see "One
