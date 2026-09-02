@@ -2,7 +2,7 @@
 # AOR AR-DV10 control suite
 
 Control software for the AOR AR-DV10 digital voice receiver over USB: a
-shared core protocol library, a Yaesu-CAT-flavoured interactive command
+shared core protocol library, interactive command
 line, a desktop GUI, and a web panel that's itself a "graphical command
 line" in the browser. All four sit on one `DV10Device` API, so protocol
 fixes and new commands only need to be made once.
