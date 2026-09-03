@@ -201,16 +201,17 @@
   .dchip-label .info-dot { margin-left: 4px; vertical-align: -2px; }
 
   .lcd-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap; min-width: 0; }
-  .vfo-block { flex: 0 0 110px; width: 110px; text-align: center; opacity: .5; transition: opacity .15s; overflow: hidden; }
+  .vfo-block { flex: 0 0 50px; width: 50px; text-align: left; opacity: .5; transition: opacity .15s; overflow: hidden; }
   .vfo-block.active { opacity: 1; }
   .vfo-label {
     display: block; font-size: 10px; letter-spacing: .1em; font-weight: 700;
-    font-family: var(--font-mono); color: var(--muted); margin-bottom: 3px;
+    font-family: var(--font-mono); color: var(--muted); margin-bottom: 3px; white-space: nowrap;
   }
   .vfo-block.active .vfo-label { color: var(--accent); }
   .mode-tag {
-    display: inline-block; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
-    padding: 2px 8px; border-radius: 3px; background: var(--accent); color: #04141c; letter-spacing: .03em;
+    display: inline-block; font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+    padding: 1px 4px; border-radius: 3px; background: var(--accent); color: #04141c; letter-spacing: .02em;
+    white-space: normal; word-break: break-word; max-width: 100%;
   }
   .mode-tag.digital { background: var(--bad); color: #260602; }
   .freq-b {
@@ -219,7 +220,7 @@
   }
   /* Subordinate-VFO readout: shows the two VFOs that aren't the active one,
      each letter + its frequency (VI / VFO Info), one per line. */
-  .vfo-sub { flex: 0 0 110px; width: 110px; text-align: right; overflow: hidden; }
+  .vfo-sub { flex: 0 0 150px; width: 150px; text-align: right; overflow: hidden; }
   .vfo-sub-line {
     display: flex; gap: 8px; align-items: baseline; justify-content: space-between;
     font-family: var(--font-mono); line-height: 1.25; white-space: nowrap;
@@ -234,11 +235,12 @@
   .lcd-top-row[data-active-vfo="Z"] .vfo-sub-line[data-onactive="Z"] { display: none; }
   .lcd-top-row[data-active-vfo=""]  .vfo-sub-line[data-onactive] { display: none; }
   .freq {
-    flex: 1 1 auto; min-width: 0; text-align: center;
-    font-family: var(--font-mono); font-weight: 700; font-size: clamp(32px, 6vw, 54px); color: var(--text);
+    flex: 1 1 auto; min-width: 0; text-align: right;
+    font-family: var(--font-mono); font-weight: 700; font-size: clamp(28px, 5.2vw, 46px); color: var(--text);
     letter-spacing: -.01em; font-variant-numeric: tabular-nums;
     line-height: 1.05;
     text-shadow: 0 0 20px var(--accent-glow);
+    white-space: nowrap;
   }
   .freq-unit { font-size: .34em; color: var(--muted); font-weight: 600; margin-left: 6px; letter-spacing: .04em; }
 
@@ -1048,32 +1050,7 @@
             </button>
             <div class="hint" data-i18n="hintScrollToTune">drag, scroll, or use arrow keys to tune</div>
 
-            <div class="field-row">
-              <label data-i18n="lblDeviceStep">Device tuning step (ST, Hz)</label>
-              <div class="field-row-controls">
-                <select id="stepHzSelect">
-                  <option value="10">10 Hz</option>
-                  <option value="50">50 Hz</option>
-                  <option value="100">100 Hz</option>
-                  <option value="1000">1 kHz</option>
-                  <option value="2500">2.5 kHz</option>
-                  <option value="5000">5 kHz</option>
-                  <option value="6250">6.25 kHz</option>
-                  <option value="8330">8.33 kHz</option>
-                  <option value="9000">9 kHz</option>
-                  <option value="10000" selected>10 kHz</option>
-                  <option value="12500">12.5 kHz</option>
-                  <option value="15000">15 kHz</option>
-                  <option value="20000">20 kHz</option>
-                  <option value="25000">25 kHz</option>
-                  <option value="30000">30 kHz</option>
-                  <option value="50000">50 kHz</option>
-                  <option value="100000">100 kHz</option>
-                </select>
-                <button class="panel-btn small" onclick="send('step ' + document.getElementById('stepHzSelect').value)" data-i18n="btnSet">Set</button>
-              </div>
-              <div class="hint" data-i18n="hintDeviceStep">separate from the knob's own scroll-step above; wire encoding unconfirmed</div>
-            </div>
+            <button class="panel-btn small wide" onclick="openBandOverlay()" data-i18n="lblBandShortcuts">Band shortcuts (CB/DX/…)</button>
           </div>
           <!-- RF GAIN/SQL (LQ) and AF GAIN (AV/vollimit) - real controls,
                same drag/wheel/keyboard interaction as the big dial (see
@@ -1779,6 +1756,32 @@
           </div>
         </div>
         <div class="field-row">
+          <label data-i18n="lblDeviceStep">Device tuning step (ST, Hz)</label>
+          <div class="field-row-controls">
+            <select id="stepHzSelect">
+              <option value="10">10 Hz</option>
+              <option value="50">50 Hz</option>
+              <option value="100">100 Hz</option>
+              <option value="1000">1 kHz</option>
+              <option value="2500">2.5 kHz</option>
+              <option value="5000">5 kHz</option>
+              <option value="6250">6.25 kHz</option>
+              <option value="8330">8.33 kHz</option>
+              <option value="9000">9 kHz</option>
+              <option value="10000" selected>10 kHz</option>
+              <option value="12500">12.5 kHz</option>
+              <option value="15000">15 kHz</option>
+              <option value="20000">20 kHz</option>
+              <option value="25000">25 kHz</option>
+              <option value="30000">30 kHz</option>
+              <option value="50000">50 kHz</option>
+              <option value="100000">100 kHz</option>
+            </select>
+            <button class="panel-btn small" onclick="send('step ' + document.getElementById('stepHzSelect').value)" data-i18n="btnSet">Set</button>
+          </div>
+          <div class="hint" data-i18n="hintDeviceStep">separate from the knob's own scroll-step above; wire encoding unconfirmed</div>
+        </div>
+        <div class="field-row">
           <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
         </div>
         <pre class="mini-out" id="miscOut"></pre>
@@ -1834,6 +1837,7 @@ const I18N = {
     lblRfGainKnob: "RF GAIN/SQL",
     lblAfGainKnob: "AF GAIN",
     fbBand: "BAND",
+    lblBandShortcuts: "Quick bands (CB, DX-style shortcut presets)",
     bandOverlayTitle: "Quick jump",
     bandOverlayHint: "Client-side presets only — not a device command. Picking one tunes the VFO via the normal frequency-set command.",
     hMode: "Mode",
@@ -2051,6 +2055,7 @@ const I18N = {
     lblRfGainKnob: "RF GAIN/SQL",
     lblAfGainKnob: "AF GAIN",
     fbBand: "BAND",
+    lblBandShortcuts: "Szybkie pasma (presety skrótowe CB/DX)",
     bandOverlayTitle: "Szybki skok",
     bandOverlayHint: "Tylko ustawienia lokalne (przeglądarki) — to nie jest komenda urządzenia. Wybór strojuje VFO zwykłą komendą ustawienia częstotliwości.",
     hMode: "Tryb",
@@ -2603,10 +2608,12 @@ const BAND_PRESETS = [
   { name: '160m', mhz: 1.900 }, { name: '80m', mhz: 3.650 },
   { name: '60m', mhz: 5.3565 }, { name: '40m', mhz: 7.100 },
   { name: '30m', mhz: 10.125 }, { name: '20m', mhz: 14.200 },
+  { name: 'DX', mhz: 14.195 },
   { name: '17m', mhz: 18.130 }, { name: '15m', mhz: 21.250 },
   { name: '12m', mhz: 24.950 }, { name: '10m', mhz: 28.400 },
   { name: 'AIR', mhz: 124.000 }, { name: 'VHF PMR', mhz: 154.600 },
   { name: '2m', mhz: 145.500 }, { name: '70cm', mhz: 433.500 },
+  { name: 'CB', mhz: 27.185 },
 ];
 function renderBandGrid() {
   const grid = document.getElementById('bandGrid');
