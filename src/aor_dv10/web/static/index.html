@@ -520,7 +520,7 @@
     text-align: center; margin-top: 6px; font-family: var(--font-mono); font-size: 10px;
     letter-spacing: .08em; color: var(--label); text-transform: uppercase;
   }
-  .tune-side { flex: 1; min-width: 140px; }
+  .tune-side { flex: 1; min-width: 140px; min-height: 120px;}
   .step-size-btn { width: 100%; justify-content: center; display: flex; gap: 6px; }
 
   /* -- small rotary encoders (RF GAIN/SQL, AF GAIN) - same drag/wheel/
@@ -1049,9 +1049,13 @@
               <span data-i18n="lblStep">STEP</span> <span id="stepSizeLabel">5 kHz</span>
             </button>
             <div class="hint" data-i18n="hintScrollToTune">drag, scroll, or use arrow keys to tune</div>
-
-            <button class="panel-btn small wide" onclick="openBandOverlay()" data-i18n="lblBandShortcuts">Band shortcuts (CB/DX/…)</button>
+			<div class="hint" ></br></div>
+		  <button class="panel-btn small wide" onclick="openQuickBands()" data-i18n="lblBandShortcuts">Band shortcuts (CB/DX/…)</button>
+		  <div class="hint" ></br></div>
           </div>
+	 
+		  
+		  
           <!-- RF GAIN/SQL (LQ) and AF GAIN (AV/vollimit) - real controls,
                same drag/wheel/keyboard interaction as the big dial (see
                bindMiniKnob() in the script), just reusing the exact
@@ -1786,6 +1790,42 @@
         </div>
         <pre class="mini-out" id="miscOut"></pre>
       </div>
+
+      <!-- DV1/DV3-only extras (inside the Spectrum/Select/Additional accordion; gated to DV1/DV3, disabled on DV10). CLI/raw remain available for any model. -->
+      <div class="panel-section gated-dv13">
+        <div class="section-label" data-i18n="hDv13Extras">DV1/DV3-only extras</div>
+        <div class="hint" data-i18n="hintDv13Block">Not supported by the AR-DV10 - available on AR-DV1/DV3. CLI/raw stay available for any model.</div>
+
+        <div class="field-row">
+          <label data-i18n="lblLcdDimmer">LCD dimmer (LD)</label>
+          <div class="field-row-controls">
+            <input type="text" id="ldInput" inputmode="numeric" placeholder="0-1?" />
+            <button class="panel-btn small" onclick="dv13Send('ldInput','LD')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblLcdDir">LCD direction (LU)</label>
+          <div class="field-row-controls">
+            <input type="text" id="luInput" inputmode="numeric" placeholder="0-1?" />
+            <button class="panel-btn small" onclick="dv13Send('luInput','LU')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblNoiseRed">Noise reduction (NR)</label>
+          <div class="field-row-controls">
+            <input type="text" id="nrInput" inputmode="numeric" placeholder="0-1?" />
+            <button class="panel-btn small" onclick="dv13Send('nrInput','NR')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblAutoNotch">Auto-notch (LS)</label>
+          <div class="field-row-controls">
+            <input type="text" id="lsInput" inputmode="numeric" placeholder="0-1?" />
+            <button class="panel-btn small" onclick="dv13Send('lsInput','LS')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="dv13Out"></pre>
+      </div>
         </div><!-- /.misc-acc-body -->
       </details>
 
@@ -1837,7 +1877,7 @@ const I18N = {
     lblRfGainKnob: "RF GAIN/SQL",
     lblAfGainKnob: "AF GAIN",
     fbBand: "BAND",
-    lblBandShortcuts: "Quick bands (CB, DX-style shortcut presets)",
+    lblBandShortcuts: "Quick frequencies",
     bandOverlayTitle: "Quick jump",
     bandOverlayHint: "Client-side presets only — not a device command. Picking one tunes the VFO via the normal frequency-set command.",
     hMode: "Mode",
@@ -2005,6 +2045,7 @@ const I18N = {
     hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
     hintDv10NoBackup: "SD card backup/restore (SD MMW / SD MMR) is not supported on the AR-DV10 - AR-DV1/DV3 feature.",
     hintScopeUnavailable: "Spectrum scope (FD/GL) is only documented for AR-DV1/DV3 - not available on the AR-DV10.",
+    hintDv13Only: "This control is only available on the AR-DV1 / AR-DV3; not supported by the AR-DV10. (You can still use it in the CLI / raw console for experiments.)",
     hintDv10NoPower: "Remote power ON/OFF is not supported on the AR-DV10 (a battery handheld) - AR-DV1/DV3 feature.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... or -",
@@ -2039,7 +2080,13 @@ const I18N = {
     lblSelectRun: "Run: cycles (blank=forever) / dwell seconds",
     btnSelectRun: "Run",
     hMisc: "Additional Settings",
+    hDv13Extras: "DV1/DV3-only extras",
+    hintDv13Block: "Not supported by the AR-DV10 - available on AR-DV1/DV3. CLI/raw stay available for any model.",
     lblKlColor: "Key backlight color (KL 0–7)",
+    lblLcdDimmer: "LCD dimmer (LD)",
+    lblLcdDir: "LCD direction (LU)",
+    lblNoiseRed: "Noise reduction (NR)",
+    lblAutoNotch: "Auto-notch (LS)",
     lblIfbw: "IF bandwidth selector (IF)",
     lblDelay: "Delay time, ds (DL)",
     lblFreetime: "Free time, s (FR)",
@@ -2055,7 +2102,7 @@ const I18N = {
     lblRfGainKnob: "RF GAIN/SQL",
     lblAfGainKnob: "AF GAIN",
     fbBand: "BAND",
-    lblBandShortcuts: "Szybkie pasma (presety skrótowe CB/DX)",
+    lblBandShortcuts: "Szybkie częstotliwości",
     bandOverlayTitle: "Szybki skok",
     bandOverlayHint: "Tylko ustawienia lokalne (przeglądarki) — to nie jest komenda urządzenia. Wybór strojuje VFO zwykłą komendą ustawienia częstotliwości.",
     hMode: "Tryb",
@@ -2223,6 +2270,7 @@ const I18N = {
     hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
     hintDv10NoBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) nie jest obsługiwane na AR-DV10 - funkcja AR-DV1/DV3.",
     hintScopeUnavailable: "Skop widma (FD/GL) jest udokumentowany tylko dla AR-DV1/DV3 - niedostępny na AR-DV10.",
+    hintDv13Only: "Ta kontrolka jest dostępna tylko na AR-DV1 / AR-DV3; nieobsługiwana przez AR-DV10. (Nadal można jej używać w CLI / surowej konsoli do eksperymentów.)",
     hintDv10NoPower: "Zdalne włączanie/wyłączanie zasilania nie jest obsługiwane na AR-DV10 (przenośne na baterię) - funkcja AR-DV1/DV3.",
     timerTargetPlaceholder: "vfo:A",
     timerDaysPlaceholder: "mon,tue,... lub -",
@@ -2257,7 +2305,13 @@ const I18N = {
     lblSelectRun: "Uruchom: cykle (puste=bez końca) / czas zatrzymania (s)",
     btnSelectRun: "Uruchom",
     hMisc: "Dodatkowe ustawienia",
+    hDv13Extras: "Wyłącznie DV1/DV3 (dodatki)",
+    hintDv13Block: "Nieobsługiwane przez AR-DV10 - dostępne na AR-DV1/DV3. CLI / surowa konsola pozostają dla każdego modelu.",
     lblKlColor: "Kolor podświetlenia klawiszy (KL 0–7)",
+    lblLcdDimmer: "Jasność LCD/dimmer (LD)",
+    lblLcdDir: "Kierunek LCD (LU)",
+    lblNoiseRed: "Redukcja szumów (NR)",
+    lblAutoNotch: "Auto-notch (automatyczny wycięcie) (LS)",
     lblIfbw: "Selektor szerokości pasma IF (IF)",
     lblDelay: "Czas opóźnienia, ds (DL)",
     lblFreetime: "Czas wolny, s (FR)",
@@ -2615,19 +2669,41 @@ const BAND_PRESETS = [
   { name: '2m', mhz: 145.500 }, { name: '70cm', mhz: 433.500 },
   { name: 'CB', mhz: 27.185 },
 ];
-function renderBandGrid() {
+function renderBandGrid(presets) {
   const grid = document.getElementById('bandGrid');
-  if (!grid || grid.childElementCount) return;
-  grid.innerHTML = BAND_PRESETS.map((b) =>
-    `<div class="band-chip" onclick="jumpToBand(${b.mhz})">` +
-    `<span class="band-name">${b.name}</span><span class="band-freq">${b.mhz.toFixed(3)} MHz</span></div>`
+  if (!grid) return;
+  grid.innerHTML = (presets || BAND_PRESETS).map((b) =>
+    `<div class="band-chip" title="${(b.desc || '').replace(/"/g, '&quot;')}" onclick="jumpToFreq(${b.mhz}, '${(b.modeId || '')}')">` +
+    `<span class="band-name">${b.name}</span>` +
+    `<span class="band-freq">${b.mhz.toFixed(3)} MHz${b.mode ? ' &middot; ' + b.mode : ''}</span></div>`
   ).join('');
 }
-function openBandOverlay() { renderBandGrid(); document.getElementById('bandOverlay').hidden = false; }
+// modeId: '' (leave as is), 'F5'=LSB, 'F4'=USB, 'F0'=FM.
+const QUICK_PL_PRESETS = [
+  { name: '80m PL', mhz: 3.725,  modeId: 'F5', mode: 'LSB', desc: 'Polski kanał klubowy i wywoławczy (pasmo 80m)' },
+  { name: '40m PL', mhz: 7.110,  modeId: 'F5', mode: 'LSB', desc: 'Główne polskie centrum aktywności krajowej i europejskiej (pasmo 40m)' },
+  { name: 'FT8 20m', mhz: 14.074, modeId: 'F4', mode: 'USB', desc: 'Najpopularniejsza częstotliwość cyfrowa świata (FT8, pasmo 20m)' },
+  { name: 'SSTV', mhz: 14.230, modeId: 'F4', mode: 'USB', desc: 'Globalne centrum przesyłania obrazów SSTV (wolnoskanująca TV)' },
+  { name: 'IOTA', mhz: 14.260, modeId: 'F4', mode: 'USB', desc: 'Światowa częstotliwość dla łowców wysp (IOTA)' },
+  { name: 'Intercon.', mhz: 14.300, modeId: 'F4', mode: 'USB', desc: 'Międzynarodowa sieć ratunkowa i morska (Intercontinental Net)' },
+  { name: '17m DX', mhz: 18.130, modeId: 'F4', mode: 'USB', desc: 'Ogólna częstotliwość wywoławcza SSB w wolnym od zawodów paśmie 17m' },
+  { name: '15m DX', mhz: 21.285, modeId: 'F4', mode: 'USB', desc: 'Globalna częstotliwość wywoławcza DX w paśmie 15m' },
+  { name: '10m SSB', mhz: 28.500, modeId: 'F4', mode: 'USB', desc: 'Światowa częstotliwość wywoławcza SSB w paśmie 10m' },
+  { name: '2m DX', mhz: 144.300, modeId: 'F4', mode: 'USB', desc: 'Częstotliwość wywoławcza dalekiego zasięgu (DX) w paśmie 2m' },
+  { name: 'APRS', mhz: 144.800, modeId: 'F0', mode: 'FM', desc: 'Cyfrowy system automatycznego pozycjonowania APRS' },
+  { name: '2m S8', mhz: 145.200, modeId: 'F0', mode: 'FM', desc: 'Popularny lokalny kanał pogawędkowy w Polsce (kanał S8)' },
+  { name: '2m S20', mhz: 145.500, modeId: 'F0', mode: 'FM', desc: 'Ogólnokrajowy kanał wywoławczy VHF (kanał S20)' },
+  { name: 'SOTA', mhz: 145.575, modeId: 'F0', mode: 'FM', desc: 'Polski górski kanał wywoławczy (m.in. akcje SOTA)' },
+  { name: 'ISS', mhz: 145.800, modeId: 'F0', mode: 'FM', desc: 'Odbiór astronautów / Międzynarodowej Stacji Kosmicznej (ISS)' },
+  { name: '70cm', mhz: 433.500, modeId: 'F0', mode: 'FM', desc: 'Ogólnokrajowy kanał wywoławczy w paśmie UHF (70cm)' },
+];
+function openBandOverlay() { renderBandGrid(BAND_PRESETS); document.getElementById('bandOverlay').hidden = false; }
+function openQuickBands() { renderBandGrid(QUICK_PL_PRESETS); document.getElementById('bandOverlay').hidden = false; }
 function closeBandOverlay() { document.getElementById('bandOverlay').hidden = true; }
-function jumpToBand(mhz) {
-  lastFreqMhz = mhz;
+function jumpToFreq(mhz, modeId) {
   send('f ' + mhz.toFixed(6));
+  if (modeId) send('m ' + modeId);  // 2-char <digital><analog>; e.g. F5=LSB
+  lastFreqMhz = mhz;
   closeBandOverlay();
 }
 document.getElementById('bandOverlay').addEventListener('click', (e) => {
@@ -3042,6 +3118,14 @@ function renderDV10Gating(s) {
   document.querySelectorAll('.dv10-none input, .dv10-none select, .dv10-none button').forEach((el) => {
     el.disabled = isDV10;
     el.title = isDV10 ? t('hintDV10Unsupported') : '';
+  });
+  // DV1/DV3-only extras (additional settings): enabled only when the
+  // connected device is a DV1 or DV3; greyed/disabled on a DV10. (CLI/raw
+  // remain available for every model regardless.)
+  const is13 = !isDV10;
+  document.querySelectorAll('.gated-dv13 input, .gated-dv13 select, .gated-dv13 button').forEach((el) => {
+    el.disabled = !is13;
+    el.title = is13 ? '' : t('hintDv13Only');
   });
   // AR-DV10 can't stop recording remotely (SD REC / is AR-DV1-only and
   // wedges the DV10) - stop happens on the front-panel ● key. Disable the
@@ -3645,6 +3729,13 @@ function selectRun() {
 function miscSetGet(inputId, verb) {
   const v = outVal(inputId, '');
   sendOut(v ? (verb + ' ' + v) : verb, 'miscOut');
+}
+// RAW send for generic DV1/DV3-only commands; blank value = plain read.
+// These go through the raw verb so they stay available for every model at
+// CLI/raw level (web controls are simply gated in the UI).
+function dv13Send(inputId, code) {
+  const v = outVal(inputId, '');
+  sendOut(v ? ('raw ' + code + ' ' + v) : 'raw ' + code, 'dv13Out');
 }
 
 applyLanguage(detectDefaultLang());
