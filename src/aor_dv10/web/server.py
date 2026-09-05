@@ -186,11 +186,12 @@ async def api_status():
         # model-specific UI gating (e.g. SAH/SAL aren't functionally
         # distinct on the DV10 - see aor_dv10.device.
         # ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY). model()/
-        # device_family() are cached on the device object after their
-        # first read, so polling these every 1.5s doesn't mean a fresh
-        # WI wire round-trip every time.
+        # device_family()/firmware_version() are all cached on the device
+        # object after their first read, so polling these every 1.5s
+        # doesn't mean a fresh WI/VR wire round-trip every time.
         "model": _try(device.model),
         "device_family": _try(device.device_family),
+        "firmware_version": _try(device.firmware_version),
         "analog_modes_without_distinction": sorted(_try(device.analog_modes_without_distinction) or set()),
     }
 

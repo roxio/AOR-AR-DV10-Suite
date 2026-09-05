@@ -101,6 +101,13 @@
     font-weight: 600;
   }
   .nameplate-text strong { color: var(--accent); font-weight: 800; }
+  /* Firmware version (VR) - previously CLI-only ("id"), now surfaced
+     here since /api/status carries it (see renderModelGating()). Small
+     and muted on purpose: identification detail, not a live reading. */
+  .nameplate-fw {
+    font-size: 10px; letter-spacing: .04em; color: var(--label);
+    font-family: var(--font-mono); border-left: 1px solid var(--border); padding-left: 8px;
+  }
 
   /* -- Options & Power controls, moved into the status line 2026-09-01
      at user request. Compact: short labels, full text in title
@@ -807,6 +814,7 @@
       <div class="nameplate">
         <span class="led" id="connDot"></span>
         <span class="nameplate-text" id="namePlateText">AOR <strong>AR-DV10</strong></span>
+        <span class="nameplate-fw" id="namePlateFw" hidden></span>
       </div>
 
       <!-- OPTIONS / POWER - moved up into the status line 2026-09-01 at
@@ -1677,6 +1685,157 @@
         </div><!-- /.rec-acc-body -->
       </details>
 
+      <!-- SEARCH BANKS / SCAN GROUPS / PASS FREQUENCIES (SE/SR/SS/SX/SL/SU,
+           SG/MG/AS/BK, PW/PR/PD) - the WebSocket dispatcher for all three
+           (_dispatch_plain_search/scan/pass in web/server.py) has existed
+           since before this panel; only the UI was missing (previously
+           reachable only via the Raw Console below, or the CLI's own
+           search/scan/pass verbs). Field layout is spec-confirmed, not yet
+           real-hardware round-trip tested - see PROTOCOL.md. -->
+      <details class="panel-accordion-more search-acc">
+        <summary data-i18n="hSearchScanPass">Search Banks · Scan Groups · Pass Frequencies</summary>
+        <div class="accordion-body search-acc-body">
+
+      <!-- SEARCH BANKS (SE/SR/SS/SX/SL/SU) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hSearchBank">Search Banks</div>
+        <div class="hint" data-i18n="hintSearchBank">A saved frequency range with its own step/mode (SE/SR) for program search - separate from memory channels.</div>
+        <div class="field-row">
+          <label data-i18n="lblSearchBankNum">Bank number</label>
+          <input type="text" id="searchBankInput" inputmode="numeric" value="0" placeholder="0-19" />
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="searchRead()" data-i18n="btnSearchRead">Read</button>
+            <button class="panel-btn small" onclick="searchRun()" data-i18n="btnSearchRun">Run</button>
+            <button class="panel-btn small" onclick="searchDelete()" data-i18n="btnSearchDelete">Delete</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSearchWrite">Write (fill in order - lower/upper MHz, step Hz, step-adj Hz, mode, protect; tag needs all of those first)</label>
+          <div class="field-row-pair">
+            <input type="text" id="searchLoInput" data-i18n-ph="searchLoPlaceholder" placeholder="lower MHz" />
+            <input type="text" id="searchHiInput" data-i18n-ph="searchHiPlaceholder" placeholder="upper MHz" />
+          </div>
+          <div class="field-row-pair">
+            <input type="text" id="searchStepInput" inputmode="numeric" data-i18n-ph="searchStepPlaceholder" placeholder="step Hz" />
+            <input type="text" id="searchStepAdjInput" inputmode="numeric" data-i18n-ph="searchStepAdjPlaceholder" placeholder="step-adj Hz" />
+          </div>
+          <div class="field-row-pair">
+            <input type="text" id="searchModeInput" style="max-width:5em" placeholder="F0" />
+            <select id="searchProtectSelect">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+          </div>
+          <div class="field-row-controls">
+            <input type="text" id="searchTagInput" data-i18n-ph="searchTagPlaceholder" placeholder="tag (only if the fields above are filled)" />
+            <button class="panel-btn small" onclick="searchWrite()" data-i18n="btnSearchWrite">Write</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSearchLimits">Session limits (SL/SU, MHz - lost on power-off)</label>
+          <div class="field-row-pair">
+            <input type="text" id="searchLoLimitInput" data-i18n-ph="freqPlaceholder" placeholder="lower MHz" />
+            <input type="text" id="searchHiLimitInput" data-i18n-ph="freqPlaceholder" placeholder="upper MHz" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="searchLimits()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="searchOut"></pre>
+      </div>
+
+      <!-- SCAN GROUPS (SG/MG/AS/BK) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hScanGroup">Scan Groups</div>
+        <div class="hint" data-i18n="hintScanGroup">Search-side (SG) and memory-side (MG) groups link several banks into one scan pass. SG has its own per-group auto-store field; MG does not - that's a real protocol asymmetry, not an omission here.</div>
+        <div class="field-row">
+          <label data-i18n="lblScanGroupNum">Group number</label>
+          <input type="text" id="scanGroupInput" inputmode="numeric" value="0" placeholder="0-9" />
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="scanSearchRead()" data-i18n="btnScanSearchRead">Read (search)</button>
+            <button class="panel-btn small" onclick="scanMemRead()" data-i18n="btnScanMemRead">Read (memory)</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblScanWrite">Write (fill in order - delay ds, free s; search-only auto-store; banks last)</label>
+          <div class="field-row-pair">
+            <input type="text" id="scanDelayInput" inputmode="numeric" data-i18n-ph="scanDelayPlaceholder" placeholder="delay ds" />
+            <input type="text" id="scanFreeInput" inputmode="numeric" data-i18n-ph="scanFreePlaceholder" placeholder="free s" />
+          </div>
+          <div class="field-row-pair">
+            <select id="scanAutoStoreSelect" title="search groups (SG) only - memory groups (MG) have no such field">
+              <option value="">--</option>
+              <option value="off">autostore off</option>
+              <option value="on">autostore on</option>
+            </select>
+            <input type="text" id="scanBanksInput" data-i18n-ph="banksPlaceholder" placeholder="0 1 2 or clear" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="scanSearchWrite()" data-i18n="btnScanSearchWrite">Write (search)</button>
+            <button class="panel-btn small" onclick="scanMemWrite()" data-i18n="btnScanMemWrite">Write (memory)</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblAutoStore">Auto-store (AS, standalone)</label>
+          <label class="rocker">
+            <input type="checkbox" id="autoStoreToggle" onchange="scanAutoStore(this.checked)" />
+            <span class="rocker-track"></span>
+          </label>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblBankLink">Bank-link (BK)</label>
+          <div class="field-row-controls">
+            <input type="text" id="bankLinkInput" data-i18n-ph="banksPlaceholder" placeholder="0 1 2 or clear" />
+            <button class="panel-btn small" onclick="scanBankLink()" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="scanOut"></pre>
+      </div>
+
+      <!-- PASS FREQUENCIES (PW/PR/PD) -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hPassFreq">Pass Frequencies</div>
+        <div class="hint" data-i18n="hintPassFreq">Frequencies to skip during a search (PW mark / PR list / PD delete) - a per-bank or all-banks skip list, separate from memory channels.</div>
+        <div class="field-row">
+          <label data-i18n="lblPassMark">Mark (blank frequency/bank = receiver's current)</label>
+          <div class="field-row-pair">
+            <input type="text" id="passFreqInput" data-i18n-ph="freqPlaceholder" placeholder="MHz" />
+            <input type="text" id="passBankInput" inputmode="numeric" placeholder="bank" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="passMark()" data-i18n="btnPassMark">Mark</button>
+            <button class="panel-btn small" onclick="passMarkAllBanks()" data-i18n="btnPassMarkAll">Mark (all banks)</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblPassList">List (blank bank = all banks)</label>
+          <div class="field-row-controls">
+            <input type="text" id="passListBankInput" inputmode="numeric" placeholder="bank" />
+            <button class="panel-btn small" onclick="passList()" data-i18n="btnPassList">List</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblPassDelete">Delete (blank bank = receiver's current)</label>
+          <div class="field-row-pair">
+            <input type="text" id="passDelBankInput" inputmode="numeric" placeholder="bank" />
+            <input type="text" id="passDelIndexInput" inputmode="numeric" placeholder="index" />
+          </div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="passDelete()" data-i18n="btnPassDelete">Delete</button>
+            <button class="panel-btn small" onclick="passDeleteAllBanks()" data-i18n="btnPassDeleteAll">Delete (all banks)</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="passOut"></pre>
+      </div>
+
+        </div><!-- /.search-acc-body -->
+      </details>
+
       <!-- Advanced: Spectrum Scope / Select-Scan / Additional Settings -->
       <details class="panel-accordion-more misc-acc">
         <summary data-i18n="hScopeMore">Spectrum Scope · Select-Scan · Additional Settings</summary>
@@ -2041,6 +2200,7 @@ const I18N = {
     btnTimerShow: "Show Timer",
     btnTimerOff: "Deactivate",
     lblTimerSet: "Set: target / weekly|once / start / end / recording|alarm / days / volume · time: weekly=hh:mm, once=MMDDhhmm",
+    hintFirmwareVersion: "Firmware version (VR) - previously only visible via the CLI's \"id\" command.",
     hintDV10Unsupported: "Not supported by the AR-DV10 (VFO search and the recording timer are AR-DV1/DV3 features).",
     hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
     hintDv10NoBackup: "SD card backup/restore (SD MMW / SD MMR) is not supported on the AR-DV10 - AR-DV1/DV3 feature.",
@@ -2066,6 +2226,45 @@ const I18N = {
     btnSdBackup: "Backup",
     lblSdRestore: "Restore file name",
     btnSdRestore: "Restore",
+    hSearchScanPass: "Search Banks · Scan Groups · Pass Frequencies",
+    hSearchBank: "Search Banks",
+    hintSearchBank: "A saved frequency range with its own step/mode (SE/SR) for program search - separate from memory channels.",
+    lblSearchBankNum: "Bank number",
+    btnSearchRead: "Read",
+    btnSearchRun: "Run",
+    btnSearchDelete: "Delete",
+    lblSearchWrite: "Write (fill in order - lower/upper MHz, step Hz, step-adj Hz, mode, protect; tag needs all of those first)",
+    searchLoPlaceholder: "lower MHz",
+    searchHiPlaceholder: "upper MHz",
+    searchStepPlaceholder: "step Hz",
+    searchStepAdjPlaceholder: "step-adj Hz",
+    searchTagPlaceholder: "tag (only if the fields above are filled)",
+    btnSearchWrite: "Write",
+    lblSearchLimits: "Session limits (SL/SU, MHz - lost on power-off)",
+    hScanGroup: "Scan Groups",
+    hintScanGroup: "Search-side (SG) and memory-side (MG) groups link several banks into one scan pass. SG has its own per-group auto-store field; MG does not - that's a real protocol asymmetry, not an omission here.",
+    lblScanGroupNum: "Group number",
+    btnScanSearchRead: "Read (search)",
+    btnScanMemRead: "Read (memory)",
+    lblScanWrite: "Write (fill in order - delay ds, free s; search-only auto-store; banks last)",
+    scanDelayPlaceholder: "delay ds",
+    scanFreePlaceholder: "free s",
+    banksPlaceholder: "0 1 2 or clear",
+    btnScanSearchWrite: "Write (search)",
+    btnScanMemWrite: "Write (memory)",
+    lblAutoStore: "Auto-store (AS, standalone)",
+    lblBankLink: "Bank-link (BK)",
+    hPassFreq: "Pass Frequencies",
+    hintPassFreq: "Frequencies to skip during a search (PW mark / PR list / PD delete) - a per-bank or all-banks skip list, separate from memory channels.",
+    lblPassMark: "Mark (blank frequency/bank = receiver's current)",
+    btnPassMark: "Mark",
+    btnPassMarkAll: "Mark (all banks)",
+    lblPassList: "List (blank bank = all banks)",
+    btnPassList: "List",
+    lblPassDelete: "Delete (blank bank = receiver's current)",
+    btnPassDelete: "Delete",
+    btnPassDeleteAll: "Delete (all banks)",
+    toastFieldsInOrder: "fill these fields in order, from the top - you can stop early but can't skip one",
     hScope: "Spectrum Scope",
     hScopeMore: "Spectrum Scope · Select-Scan · Additional Settings",
     hintScope: "FD (fast) / GL (normal) - no known way to trigger scope mode over the wire, so this only returns real data if the receiver is already showing the bandscope on its own screen.",
@@ -2266,6 +2465,7 @@ const I18N = {
     btnTimerShow: "Pokaż timer",
     btnTimerOff: "Dezaktywuj",
     lblTimerSet: "Ustaw: cel / weekly|once / start / koniec / recording|alarm / dni / głośność · czas: weekly=hh:mm, once=MMDDhhmm",
+    hintFirmwareVersion: "Wersja firmware (VR) - wcześniej widoczna tylko przez polecenie CLI \"id\".",
     hintDV10Unsupported: "Nieobsługiwane przez AR-DV10 (wyszukiwanie VFO i timer nagrywania to funkcje AR-DV1/DV3).",
     hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
     hintDv10NoBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) nie jest obsługiwane na AR-DV10 - funkcja AR-DV1/DV3.",
@@ -2291,6 +2491,45 @@ const I18N = {
     btnSdBackup: "Kopia zapasowa",
     lblSdRestore: "Nazwa pliku do przywrócenia",
     btnSdRestore: "Przywróć",
+    hSearchScanPass: "Banki wyszukiwania · Grupy skanowania · Częstotliwości pomijane",
+    hSearchBank: "Banki wyszukiwania",
+    hintSearchBank: "Zapisany zakres częstotliwości z własnym krokiem/trybem (SE/SR) do wyszukiwania programowego - oddzielny od kanałów pamięci.",
+    lblSearchBankNum: "Numer banku",
+    btnSearchRead: "Odczytaj",
+    btnSearchRun: "Uruchom",
+    btnSearchDelete: "Usuń",
+    lblSearchWrite: "Zapisz (wypełniaj po kolei - dolna/górna MHz, krok Hz, korekta kroku Hz, tryb, ochrona; etykieta wymaga wypełnienia wszystkich powyższych)",
+    searchLoPlaceholder: "dolna MHz",
+    searchHiPlaceholder: "górna MHz",
+    searchStepPlaceholder: "krok Hz",
+    searchStepAdjPlaceholder: "korekta kroku Hz",
+    searchTagPlaceholder: "etykieta (tylko gdy pola powyżej są wypełnione)",
+    btnSearchWrite: "Zapisz",
+    lblSearchLimits: "Limity sesyjne (SL/SU, MHz - tracone po wyłączeniu zasilania)",
+    hScanGroup: "Grupy skanowania",
+    hintScanGroup: "Grupy po stronie wyszukiwania (SG) i pamięci (MG) łączą kilka banków w jeden przebieg skanowania. SG ma własne pole auto-zapisu per grupa; MG go nie ma - to realna asymetria protokołu, nie pominięcie tutaj.",
+    lblScanGroupNum: "Numer grupy",
+    btnScanSearchRead: "Odczytaj (wyszukiwanie)",
+    btnScanMemRead: "Odczytaj (pamięć)",
+    lblScanWrite: "Zapisz (wypełniaj po kolei - opóźnienie ds, czas wolny s; auto-zapis tylko dla wyszukiwania; banki na końcu)",
+    scanDelayPlaceholder: "opóźnienie ds",
+    scanFreePlaceholder: "czas wolny s",
+    banksPlaceholder: "0 1 2 lub clear",
+    btnScanSearchWrite: "Zapisz (wyszukiwanie)",
+    btnScanMemWrite: "Zapisz (pamięć)",
+    lblAutoStore: "Auto-zapis (AS, samodzielne)",
+    lblBankLink: "Łączenie banków (BK)",
+    hPassFreq: "Częstotliwości pomijane",
+    hintPassFreq: "Częstotliwości pomijane przy wyszukiwaniu (PW oznacz / PR lista / PD usuń) - lista per bank lub wszystkie banki, oddzielna od kanałów pamięci.",
+    lblPassMark: "Oznacz (puste pole częstotliwość/bank = bieżące w odbiorniku)",
+    btnPassMark: "Oznacz",
+    btnPassMarkAll: "Oznacz (wszystkie banki)",
+    lblPassList: "Lista (pusty bank = wszystkie banki)",
+    btnPassList: "Lista",
+    lblPassDelete: "Usuń (pusty bank = bieżący w odbiorniku)",
+    btnPassDelete: "Usuń",
+    btnPassDeleteAll: "Usuń (wszystkie banki)",
+    toastFieldsInOrder: "wypełnij te pola po kolei, od góry - możesz zatrzymać się wcześniej, ale nie pomijaj żadnego",
     hScope: "Skop widma",
     hScopeMore: "Skop widma · Lista skanowania · Dodatkowe ustawienia",
     hintScope: "FD (szybki) / GL (normalny) - nie znaleziono sposobu na włączenie trybu skopu przez łącze, więc zwraca realne dane tylko gdy odbiornik sam już pokazuje bandscope na swoim ekranie.",
@@ -3184,6 +3423,16 @@ function renderModelGating(s) {
     const plate = document.getElementById('namePlateText');
     if (plate) plate.innerHTML = 'AOR <strong>' + s.model.replace(/^AOR\s+/i, '') + '</strong>';
   }
+  const fwEl = document.getElementById('namePlateFw');
+  if (fwEl) {
+    if (s.firmware_version) {
+      fwEl.textContent = 'fw ' + s.firmware_version;
+      fwEl.title = t('hintFirmwareVersion');
+      fwEl.hidden = false;
+    } else {
+      fwEl.hidden = true;
+    }
+  }
   const gated = new Set(s.analog_modes_without_distinction || []);
   const analogSelect = document.getElementById('analogMode');
   if (analogSelect) {
@@ -3548,6 +3797,127 @@ function rmemFind() {
   if (!q) { toast(t('toastEnterValue'), true); return; }
   sendOut('rmem find ' + q, 'rmemOut');
 }
+
+// -- search banks / scan groups / pass frequencies -------------------------
+// SE/SR/SS/SX/SL/SU, SG/MG/AS/BK, PW/PR/PD - the server's
+// _dispatch_plain_search/scan/pass() take the same positional string
+// grammar the CLI's own search/scan/pass verbs do (see web/server.py).
+// Several of these (search write, scan swrite/mwrite) accept a run of
+// OPTIONAL POSITIONAL fields - there's no keyword syntax on the wire, so
+// a later field can't be sent unless every field before it is filled too.
+// joinPositional() enforces that from the UI side rather than silently
+// sending a misaligned command: trailing blanks are fine to omit, but a
+// gap (blank field followed by a filled one) is rejected with a toast.
+function joinPositional(values) {
+  let end = values.length;
+  while (end > 0 && !values[end - 1]) end--;
+  const trimmed = values.slice(0, end);
+  if (trimmed.some((v) => !v)) return null;
+  return trimmed;
+}
+
+function searchRead() { sendOut('search read ' + outVal('searchBankInput', '0'), 'searchOut'); }
+function searchRun() { sendOut('search run ' + outVal('searchBankInput', '0'), 'searchOut'); }
+function searchDelete() { sendOut('search delete ' + outVal('searchBankInput', '0'), 'searchOut'); }
+function searchWrite() {
+  const bank = outVal('searchBankInput', '0');
+  const core = joinPositional([
+    outVal('searchLoInput', ''),
+    outVal('searchHiInput', ''),
+    outVal('searchStepInput', ''),
+    outVal('searchStepAdjInput', ''),
+    outVal('searchModeInput', ''),
+    document.getElementById('searchProtectSelect').value,
+  ]);
+  if (core === null) { toast(t('toastFieldsInOrder'), true); return; }
+  let cmd = 'search write ' + bank;
+  if (core.length) cmd += ' ' + core.join(' ');
+  const tag = outVal('searchTagInput', '');
+  if (tag) {
+    if (core.length < 6) { toast(t('toastFieldsInOrder'), true); return; }
+    cmd += ' ' + tag;
+  }
+  sendOut(cmd, 'searchOut');
+}
+function searchLimits() {
+  const lo = outVal('searchLoLimitInput', '');
+  const hi = outVal('searchHiLimitInput', '');
+  if (lo) sendOut('search lolimit ' + lo, 'searchOut');
+  if (hi) sendOut('search hilimit ' + hi, 'searchOut');
+  if (!lo && !hi) { sendOut('search lolimit', 'searchOut'); sendOut('search hilimit', 'searchOut'); }
+}
+
+function scanSearchRead() { sendOut('scan sread ' + outVal('scanGroupInput', '0'), 'scanOut'); }
+function scanMemRead() { sendOut('scan mread ' + outVal('scanGroupInput', '0'), 'scanOut'); }
+function scanSearchWrite() {
+  const group = outVal('scanGroupInput', '0');
+  const core = joinPositional([
+    outVal('scanDelayInput', ''),
+    outVal('scanFreeInput', ''),
+    document.getElementById('scanAutoStoreSelect').value,
+  ]);
+  if (core === null) { toast(t('toastFieldsInOrder'), true); return; }
+  let cmd = 'scan swrite ' + group;
+  if (core.length) cmd += ' ' + core.join(' ');
+  const banks = outVal('scanBanksInput', '');
+  if (banks) {
+    if (core.length < 3) { toast(t('toastFieldsInOrder'), true); return; }
+    cmd += ' ' + banks;
+  }
+  sendOut(cmd, 'scanOut');
+}
+function scanMemWrite() {
+  const group = outVal('scanGroupInput', '0');
+  // MG has no auto-store sub-field (unlike SG) - only delay/free/banks.
+  const core = joinPositional([
+    outVal('scanDelayInput', ''),
+    outVal('scanFreeInput', ''),
+  ]);
+  if (core === null) { toast(t('toastFieldsInOrder'), true); return; }
+  let cmd = 'scan mwrite ' + group;
+  if (core.length) cmd += ' ' + core.join(' ');
+  const banks = outVal('scanBanksInput', '');
+  if (banks) {
+    if (core.length < 2) { toast(t('toastFieldsInOrder'), true); return; }
+    cmd += ' ' + banks;
+  }
+  sendOut(cmd, 'scanOut');
+}
+function scanAutoStore(on) { sendOut('scan autostore ' + (on ? 'on' : 'off'), 'scanOut'); }
+function scanBankLink() {
+  const banks = outVal('bankLinkInput', '');
+  sendOut(banks ? ('scan banklink ' + banks) : 'scan banklink', 'scanOut');
+}
+
+function passMark() {
+  const freq = outVal('passFreqInput', '');
+  const bank = outVal('passBankInput', '');
+  let cmd = 'pass mark';
+  if (bank) { cmd += ' bank ' + bank; if (freq) cmd += ' ' + freq; }
+  else if (freq) { cmd += ' ' + freq; }
+  sendOut(cmd, 'passOut');
+}
+function passMarkAllBanks() {
+  const freq = outVal('passFreqInput', '');
+  if (!freq) { toast(t('toastEnterFreq'), true); return; }
+  sendOut('pass mark allbanks ' + freq, 'passOut');
+}
+function passList() {
+  const bank = outVal('passListBankInput', '');
+  sendOut(bank ? ('pass list ' + bank) : 'pass list', 'passOut');
+}
+function passDelete() {
+  const bank = outVal('passDelBankInput', '');
+  const index = outVal('passDelIndexInput', '');
+  if (bank) {
+    let cmd = 'pass delete bank ' + bank;
+    if (index) cmd += ' ' + index;
+    sendOut(cmd, 'passOut');
+  } else {
+    sendOut('pass delete', 'passOut');
+  }
+}
+function passDeleteAllBanks() { sendOut('pass delete allbanks', 'passOut'); }
 
 // -- VFO + scheduled recording/alarm timer --------------------------------
 // VFO Info (VI) also updates the console display's VFO-B readout - see

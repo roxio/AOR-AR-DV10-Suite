@@ -814,6 +814,11 @@ class DV10Device:
         # would mean one extra wire round-trip a poll for a value
         # that can't have changed.
         self._model_cache: Optional[str] = None
+        # Same reasoning as _model_cache, for firmware_version()/VR - the
+        # web nameplate now polls it every /api/status refresh too (it
+        # was previously CLI-only, via "id"), and firmware can't change
+        # mid-connection either.
+        self._firmware_cache: Optional[str] = None
 
     # -- lifecycle -------------------------------------------------------
 
@@ -842,6 +847,7 @@ class DV10Device:
         self._transport.close()
         self._connected = False
         self._model_cache = None
+        self._firmware_cache = None
 
     @property
     def connected(self) -> bool:
@@ -868,7 +874,11 @@ class DV10Device:
     # -- identification ----------------------------------------------------
 
     def firmware_version(self) -> str:
-        return self._chan.read("VR").value or ""
+        """Raw VR response. Cached for the life of the connection, same
+        as model() - see ``_firmware_cache``."""
+        if self._firmware_cache is None:
+            self._firmware_cache = self._chan.read("VR").value or ""
+        return self._firmware_cache
 
     def model(self) -> str:
         """Raw WI response, e.g. "AOR AR-DV10" (message-only, no code
