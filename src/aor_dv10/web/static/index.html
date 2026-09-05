@@ -2053,6 +2053,29 @@
         <button type="submit" class="panel-btn" data-i18n="btnSend">Send</button>
       </form>
       <div class="hint" data-i18n="rawConsoleNote">Raw command/response text always stays in the device's original (English) format.</div>
+
+      <!-- Live protocol trace (proposal item A.9) - the CLI's own "debug
+           on" gets a synchronous callback for every raw TX/RX line
+           (Repl.enable_debug()/set_trace_sink()); wiring that same
+           push straight into this WebSocket would only capture traffic
+           from commands THIS connection itself sends, missing the
+           /api/status polling that generates most real traffic (a
+           separate REST connection through the same shared device). So
+           instead of a true push stream, this polls the already-working
+           GET /api/debug/trace (the always-on ring buffer - "debug
+           last"/"debug save" read the same one) and appends only the
+           lines not already shown, using the last-seen line as the
+           overlap point. Best-effort: a burst of traffic faster than
+           the poll interval can still skip lines. -->
+      <div class="rocker-row">
+        <label data-i18n="lblDebugLive">Live protocol trace (polled tail of the trace buffer - not a true push stream, see hint)</label>
+        <label class="rocker">
+          <input type="checkbox" id="debugLiveToggle" onchange="debugLiveToggle(this.checked)" />
+          <span class="rocker-track"></span>
+        </label>
+      </div>
+      <div class="hint" data-i18n="hintDebugLive">Polls /api/debug/trace about once a second and appends new lines - best-effort, a very fast burst between polls can still skip a line. Use "debug last N" in the console above for a guaranteed full read at that moment.</div>
+      <pre class="mini-out" id="debugLiveOut"></pre>
     </details>
 
     <footer data-i18n="footerNote">Every control here sends the same short verbs as <code>dv10-cli</code>, over one shared WebSocket connection.</footer>
@@ -2141,6 +2164,8 @@ const I18N = {
     cmdPlaceholder: "any verb, e.g. raw LM, describe RF, help",
     btnSend: "Send",
     rawConsoleNote: "Raw command/response text always stays in the device's original (English) format.",
+    lblDebugLive: "Live protocol trace (polled tail of the trace buffer - not a true push stream, see hint)",
+    hintDebugLive: "Polls /api/debug/trace about once a second and appends new lines - best-effort, a very fast burst between polls can still skip a line. Use \"debug last N\" in the console above for a guaranteed full read at that moment.",
     footerNote: "Every control here sends the same short verbs as dv10-cli, over one shared WebSocket connection.",
     toastNotConnected: "not connected yet",
     toastEnterFreq: "enter a frequency first",
@@ -2417,6 +2442,8 @@ const I18N = {
     cmdPlaceholder: "dowolna komenda, np. raw LM, describe RF, help",
     btnSend: "Wyślij",
     rawConsoleNote: "Tekst surowych poleceń/odpowiedzi zawsze pozostaje w oryginalnym (angielskim) formacie urządzenia.",
+    lblDebugLive: "Podgląd protokołu na żywo (odpytywany ogon bufora śladu - to nie jest prawdziwy strumień push, zob. podpowiedź)",
+    hintDebugLive: "Odpytuje /api/debug/trace mniej więcej raz na sekundę i dopisuje nowe linie - działa najlepiej jak się da; bardzo szybki wysyp ruchu między odpytaniami wciąż może pominąć linię. Użyj \"debug last N\" w konsoli powyżej, żeby mieć gwarantowany pełny odczyt w danej chwili.",
     footerNote: "Każdy element sterujący wysyła te same krótkie polecenia co dv10-cli, przez jedno wspólne połączenie WebSocket.",
     toastNotConnected: "jeszcze nie połączono",
     toastEnterFreq: "najpierw podaj częstotliwość",
@@ -4219,6 +4246,62 @@ function selectRun() {
   const dwell = outVal('selDwellInput', '2.0');
   sendOut('select run ' + cycles + ' ' + dwell, 'selectOut');
 }
+
+// -- live protocol trace (polled tail of GET /api/debug/trace) -------------
+// See the HTML comment above #debugLiveToggle for why this polls instead
+// of pushing over the WebSocket. debugLiveLastLine is the overlap point:
+// each poll re-fetches the last N ring-buffer lines and only appends
+// whatever comes after the last line already shown.
+let debugLiveTimer = null;
+let debugLiveLastLine = null;
+function debugLiveToggle(on) {
+  if (on) {
+    debugLiveLastLine = null;
+    const out = document.getElementById('debugLiveOut');
+    if (out) out.textContent = '';
+    debugLivePoll();
+    debugLiveTimer = setInterval(debugLivePoll, 1000);
+  } else if (debugLiveTimer) {
+    clearInterval(debugLiveTimer);
+    debugLiveTimer = null;
+  }
+}
+async function debugLivePoll() {
+  let data;
+  try {
+    const res = await fetch('/api/debug/trace?n=200');
+    data = await res.json();
+  } catch (e) {
+    return; // transient fetch error - the next poll retries
+  }
+  const lines = (data && data.lines) || [];
+  if (!lines.length) return;
+  let newLines = lines;
+  if (debugLiveLastLine !== null) {
+    const idx = lines.lastIndexOf(debugLiveLastLine);
+    if (idx >= 0) newLines = lines.slice(idx + 1);
+  }
+  if (newLines.length) {
+    const out = document.getElementById('debugLiveOut');
+    if (out) {
+      out.textContent += newLines.join('\n') + '\n';
+      out.scrollTop = out.scrollHeight;
+    }
+  }
+  debugLiveLastLine = lines[lines.length - 1];
+}
+// Stop polling if the service accordion collapses while live trace is on -
+// otherwise it'd keep polling once a second in the background forever.
+(function () {
+  const serviceDetails = document.querySelector('details.service');
+  if (!serviceDetails) return;
+  serviceDetails.addEventListener('toggle', () => {
+    if (!serviceDetails.open) {
+      const cb = document.getElementById('debugLiveToggle');
+      if (cb && cb.checked) { cb.checked = false; debugLiveToggle(false); }
+    }
+  });
+})();
 
 // -- small typed commands (task 15: KL/IF/DL/FR/RN) ----------------------
 function miscSetGet(inputId, verb) {
