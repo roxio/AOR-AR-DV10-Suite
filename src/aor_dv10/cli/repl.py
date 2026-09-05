@@ -128,6 +128,11 @@ Commands:
                           MENU-CONFIG "auto-store on shutdown" flag, not per-channel protect
                           (that's a separate MX/MW/SE sub-field) - unconfirmed either way,
                           see DV10Device.get_write_protect()
+  reset [full]                RS: DESTRUCTIVE - reset to factory defaults. Bare "reset" sends
+                          a system reset (keeps memory data); "reset full" erases everything,
+                          per manual 11.2 items 4/5. The 0/1 argument encoding is a guess,
+                          unconfirmed against real hardware - see DV10Device.reset(). Only
+                          use this on a unit you don't mind losing settings/memories on.
   regchan                   MM: register the current VFO/channel as "last channel memory"
                           (write-only; DESTRUCTIVE-ish - see DV10Device.register_last_channel())
   power on|off               ZP (connect/power on) / QP (disconnect/power off)
@@ -242,7 +247,7 @@ _VERBS = [
     "p25nac", "p25pm", "nxdnran", "nxdnnm", "dcrcode", "descr",
     "beeplvl", "vollimit", "digain", "mgain", "contrast",
     "movenext", "moveprev", "stepadj",
-    "zi", "clock", "writeprotect",
+    "zi", "clock", "writeprotect", "reset",
 ]
 
 
@@ -632,6 +637,10 @@ class Repl:
             if args:
                 self.device.set_write_protect(_on_off(args[0]))
             self.console.print(self.device.get_write_protect())
+        elif verb == "reset":
+            full = bool(args) and args[0].strip().lower() in ("full", "1")
+            self.device.reset(full=full)
+            self.console.print("reset sent (full)" if full else "reset sent (system)")
         elif verb == "sqltype":
             if args:
                 self.device.set_squelch_tone_type(args[0])

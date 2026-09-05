@@ -617,6 +617,7 @@
   .band-chip .band-freq { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
   .band-overlay-hint { margin-top: 10px; font-size: 10px; color: var(--label); line-height: 1.5; }
   .hint { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .hint-danger { font-size: 10.5px; color: var(--bad); margin-top: 4px; line-height: 1.4; font-weight: 600; }
 
   .keypad { margin-top: 0; }
   .keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 5px 0; }
@@ -2017,6 +2018,16 @@
           <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
         </div>
         <pre class="mini-out" id="miscOut"></pre>
+
+        <div class="lcd-caption" data-i18n="hDangerZone">Danger Zone</div>
+        <div class="hint-danger" data-i18n="hintResetDanger">RS: factory reset. System reset keeps memory data, Full reset erases everything (manual 11.2 items 4/5) - and the 0/1 argument encoding below is an unconfirmed guess, so either button could behave unexpectedly on a real unit. Only use this on hardware you don't mind losing settings/memories on. Click a button once to arm it, again within 3 seconds to actually send it.</div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="confirmDestructive(this, () => sendOut('reset', 'resetOut'))" data-i18n="btnResetSystem">System Reset</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, () => sendOut('reset full', 'resetOut'))" data-i18n="btnResetFull">Full Reset</button>
+          </div>
+        </div>
+        <pre class="mini-out" id="resetOut"></pre>
       </div>
 
       <!-- DV1/DV3-only extras (inside the Spectrum/Select/Additional accordion; gated to DV1/DV3, disabled on DV10). CLI/raw remain available for any model. -->
@@ -2403,6 +2414,10 @@ const I18N = {
     lblClock: "System clock (DT) - digit format unconfirmed",
     clockPlaceholder: "YY-MM-DD HH:MM",
     lblWriteProtect: "Write protect (PT) - meaning unconfirmed, likely auto-store-on-shutdown",
+    hDangerZone: "Danger Zone",
+    hintResetDanger: "RS: factory reset. System reset keeps memory data, Full reset erases everything (manual 11.2 items 4/5) - and the 0/1 argument encoding below is an unconfirmed guess, so either button could behave unexpectedly on a real unit. Only use this on hardware you don't mind losing settings/memories on. Click a button once to arm it, again within 3 seconds to actually send it.",
+    btnResetSystem: "System Reset",
+    btnResetFull: "Full Reset",
     btnSerial: "Read Serial (RN)",
   },
   pl: {
@@ -2690,6 +2705,10 @@ const I18N = {
     lblClock: "Zegar systemowy (DT) - format cyfr niepotwierdzony",
     clockPlaceholder: "RR-MM-DD GG:MM",
     lblWriteProtect: "Ochrona zapisu (PT) - znaczenie niepotwierdzone, prawdopodobnie auto-zapis przy wyłączeniu",
+    hDangerZone: "Strefa niebezpieczna",
+    hintResetDanger: "RS: reset do ustawień fabrycznych. Reset systemowy zachowuje dane pamięci, Reset pełny kasuje wszystko (instrukcja 11.2, pozycje 4/5) - a kodowanie argumentu 0/1 poniżej to niepotwierdzone przypuszczenie, więc każdy z przycisków może zachować się nieoczekiwanie na realnym sprzęcie. Używaj tego tylko na sprzęcie, na którym nie szkoda Ci stracić ustawień/pamięci. Kliknij przycisk raz, żeby go uzbroić, i drugi raz w ciągu 3 sekund, żeby faktycznie wysłać komendę.",
+    btnResetSystem: "Reset systemowy",
+    btnResetFull: "Reset pełny",
     btnSerial: "Odczytaj numer seryjny (RN)",
   },
 };

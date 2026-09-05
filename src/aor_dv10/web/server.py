@@ -674,6 +674,10 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         if args:
             device.set_write_protect(_on_off(args[0]))
         return device.get_write_protect()
+    if verb == "reset":
+        full = bool(args) and args[0].strip().lower() in ("full", "1")
+        device.reset(full=full)
+        return "reset sent (full)" if full else "reset sent (system)"
     if verb == "rmem":
         return _dispatch_plain_rmem(device, args)
     if verb == "search":
