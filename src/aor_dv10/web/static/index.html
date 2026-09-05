@@ -1507,6 +1507,25 @@
             <button class="panel-btn small" onclick="rmemFind()" data-i18n="btnMemSearch">Search</button>
           </div>
         </div>
+        <div class="field-row">
+          <label data-i18n="lblRmemBankMgmt">Bank metadata (uses the bank number above, not the channel) - channel count / protect / tag</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="rmemBankInfo()" data-i18n="btnRmemBankInfo">Bank Info</button>
+          </div>
+          <div class="field-row-pair">
+            <input type="text" id="rmemBankCountInput" inputmode="numeric" data-i18n-ph="rmemBankCountPlaceholder" placeholder="channel count" />
+            <select id="rmemBankProtectSelect">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+          </div>
+          <div class="field-row-controls">
+            <input type="text" id="rmemBankTagInput" data-i18n-ph="rmemTagPlaceholder" placeholder="tag / name" />
+            <button class="panel-btn small" onclick="rmemBankSet()" data-i18n="btnRmemBankSet">Set Bank</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, rmemBankDelete)" data-i18n="btnRmemBankDelete">Delete Bank</button>
+          </div>
+        </div>
         <pre class="mini-out" id="rmemOut"></pre>
       </div>
       </div><!-- /.memory-pair -->
@@ -2192,6 +2211,11 @@ const I18N = {
     btnRmemWrite: "Write",
     lblRmemFind: "Find by tag text",
     rmemFindPlaceholder: "text to search for",
+    lblRmemBankMgmt: "Bank metadata (uses the bank number above, not the channel) - channel count / protect / tag",
+    btnRmemBankInfo: "Bank Info",
+    rmemBankCountPlaceholder: "channel count",
+    btnRmemBankSet: "Set Bank",
+    btnRmemBankDelete: "Delete Bank",
     hVfoTimer: "VFO",
     hVfoSearchBox: "VFO Search",
     hTimerBox: "Scheduled Recording",
@@ -2458,6 +2482,11 @@ const I18N = {
     btnRmemWrite: "Zapisz",
     lblRmemFind: "Szukaj po tekście etykiety",
     rmemFindPlaceholder: "szukany tekst",
+    lblRmemBankMgmt: "Metadane banku (używa numeru banku powyżej, nie kanału) - liczba kanałów / ochrona / etykieta",
+    btnRmemBankInfo: "Info o banku",
+    rmemBankCountPlaceholder: "liczba kanałów",
+    btnRmemBankSet: "Ustaw bank",
+    btnRmemBankDelete: "Usuń bank",
     hVfoTimer: "VFO",
     hVfoSearchBox: "Wyszukiwanie VFO",
     hTimerBox: "Zaplanowane nagrywanie",
@@ -3839,6 +3868,24 @@ function rmemFind() {
   if (!q) { toast(t('toastEnterValue'), true); return; }
   sendOut('rmem find ' + q, 'rmemOut');
 }
+function rmemBankInfo() { sendOut('rmem bank ' + outVal('rmemBankInput', '0'), 'rmemOut'); }
+function rmemBankSet() {
+  const bank = outVal('rmemBankInput', '0');
+  const core = joinPositional([
+    outVal('rmemBankCountInput', ''),
+    document.getElementById('rmemBankProtectSelect').value,
+  ]);
+  if (core === null) { toast(t('toastFieldsInOrder'), true); return; }
+  let cmd = 'rmem bankset ' + bank;
+  if (core.length) cmd += ' ' + core.join(' ');
+  const tag = outVal('rmemBankTagInput', '');
+  if (tag) {
+    if (core.length < 2) { toast(t('toastFieldsInOrder'), true); return; }
+    cmd += ' ' + tag;
+  }
+  sendOut(cmd, 'rmemOut');
+}
+function rmemBankDelete() { sendOut('rmem bankdel ' + outVal('rmemBankInput', '0'), 'rmemOut'); }
 
 // -- search banks / scan groups / pass frequencies -------------------------
 // SE/SR/SS/SX/SL/SU, SG/MG/AS/BK, PW/PR/PD - the server's
