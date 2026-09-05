@@ -1666,6 +1666,7 @@
       <!-- SD CARD (dir/info/status/rec/play/rsq/backup/restore) -->
       <div class="panel-section">
         <div class="section-label" data-i18n="hSdCard">SD Card</div>
+        <div class="hint" data-i18n="hintSdCard">On the AR-DV10, Rec Stop / Backup / Restore are disabled here (the individual buttons explain why on hover) - a real unit reportedly wedges if these are sent remotely, per the AR-DV1 spec's own "/" stop convention. Stop recording with the front-panel ● key instead.</div>
         <div class="field-row">
           <div class="field-row-controls">
             <button class="panel-btn small" onclick="sdDir()" data-i18n="btnSdDir">Dir</button>
@@ -2244,7 +2245,7 @@ const I18N = {
     hVfoTimer: "VFO",
     hVfoSearchBox: "VFO Search",
     hTimerBox: "Scheduled Recording",
-    hintVfoTimer: "Select or read a VFO (VF/VI).",
+    hintVfoTimer: "Select or read a VFO (VF/VI). \"Set VFO\" below writes frequency/mode as separate RF/MD commands after selecting the VFO - VF's own embedded fields are confirmed to silently no-op on a real DV10.",
     hintVfoSearchBox: "Search between VFO-A and VFO-B (VS); delay/free time/autostore (VE) - AR-DV1/DV3 only.",
     hintTimerBox: "Scheduled recording / alarm timer (TR) - AR-DV1/DV3 only.",
     btnVfoInfo: "VFO Info",
@@ -2271,6 +2272,7 @@ const I18N = {
     toastTimerBadTime: "time must be hhmm/hh:mm (weekly) or MMDDhhmm (once)",
     toastTimerOnceNeedsDate: "'once' schedules need a date: enter start/end as MMDDhhmm (e.g. 03150900)",
     hSdCard: "SD Card",
+    hintSdCard: "On the AR-DV10, Rec Stop / Backup / Restore are disabled here (the individual buttons explain why on hover) - a real unit reportedly wedges if these are sent remotely, per the AR-DV1 spec's own \"/\" stop convention. Stop recording with the front-panel ● key instead.",
     btnSdDir: "Dir",
     btnSdInfo: "Info",
     btnSdStatus: "Status",
@@ -2519,7 +2521,7 @@ const I18N = {
     hVfoTimer: "VFO",
     hVfoSearchBox: "Wyszukiwanie VFO",
     hTimerBox: "Zaplanowane nagrywanie",
-    hintVfoTimer: "Wybierz lub odczytaj VFO (VF/VI).",
+    hintVfoTimer: "Wybierz lub odczytaj VFO (VF/VI). \"Ustaw VFO\" poniżej zapisuje częstotliwość/tryb jako osobne komendy RF/MD po wybraniu VFO - własne wbudowane pola VF są potwierdzone jako ciche no-op na realnym DV10.",
     hintVfoSearchBox: "Szukaj między VFO-A i VFO-B (VS); opóźnienie / czas wolny / autozapis (VE) - tylko AR-DV1/DV3.",
     hintTimerBox: "Zaplanowane nagrywanie / timer alarmowy (TR) - tylko AR-DV1/DV3.",
     btnVfoInfo: "Info VFO",
@@ -2546,6 +2548,7 @@ const I18N = {
     toastTimerBadTime: "czas musi być hhmm/hh:mm (weekly) lub MMDDhhmm (once)",
     toastTimerOnceNeedsDate: "harmonogram 'once' wymaga daty: podaj start/koniec jako MMDDhhmm (np. 03150900)",
     hSdCard: "Karta SD",
+    hintSdCard: "Na AR-DV10 przyciski Stop nagrywania / Kopia zapasowa / Przywróć są tu wyłączone (dlaczego - wyjaśniają po najechaniu) - podobno realne urządzenie zawiesza się, gdy wysłać je zdalnie, zgodnie z konwencją \"/\" ze specyfikacji AR-DV1. Zatrzymaj nagrywanie przyciskiem ● na panelu odbiornika.",
     btnSdDir: "Katalog",
     btnSdInfo: "Info",
     btnSdStatus: "Status",
