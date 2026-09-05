@@ -1513,7 +1513,7 @@
           </div>
           <div class="field-row-controls">
             <input type="text" id="rmemTagInput" data-i18n-ph="rmemTagPlaceholder" placeholder="tag / name" />
-            <button class="panel-btn small" onclick="rmemWrite()" data-i18n="btnRmemWrite">Write</button>
+            <button class="panel-btn small" onclick="rmemWrite(this)" data-i18n="btnRmemWrite">Write</button>
           </div>
         </div>
         <div class="field-row">
@@ -2195,6 +2195,7 @@ const I18N = {
     footerNote: "Every control here sends the same short verbs as dv10-cli, over one shared WebSocket connection.",
     toastNotConnected: "not connected yet",
     toastEnterFreq: "enter a frequency first",
+    toastChannelProtected: "this channel has write-protect (PT) set - click Write again to overwrite it anyway",
     toastWaitingFreq: "waiting for current frequency...",
     logDisconnected: "[disconnected - retrying]",
     sqlOpen: "SQL open",
@@ -2486,6 +2487,7 @@ const I18N = {
     footerNote: "Każdy element sterujący wysyła te same krótkie polecenia co dv10-cli, przez jedno wspólne połączenie WebSocket.",
     toastNotConnected: "jeszcze nie połączono",
     toastEnterFreq: "najpierw podaj częstotliwość",
+    toastChannelProtected: "ten kanał ma ustawioną ochronę zapisu (PT) - kliknij Zapisz ponownie, żeby mimo to go nadpisać",
     toastWaitingFreq: "oczekiwanie na aktualną częstotliwość...",
     logDisconnected: "[rozłączono - ponawiam próbę]",
     sqlOpen: "SQL otwarty",
@@ -3919,6 +3921,32 @@ function sendOut(cmd, outId) {
   send(cmd, { out: outId });
 }
 
+// Promise-wrapped send() for callers that need to inspect a response
+// before deciding what to do next (see rmemWrite()'s write-protect guard,
+// proposal item 15) - everything else in this file fires-and-forgets via
+// send()/sendOut() and only ever reads the reply out of the mini-out box.
+// Shares the same pendingRoutes FIFO as send(), so ordering against any
+// other command sent on this connection is preserved as long as callers
+// await this before firing their next command (same assumption every
+// other sequential panel action here already relies on).
+function sendAwait(cmd, timeoutMs) {
+  timeoutMs = timeoutMs || 5000;
+  return new Promise((resolve, reject) => {
+    if (!wsReady) { reject(new Error('not connected')); return; }
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) { done = true; reject(new Error('timeout waiting for response')); }
+    }, timeoutMs);
+    pendingRoutes.push({ out: null, onData: (data) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(data);
+    } });
+    ws.send(cmd);
+  });
+}
+
 function outVal(id, fallback) {
   const el = document.getElementById(id);
   const v = (el && el.value || '').trim();
@@ -3969,14 +3997,49 @@ function rmemTune() {
 function rmemDelete() {
   sendOut('rmem delete ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
 }
-function rmemWrite() {
+// Write-protect guard (proposal item 15): write_memory_channel()/MX will
+// silently overwrite a channel that has its own per-record PT protect
+// field set, with no warning from the device itself. Reads the channel
+// first and, if it comes back protect=True, arms the same double-click
+// confirm used for destructive deletes instead of writing immediately -
+// an unprotected channel (the common case) still writes on the first
+// click, unchanged from before.
+async function rmemWrite(btn) {
+  const bank = outVal('rmemBankInput', '0');
+  const ch = outVal('rmemChInput', '0');
   const freq = outVal('rmemFreqInput', '');
   if (!freq) { toast(t('toastEnterFreq'), true); return; }
   const mode = outVal('rmemModeInput', '00');
   const tag = outVal('rmemTagInput', '');
-  let cmd = 'rmem write ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0') + ' ' + freq + ' ' + mode;
+  let cmd = 'rmem write ' + bank + ' ' + ch + ' ' + freq + ' ' + mode;
   if (tag) cmd += ' ' + tag;
-  sendOut(cmd, 'rmemOut');
+
+  const doWrite = () => sendOut(cmd, 'rmemOut');
+
+  // If this button is already armed from a previous click on this same
+  // protected channel, this click IS the confirmation - fire immediately
+  // through confirmDestructive() without re-reading protect status again.
+  if (btn && btn.classList.contains('confirm-armed')) {
+    confirmDestructive(btn, doWrite);
+    return;
+  }
+
+  let isProtected = false;
+  try {
+    const readResp = await sendAwait('rmem read ' + bank + ' ' + ch);
+    isProtected = /protect=True/.test(readResp);
+  } catch (e) {
+    // Couldn't check (not connected, or the read timed out) - fall
+    // through and let the write itself surface whatever error applies,
+    // same as before this guard existed.
+  }
+
+  if (isProtected && btn) {
+    toast(t('toastChannelProtected'), true);
+    confirmDestructive(btn, doWrite);
+  } else {
+    doWrite();
+  }
 }
 function rmemFind() {
   const q = outVal('rmemFindInput', '');
