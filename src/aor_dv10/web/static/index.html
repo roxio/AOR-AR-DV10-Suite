@@ -413,6 +413,15 @@
      blue every selection highlight already uses. */
   .panel-btn.accent { background: rgba(53,208,127,.12); color: var(--good); border-color: rgba(53,208,127,.35); }
   .panel-btn.accent:hover { background: rgba(53,208,127,.2); border-color: var(--good); }
+  /* Destructive-op confirmation (see confirmDestructive() in the script) -
+     a plain first-click delete has no undo on the receiver's side, so an
+     armed button turns unmistakably red until the second click (or the
+     3s window lapses and it reverts on its own). */
+  .panel-btn.confirm-armed {
+    background: rgba(255,90,74,.16); color: var(--bad); border-color: var(--bad);
+    animation: confirmPulse 0.9s ease-in-out infinite;
+  }
+  @keyframes confirmPulse { 0%, 100% { opacity: 1; } 50% { opacity: .6; } }
   .panel-btn.ghost { background: transparent; border: none; color: var(--muted); box-shadow: none; }
   .panel-btn:disabled { opacity: .4; cursor: default; }
 
@@ -1477,7 +1486,7 @@
             <button class="panel-btn small" onclick="rmemRead()" data-i18n="btnRmemRead">Read</button>
             <button class="panel-btn small" onclick="rmemReadBank()" data-i18n="btnRmemReadBank">Read Bank</button>
             <button class="panel-btn small" onclick="rmemTune()" data-i18n="btnRmemTune">Tune</button>
-            <button class="panel-btn small" onclick="rmemDelete()" data-i18n="btnRmemDelete">Delete</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, rmemDelete)" data-i18n="btnRmemDelete">Delete</button>
           </div>
         </div>
         <div class="field-row">
@@ -1708,7 +1717,7 @@
           <div class="field-row-controls">
             <button class="panel-btn small" onclick="searchRead()" data-i18n="btnSearchRead">Read</button>
             <button class="panel-btn small" onclick="searchRun()" data-i18n="btnSearchRun">Run</button>
-            <button class="panel-btn small" onclick="searchDelete()" data-i18n="btnSearchDelete">Delete</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, searchDelete)" data-i18n="btnSearchDelete">Delete</button>
           </div>
         </div>
         <div class="field-row">
@@ -1826,8 +1835,8 @@
             <input type="text" id="passDelIndexInput" inputmode="numeric" placeholder="index" />
           </div>
           <div class="field-row-controls">
-            <button class="panel-btn small" onclick="passDelete()" data-i18n="btnPassDelete">Delete</button>
-            <button class="panel-btn small" onclick="passDeleteAllBanks()" data-i18n="btnPassDeleteAll">Delete (all banks)</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, passDelete)" data-i18n="btnPassDelete">Delete</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, passDeleteAllBanks)" data-i18n="btnPassDeleteAll">Delete (all banks)</button>
           </div>
         </div>
         <pre class="mini-out" id="passOut"></pre>
@@ -2201,6 +2210,7 @@ const I18N = {
     btnTimerOff: "Deactivate",
     lblTimerSet: "Set: target / weekly|once / start / end / recording|alarm / days / volume · time: weekly=hh:mm, once=MMDDhhmm",
     hintFirmwareVersion: "Firmware version (VR) - previously only visible via the CLI's \"id\" command.",
+    btnConfirmAgain: "Click again to confirm",
     hintDV10Unsupported: "Not supported by the AR-DV10 (VFO search and the recording timer are AR-DV1/DV3 features).",
     hintDv10NoRemoteRecStop: "Remote stop of recording is not supported on the AR-DV10 - stop with the front-panel ● (record) key.",
     hintDv10NoBackup: "SD card backup/restore (SD MMW / SD MMR) is not supported on the AR-DV10 - AR-DV1/DV3 feature.",
@@ -2466,6 +2476,7 @@ const I18N = {
     btnTimerOff: "Dezaktywuj",
     lblTimerSet: "Ustaw: cel / weekly|once / start / koniec / recording|alarm / dni / głośność · czas: weekly=hh:mm, once=MMDDhhmm",
     hintFirmwareVersion: "Wersja firmware (VR) - wcześniej widoczna tylko przez polecenie CLI \"id\".",
+    btnConfirmAgain: "Kliknij ponownie, aby potwierdzić",
     hintDV10Unsupported: "Nieobsługiwane przez AR-DV10 (wyszukiwanie VFO i timer nagrywania to funkcje AR-DV1/DV3).",
     hintDv10NoRemoteRecStop: "Zdalne zatrzymanie nagrywania nie jest obsługiwane na AR-DV10 - zatrzymaj przyciskiem ● (nagrywanie) na panelu odbiornika.",
     hintDv10NoBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) nie jest obsługiwane na AR-DV10 - funkcja AR-DV1/DV3.",
@@ -3768,6 +3779,37 @@ function outVal(id, fallback) {
   const el = document.getElementById(id);
   const v = (el && el.value || '').trim();
   return v || fallback || '';
+}
+
+// -- destructive-op confirmation -------------------------------------
+// A non-blocking "click again to confirm" pattern for irreversible
+// operations (MQ/SX/PD and friends) - deliberately NOT window.confirm():
+// a native dialog would be one more thing standing between a misclick
+// and a real delete, but this project also wants it easy to script/test
+// (a native dialog blocks Playwright without an explicit dialog
+// handler). First click arms the button and swaps its label for
+// btnConfirmAgain; a second click within the window runs the action;
+// letting the window lapse (or clicking elsewhere) disarms it again.
+const _confirmArmed = new WeakMap();
+function confirmDestructive(btn, action) {
+  const armed = _confirmArmed.get(btn);
+  if (armed) {
+    clearTimeout(armed.timeout);
+    _confirmArmed.delete(btn);
+    btn.classList.remove('confirm-armed');
+    btn.textContent = armed.label;
+    action();
+    return;
+  }
+  const label = btn.textContent;
+  btn.textContent = t('btnConfirmAgain');
+  btn.classList.add('confirm-armed');
+  const timeout = setTimeout(() => {
+    _confirmArmed.delete(btn);
+    btn.classList.remove('confirm-armed');
+    btn.textContent = label;
+  }, 3000);
+  _confirmArmed.set(btn, { timeout, label });
 }
 
 // -- live memory (rmem) ---------------------------------------------------
