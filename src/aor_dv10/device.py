@@ -1691,22 +1691,15 @@ class DV10Device:
         DESTRUCTIVE in the sense that it overwrites whatever was in that
         slot.
 
-        **Safety-critical distinction - do NOT "fix" this to match
-        set_mode()**: standalone MD writes are confirmed against real
-        hardware to need a 3-character wire value in MD's own "dan" read
-        shape, not the shorter 2-character form this project sent for a
-        long time (see set_mode()/_mode_write_value()) - a firmware quirk
-        found by testing, not something the docs state outright. MX's
-        embedded MD sub-field is a DIFFERENT command with its own parser,
-        and nothing in the AR-DV1 spec says the same 3-character
-        requirement applies there; this method therefore still sends
-        ``mode`` as the shorter 2-character NATURAL-order value
-        (``_validate_mode_pair()``) rather than assuming the standalone-MD
-        finding carries over untested. This is unconfirmed either way
-        against real hardware - it's a considered guess, not a tested
-        fact - so treat a channel written with a non-default mode as
-        worth double-checking (e.g. via read_memory_channel()) before
-        trusting it, until someone can verify against a real unit."""
+        **Safety-critical distinction - real-DV10 finding**: standalone MD
+        writes are confirmed against real hardware to need a 3-character
+        wire value in MD's "dan" read shape, not a shorter 2-char form. A
+        live MX write on the real unit returned error 40, so this method
+        no longer invents any pad. ``mode`` is sent VERBATIM in whichever
+        form the caller supplies the natural 2-char "<digital><analog>"
+        (DV1, e.g. "F0") or the 3-char dan value a DV10 register
+        stores/echoes (e.g. "000"). Sending the stored dan straight back
+        is how a real DV10 round-trips cleanly."""
         parts = []
         if pass_channel:
             parts.append("MP1")
@@ -1717,7 +1710,20 @@ class DV10Device:
         if step_adjust_hz is not None:
             parts.append(f"SH{float(step_adjust_hz) / 1000:06.2f}")
         if mode is not None:
-            parts.append(f"MD{_validate_mode_pair(mode)}")
+            # MX must reflect what the target family actually stores:
+            #   2 chars  (natural, e.g. "F0")  -> DV1 convention, send as-is
+            #   3 chars  (dan value, e.g. "000") -> a real DV10 register
+            # echoes/stores this exact shape, so send it verbatim too.
+            # Do NOT invent a pad (e.g. "0F0"): that produced a live DV10
+            # error 40 (PC_RESULT_FORMAT_ERR) because it's neither shape.
+            m = str(mode).strip().upper()
+            if len(m) not in (2, 3):
+                raise ValueError(
+                    f'mode must be "<digital><analog>" 2 chars (DV1, e.g. '
+                    f'"F0") or a 3-char dan value (DV10, e.g. "000") - '
+                    f'got {m!r}'
+                )
+            parts.append(f"MD{m}")
         if write_protect:
             parts.append("PT1")
         if tag is not None:
@@ -1988,7 +1994,16 @@ class DV10Device:
         if step_adjust_hz is not None:
             parts.append(f"SH{float(step_adjust_hz) / 1000:06.2f}")
         if mode is not None:
-            parts.append(f"MD{_validate_mode_pair(mode)}")
+            # SE's embedded MD is modelled on MX's and must accept the same
+            # two shapes: 3-char dan verbatim (DV10, e.g. "000") or 2-char
+            # natural (DV1, e.g. "F0"). Never invent a pad.
+            m = str(mode).strip().upper()
+            if len(m) not in (2, 3):
+                raise ValueError(
+                    f'mode must be 2 chars (natural, e.g. "F0") or 3 chars '
+                    f'(dan, e.g. "000") - got {m!r}'
+                )
+            parts.append(f"MD{m}")
         if write_protect:
             parts.append("PT1")
         if tag is not None:

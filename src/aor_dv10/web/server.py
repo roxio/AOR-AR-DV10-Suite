@@ -725,6 +725,13 @@ def _dispatch_plain_rmem(device: DV10Device, args: list[str]) -> str:
             f"pass={c.pass_channel} protect={c.write_protect}  {c.tag!r}"
         )
 
+    if sub == "dump":
+        if not rest:
+            return "usage: rmem dump <bank>"
+        chans = device.read_memory_bank(int(rest[0]))
+        lines = [_fmt_channel(c) for c in chans]
+        lines.append(f"({len([c for c in chans if c.registered])} registered of {len(chans)} slots)")
+        return "\n".join(lines)
     if sub == "read":
         if len(rest) < 2:
             return "usage: rmem read <bank> <ch>"
