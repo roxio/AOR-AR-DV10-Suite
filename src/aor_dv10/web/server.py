@@ -47,7 +47,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocket
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..cli.repl import _on_off
+from ..cli.repl import _on_off, _parse_clock_digits
 from ..device import DV10Device, KEY_BACKLIGHT_COLORS, SD_CARD_STATUS, TONE_SQUELCH_TYPES
 from ..memory import MemoryBank, MemoryChannel, parse_backup_csv, write_backup_csv
 from ..protocol.codec import DV10Error
@@ -661,6 +661,19 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         return str(device.get_free_time_s())
     if verb == "serial":
         return device.get_serial_number()
+    if verb == "zi":
+        if args:
+            device.set_receiver_id(" ".join(args))
+        return device.get_receiver_id()
+    if verb == "clock":
+        if args:
+            yy, mm, dd, hh, minute = _parse_clock_digits(" ".join(args))
+            device.set_clock(yy, mm, dd, hh, minute)
+        return device.get_clock()
+    if verb == "writeprotect":
+        if args:
+            device.set_write_protect(_on_off(args[0]))
+        return device.get_write_protect()
     if verb == "rmem":
         return _dispatch_plain_rmem(device, args)
     if verb == "search":

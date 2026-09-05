@@ -121,6 +121,13 @@ Commands:
                           family (DV10/DV1/unknown) - the family gates model-specific UI
                           quirks like SAH/SAL not being distinct on the DV10, see
                           aor_dv10.device.ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY
+  zi [TEXT]                   ZI: show or set the receiver ID string
+  clock [YYMMDDHHmm]          DT: show or set the system clock - digit format unconfirmed
+                          against real hardware, see DV10Device.get_clock()
+  writeprotect on|off         PT: show or set the standalone write-protect flag - likely the
+                          MENU-CONFIG "auto-store on shutdown" flag, not per-channel protect
+                          (that's a separate MX/MW/SE sub-field) - unconfirmed either way,
+                          see DV10Device.get_write_protect()
   regchan                   MM: register the current VFO/channel as "last channel memory"
                           (write-only; DESTRUCTIVE-ish - see DV10Device.register_last_channel())
   power on|off               ZP (connect/power on) / QP (disconnect/power off)
@@ -235,6 +242,7 @@ _VERBS = [
     "p25nac", "p25pm", "nxdnran", "nxdnnm", "dcrcode", "descr",
     "beeplvl", "vollimit", "digain", "mgain", "contrast",
     "movenext", "moveprev", "stepadj",
+    "zi", "clock", "writeprotect",
 ]
 
 
@@ -245,6 +253,25 @@ def _on_off(token: str) -> bool:
     if token in ("off", "0", "false"):
         return False
     raise ValueError(f"expected on/off, got {token!r}")
+
+
+def _parse_clock_digits(token: str) -> tuple[int, int, int, int, int]:
+    """Accept a clock value as either the raw 10-digit DT wire shape
+    ("2601301500") or a punctuated friendly form ("26-01-30 15:00") and
+    return (yy, mm, dd, hh, minute) for DV10Device.set_clock(). DT's
+    real digit format is unconfirmed against hardware (see
+    DV10Device.get_clock()'s docstring) - this only assumes the front
+    panel's own "YY-MM-DD HH:MM" ordering, it doesn't add a new guess."""
+    digits = "".join(ch for ch in token if ch.isdigit())
+    if len(digits) != 10:
+        raise ValueError(
+            f'clock value must be 10 digits, "YYMMDDHHmm" (e.g. "2601301500" '
+            f'or "26-01-30 15:00") - got {token!r}'
+        )
+    return (
+        int(digits[0:2]), int(digits[2:4]), int(digits[4:6]),
+        int(digits[6:8]), int(digits[8:10]),
+    )
 
 
 class Repl:
@@ -592,6 +619,19 @@ class Repl:
             self.console.print(
                 f"{model or '?'} (firmware {firmware or '?'}, family={family or 'unknown'})"
             )
+        elif verb == "zi":
+            if args:
+                self.device.set_receiver_id(" ".join(args))
+            self.console.print(self.device.get_receiver_id())
+        elif verb == "clock":
+            if args:
+                yy, mm, dd, hh, minute = _parse_clock_digits(" ".join(args))
+                self.device.set_clock(yy, mm, dd, hh, minute)
+            self.console.print(self.device.get_clock())
+        elif verb == "writeprotect":
+            if args:
+                self.device.set_write_protect(_on_off(args[0]))
+            self.console.print(self.device.get_write_protect())
         elif verb == "sqltype":
             if args:
                 self.device.set_squelch_tone_type(args[0])

@@ -1973,6 +1973,31 @@
           <div class="hint" data-i18n="hintDeviceStep">separate from the knob's own scroll-step above; wire encoding unconfirmed</div>
         </div>
         <div class="field-row">
+          <label data-i18n="lblReceiverId">Receiver ID (ZI)</label>
+          <div class="field-row-controls">
+            <input type="text" id="ziInput" placeholder="text" />
+            <button class="panel-btn small" onclick="miscSetGet('ziInput','zi')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblClock">System clock (DT) - digit format unconfirmed</label>
+          <div class="field-row-controls">
+            <input type="text" id="clockInput" data-i18n-ph="clockPlaceholder" placeholder="YY-MM-DD HH:MM" />
+            <button class="panel-btn small" onclick="miscSetGet('clockInput','clock')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblWriteProtect">Write protect (PT) - meaning unconfirmed, likely auto-store-on-shutdown</label>
+          <div class="field-row-controls">
+            <select id="writeProtectSelect">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="miscSetGet('writeProtectSelect','writeprotect')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
           <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
         </div>
         <pre class="mini-out" id="miscOut"></pre>
@@ -2323,6 +2348,10 @@ const I18N = {
     lblIfbw: "IF bandwidth selector (IF)",
     lblDelay: "Delay time, ds (DL)",
     lblFreetime: "Free time, s (FR)",
+    lblReceiverId: "Receiver ID (ZI)",
+    lblClock: "System clock (DT) - digit format unconfirmed",
+    clockPlaceholder: "YY-MM-DD HH:MM",
+    lblWriteProtect: "Write protect (PT) - meaning unconfirmed, likely auto-store-on-shutdown",
     btnSerial: "Read Serial (RN)",
   },
   pl: {
@@ -2594,6 +2623,10 @@ const I18N = {
     lblIfbw: "Selektor szerokości pasma IF (IF)",
     lblDelay: "Czas opóźnienia, ds (DL)",
     lblFreetime: "Czas wolny, s (FR)",
+    lblReceiverId: "Identyfikator odbiornika (ZI)",
+    lblClock: "Zegar systemowy (DT) - format cyfr niepotwierdzony",
+    clockPlaceholder: "RR-MM-DD GG:MM",
+    lblWriteProtect: "Ochrona zapisu (PT) - znaczenie niepotwierdzone, prawdopodobnie auto-zapis przy wyłączeniu",
     btnSerial: "Odczytaj numer seryjny (RN)",
   },
 };
