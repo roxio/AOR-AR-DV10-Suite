@@ -207,6 +207,20 @@
   .info-dot:hover { border-color: var(--accent-dim); color: var(--accent); }
   .dchip-label .info-dot { margin-left: 4px; vertical-align: -2px; }
 
+  /* Confidence badge (proposal item 10/11): a small colored dot next to a
+     field label, sourced directly from device.py's own docstring language
+     ("confirmed against real hardware" vs "manual-sourced"/"unconfirmed").
+     Green = confirmed on real DV10 hardware. Amber = taken from the manual
+     only, not yet confirmed on a real unit. This is deliberately a 2-state
+     system per the proposal - any nuance beyond that lives in the tooltip
+     text, not a third color, to keep the at-a-glance meaning unambiguous. */
+  .confidence-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-left: 5px; vertical-align: 1px; cursor: help; flex: none;
+  }
+  .confidence-dot.confirmed { background: var(--good); box-shadow: 0 0 0 2px rgba(53,208,127,.18); }
+  .confidence-dot.unconfirmed { background: var(--amber); box-shadow: 0 0 0 2px rgba(255,182,72,.18); }
+
   .lcd-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: nowrap; min-width: 0; }
   .vfo-block { flex: 0 0 50px; width: 50px; text-align: left; opacity: .5; transition: opacity .15s; overflow: hidden; }
   .vfo-block.active { opacity: 1; }
@@ -1305,20 +1319,21 @@
       <!-- DIGITAL SELECTIVE CODES -->
       <div class="panel-section">
         <div class="section-label" data-i18n="hDigiCodes">Digital Codes</div>
+        <div class="hint"><span class="confidence-dot confirmed"></span> <span class="confidence-dot unconfirmed"></span> <span data-i18n="hintDigiCodesConfidence">= confirmed on real DV10 hardware / manual-sourced &amp; unconfirmed, respectively. Every code below is manual-sourced (device.py: "unconfirmed against real hardware") - see each dot's own tooltip for the specific caveat.</span></div>
 
         <div class="field-row">
-          <label data-i18n="lblDmrCC">DMR color code (CC 00&ndash;16)</label>
+          <label><span data-i18n="lblDmrCC">DMR color code (CC 00&ndash;16)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleDmrCcConfidence" title="CC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware."></span></label>
           <div class="field-row-controls">
             <input type="text" id="dmrccInput" inputmode="numeric" placeholder="00" />
             <button class="panel-btn small" onclick="sendFieldValue('dmrccInput','dmrcc',2)" data-i18n="btnSet">Set</button>
           </div>
         </div>
         <div class="rocker-row">
-          <label data-i18n="lblDmrCM">Mute by color code (CM)</label>
+          <label><span data-i18n="lblDmrCM">Mute by color code (CM)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleDmrCmConfidence" title="CM: manual-sourced only - not confirmed against real DV10 hardware."></span></label>
           <label class="rocker"><input type="checkbox" id="dmrCmToggle" onchange="send('dmrcm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
         </div>
         <div class="matrix-block">
-          <div class="lcd-caption" data-i18n="lblDmrSlot">DMR slot (OT)</div>
+          <div class="lcd-caption"><span data-i18n="lblDmrSlot">DMR slot (OT)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleDmrSlotConfidence" title="OT: manual-sourced only; the exact digit(s) on the wire are unconfirmed against real hardware."></span></div>
           <div class="btn-matrix" data-select="dmrSlotSelect">
             <button type="button" data-value="1+2">1+2</button>
             <button type="button" data-value="2+1">2+1</button>
@@ -1332,26 +1347,26 @@
         </div>
 
         <div class="field-row">
-          <label data-i18n="lblP25Nac">P25 NAC code (PC 000&ndash;FFF hex)</label>
+          <label><span data-i18n="lblP25Nac">P25 NAC code (PC 000&ndash;FFF hex)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleP25NacConfidence" title="PC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware."></span></label>
           <div class="field-row-controls">
             <input type="text" id="p25nacInput" placeholder="000" />
             <button class="panel-btn small" onclick="sendFieldValue('p25nacInput','p25nac',3)" data-i18n="btnSet">Set</button>
           </div>
         </div>
         <div class="rocker-row">
-          <label data-i18n="lblP25Pm">Mute by NAC code (PM)</label>
+          <label><span data-i18n="lblP25Pm">Mute by NAC code (PM)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleP25PmConfidence" title="PM: manual-sourced only - not confirmed against real DV10 hardware."></span></label>
           <label class="rocker"><input type="checkbox" id="p25PmToggle" onchange="send('p25pm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
         </div>
 
         <div class="field-row">
-          <label data-i18n="lblNxdnRan">NXDN RAN code (NC 00&ndash;63)</label>
+          <label><span data-i18n="lblNxdnRan">NXDN RAN code (NC 00&ndash;63)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleNxdnRanConfidence" title="NC: confirmed on real hardware to be accepted and persisted (front-panel behavior, 2026-09-01) - but whether it actually filters live NXDN traffic is still unconfirmed, pending a live NXDN signal test."></span></label>
           <div class="field-row-controls">
             <input type="text" id="nxdnranInput" inputmode="numeric" placeholder="00" />
             <button class="panel-btn small" onclick="sendFieldValue('nxdnranInput','nxdnran',2)" data-i18n="btnSet">Set</button>
           </div>
         </div>
         <div class="rocker-row">
-          <label data-i18n="lblNxdnNm">Mute by RAN code (NM)</label>
+          <label><span data-i18n="lblNxdnNm">Mute by RAN code (NM)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleNxdnNmConfidence" title="NM: confirmed on real hardware to be accepted and persisted (front-panel behavior, 2026-09-01) - but whether it actually mutes live NXDN traffic is still unconfirmed, pending a live NXDN signal test."></span></label>
           <label class="rocker"><input type="checkbox" id="nxdnNmToggle" onchange="send('nxdnnm ' + (this.checked?'on':'off'))" /><span class="rocker-track"></span></label>
         </div>
       </div>
@@ -1364,7 +1379,7 @@
 
         <div class="lcd-caption" data-i18n="hDescramblers">Descramblers</div>
         <div class="field-row">
-          <label data-i18n="lblDcrCode">D-CR scramble code (DC 00000&ndash;32767)</label>
+          <label><span data-i18n="lblDcrCode">D-CR scramble code (DC 00000&ndash;32767)</span><span class="confidence-dot unconfirmed" data-i18n-title="titleDcrCodeConfidence" title="DC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware."></span></label>
           <div class="field-row-controls">
             <input type="text" id="dcrcodeInput" inputmode="numeric" placeholder="00000" />
             <button class="panel-btn small" onclick="sendFieldValue('dcrcodeInput','dcrcode',5)" data-i18n="btnSet">Set</button>
@@ -2206,6 +2221,15 @@ const I18N = {
     lblDcsCode: "Code (DS)",
     hintTypeTables: "CTCSS/DCS/Reverse Tone selection (CI/DI) is confirmed against real hardware; the CN/DS tone and code tables themselves are still manual-sourced, not yet wire-confirmed",
     hDigiCodes: "Digital Codes",
+    hintDigiCodesConfidence: "= confirmed on real DV10 hardware / manual-sourced & unconfirmed, respectively. Every code below is manual-sourced (device.py: \"unconfirmed against real hardware\") - see each dot's own tooltip for the specific caveat.",
+    titleDmrCcConfidence: "CC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware.",
+    titleDmrCmConfidence: "CM: manual-sourced only - not confirmed against real DV10 hardware.",
+    titleDmrSlotConfidence: "OT: manual-sourced only; the exact digit(s) on the wire are unconfirmed against real hardware.",
+    titleP25NacConfidence: "PC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware.",
+    titleP25PmConfidence: "PM: manual-sourced only - not confirmed against real DV10 hardware.",
+    titleNxdnRanConfidence: "NC: confirmed on real hardware to be accepted and persisted (front-panel behavior, 2026-09-01) - but whether it actually filters live NXDN traffic is still unconfirmed, pending a live NXDN signal test.",
+    titleNxdnNmConfidence: "NM: confirmed on real hardware to be accepted and persisted (front-panel behavior, 2026-09-01) - but whether it actually mutes live NXDN traffic is still unconfirmed, pending a live NXDN signal test.",
+    titleDcrCodeConfidence: "DC: manual-sourced only (manual 10.7) - not confirmed against real DV10 hardware.",
     lblDmrCC: "DMR color code (CC 00\u201316)",
     lblDmrCM: "Mute by color code (CM)",
     lblDmrSlot: "DMR slot (OT)",
@@ -2484,6 +2508,15 @@ const I18N = {
     lblDcsCode: "Kod (DS)",
     hintTypeTables: "wybór CTCSS/DCS/Reverse Tone (CI/DI) jest potwierdzony na realnym sprzęcie; same tabele tonów/kodów (CN/DS) wciąż pochodzą z instrukcji, niepotwierdzone na łączu",
     hDigiCodes: "Kody cyfrowe",
+    hintDigiCodesConfidence: "= potwierdzone na realnym sprzęcie DV10 / ze skróconej instrukcji i niepotwierdzone, odpowiednio. Każdy kod poniżej pochodzi z instrukcji (device.py: \"unconfirmed against real hardware\") - zobacz podpowiedź przy każdej kropce po szczegóły.",
+    titleDmrCcConfidence: "CC: tylko z instrukcji (rozdz. 10.7) - niepotwierdzone na realnym sprzęcie DV10.",
+    titleDmrCmConfidence: "CM: tylko z instrukcji - niepotwierdzone na realnym sprzęcie DV10.",
+    titleDmrSlotConfidence: "OT: tylko z instrukcji; dokładne cyfry na łączu są niepotwierdzone na realnym sprzęcie.",
+    titleP25NacConfidence: "PC: tylko z instrukcji (rozdz. 10.7) - niepotwierdzone na realnym sprzęcie DV10.",
+    titleP25PmConfidence: "PM: tylko z instrukcji - niepotwierdzone na realnym sprzęcie DV10.",
+    titleNxdnRanConfidence: "NC: potwierdzone na realnym sprzęcie, że wartość jest przyjmowana i zapamiętywana (zachowanie panelu przedniego, 2026-09-01) - ale czy faktycznie filtruje żywy ruch NXDN jest wciąż niepotwierdzone, wymaga testu z żywym sygnałem NXDN.",
+    titleNxdnNmConfidence: "NM: potwierdzone na realnym sprzęcie, że wartość jest przyjmowana i zapamiętywana (zachowanie panelu przedniego, 2026-09-01) - ale czy faktycznie wycisza żywy ruch NXDN jest wciąż niepotwierdzone, wymaga testu z żywym sygnałem NXDN.",
+    titleDcrCodeConfidence: "DC: tylko z instrukcji (rozdz. 10.7) - niepotwierdzone na realnym sprzęcie DV10.",
     lblDmrCC: "Kod koloru DMR (CC 00–16)",
     lblDmrCM: "Wycisz wg kodu koloru (CM)",
     lblDmrSlot: "Slot DMR (OT)",
