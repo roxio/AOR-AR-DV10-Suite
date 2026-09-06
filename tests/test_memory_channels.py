@@ -97,6 +97,30 @@ def test_read_memory_bank_returns_all_fifty_slots():
         assert not channels[25].registered
 
 
+def test_read_memory_bank_channel_zero_is_not_silently_dropped():
+    """Regression test for a real bug found while building the CSV
+    live-export/diff bridge (proposal items 17/18): channel 0 of any bank
+    (the response line that arrives as read_memory_bank()'s first line,
+    via CommandChannel.send(), rather than a read_pending() continuation)
+    was silently reported as unregistered/empty regardless of its actual
+    content, whenever that channel's MX record was long enough to trip an
+    over-eager code-echo strip in send() - it strips "MA" + the 2-digit
+    bank_str it was TOLD it sent, but the line actually echoes "MA" + the
+    full 4-digit bank+channel, one digit pair longer. The narrower
+    existing test above (frequency-only, no mode/tag) didn't happen to
+    trigger it - this one uses mode+tag together, which does."""
+    dev = DV10Device.open_simulator()
+    with dev:
+        dev.write_memory_channel(
+            0, 0, frequency_hz=145_500_000, mode="000", tag="CH-001"
+        )
+        channels = dev.read_memory_bank(0)
+        ch0 = next(c for c in channels if c.channel == 0)
+        assert ch0.registered is True
+        assert ch0.frequency_hz == 145_500_000
+        assert ch0.tag == "CH-001"
+
+
 def test_read_memory_bank_multiline_response_with_re_on():
     """The main protocol-level thing this exercises: read_memory_bank()
     must consume all 50 continuation lines (21-prefixed, final one 20)

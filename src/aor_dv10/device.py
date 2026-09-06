@@ -1809,7 +1809,31 @@ class DV10Device:
 
         channels: List[MemoryChannelInfo] = []
         for resp in responses:
-            text = (resp.value or "").strip()
+            # Use .raw, not .value, and strip the numeric result-code
+            # prefix ourselves: CommandChannel.send() (which produced the
+            # first line, "responses[0]") additionally strips whatever
+            # code it was TOLD it sent - "MA" + bank_str, e.g. "MA00" -
+            # from the front of .value, on the assumption a response
+            # echoes back exactly the code it was sent. That assumption
+            # holds for every single-response command, but not for this
+            # multi-line one: each line actually echoes "MA" + the FULL
+            # 4-digit bbcc, one digit pair longer than the 2-digit
+            # bank_str that was actually sent. Real-hardware-confirmed
+            # bug found while building the CSV live-export/diff bridge
+            # (proposal items 17/18): the mismatch silently mangled the
+            # first line only (every OTHER line comes from
+            # read_pending(), which never does any code-echo stripping,
+            # so those were always fine) - channel 0 of every bank was
+            # therefore *always* reported unregistered/empty regardless
+            # of its real content. .raw is captured before either
+            # function's code-stripping logic runs, so it's uniform
+            # across both - just strip the leading result-code digits
+            # (recorded separately as resp.result_code) instead.
+            text = (resp.raw or "").strip()
+            if resp.result_code is not None:
+                prefix = str(resp.result_code)
+                if text.startswith(prefix):
+                    text = text[len(prefix):]
             up = text.upper()
             # The bank form's continuation lines may be prefixed with
             # "MA" (as the simulator models it) OR with "MX" (real DV10 -
