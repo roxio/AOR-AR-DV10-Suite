@@ -1092,7 +1092,13 @@
 			<div class="hint" ></br></div>
 		  <button class="panel-btn small wide" onclick="openQuickBands()" data-i18n="lblBandShortcuts">Band shortcuts (CB/DX/…)</button>
 		  <div class="hint" ></br></div>
+          <!-- Proposal item 34: one-click mode+bandwidth+squelch presets
+               for common listening scenarios - purely client-side, same
+               overlay mechanism as Band shortcuts above (chains the same
+               m/bw/sq verbs a person would otherwise send one at a time). -->
+          <button class="panel-btn small wide" onclick="openModeProfiles()" data-i18n="lblModeProfiles">Quick mode profiles</button>
           </div>
+
 	 
 		  
 		  
@@ -1147,6 +1153,13 @@
                  was removed the same time (redundant with the VFO A/
                  VFO B/VFO Z buttons above). -->
             <button type="button" class="func-btn wide" onclick="openBandOverlay()" data-i18n="fbBand">BAND</button>
+            <!-- Proposal item 36: quick "mark current frequency as a
+                 pass/skip frequency" (PW) right next to the tuning
+                 controls - the full Pass Frequencies panel (Search/Scan/
+                 Pass accordion) already supports this via a blank
+                 frequency field, this just saves the trip there for the
+                 common case of the receiver's OWN current frequency. -->
+            <button type="button" class="func-btn wide" onclick="quickPassMarkCurrent()" data-i18n="fbPassMark" title="PW: mark the current frequency to be skipped during a program search">SKIP FREQ</button>
           </div>
           <div class="tune-col">
             <div class="keypad">
@@ -1521,6 +1534,13 @@
             <button class="panel-btn small" onclick="rmemReadBank()" data-i18n="btnRmemReadBank">Read Bank</button>
             <button class="panel-btn small" onclick="rmemTune()" data-i18n="btnRmemTune">Tune</button>
             <button class="panel-btn small" onclick="confirmDestructive(this, rmemDelete)" data-i18n="btnRmemDelete">Delete</button>
+          </div>
+          <!-- Proposal item 37: set the bank/channel entered above as the
+               receiver's priority channel (PP) - reuses the existing
+               "priochan" verb, which already exists CLI/web-side, just
+               without a Live Memory panel shortcut until now. -->
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="rmemSetPriority()" data-i18n="btnRmemSetPriority">Set as Priority</button>
           </div>
         </div>
         <div class="field-row">
@@ -1947,6 +1967,20 @@
             <button class="panel-btn small" onclick="selectRun()" data-i18n="btnSelectRun">Run</button>
           </div>
         </div>
+        <!-- Proposal item 38: repeat "select run" on a browser-side
+             timer instead of only on demand - reuses the exact same
+             select-run verb and the cycles/dwell fields above, just
+             fired automatically. Requires a non-blank cycle count: a
+             blank ("forever") run would block this tab's one WebSocket
+             connection for good on the very first fire. -->
+        <div class="field-row">
+          <label data-i18n="lblSelectSchedule">Repeat automatically, every N minutes (cycles above must NOT be blank)</label>
+          <div class="field-row-pair">
+            <input type="text" id="selScheduleMinutesInput" inputmode="numeric" value="30" placeholder="minutes" />
+            <label class="rocker mini" title="Recurring Select-Scan"><input type="checkbox" id="selectScheduleToggle" onchange="selectScheduleToggle(this.checked)" /><span class="rocker-track"></span></label>
+          </div>
+          <div class="hint-danger" data-i18n="hintSelectSchedule">"select run" blocks this browser tab's connection to the receiver for the whole scan each time it fires - other panels here won't respond meanwhile. Client-side only: stops if you close or reload this page.</div>
+        </div>
         <pre class="mini-out" id="selectOut"></pre>
       </div>
 
@@ -2317,6 +2351,20 @@ const I18N = {
     lblBandShortcuts: "Quick frequencies",
     bandOverlayTitle: "Quick jump",
     bandOverlayHint: "Client-side presets only — not a device command. Picking one tunes the VFO via the normal frequency-set command.",
+    fbPassMark: "SKIP FREQ",
+    lblModeProfiles: "Quick mode profiles",
+    modeProfileOverlayTitle: "Quick mode profiles",
+    modeProfileOverlayHint: "Client-side presets only — chains the mode/bandwidth/squelch commands you'd otherwise send one at a time. Bandwidth values are reasonable defaults for the scenario, not device-confirmed specifics.",
+    mpAirbandName: "Airband AM",
+    mpAirbandDesc: "AM, ~6 kHz filter, Auto squelch - aviation voice listening (118-137 MHz)",
+    mpFt8Name: "FT8 / USB digital",
+    mpFt8Desc: "USB, 2.4 kHz filter, Auto squelch - narrowband digital modes",
+    mpCwName: "CW",
+    mpCwDesc: "CW, ~500 Hz filter, Auto squelch - narrow CW listening",
+    mpNfmName: "NFM (12.5 kHz)",
+    mpNfmDesc: "FM, 12.5 kHz filter, Auto squelch - narrowband PMR/business FM",
+    mpWfmName: "WFM (15 kHz)",
+    mpWfmDesc: "FM, 15 kHz filter, Auto squelch - typical 2m/70cm FM repeaters/simplex",
     hMode: "Mode",
     lblDigital: "Digital",
     lblAnalog: "Analog",
@@ -2474,6 +2522,7 @@ const I18N = {
     btnRmemReadBank: "Read Bank",
     btnRmemTune: "Tune",
     btnRmemDelete: "Delete",
+    btnRmemSetPriority: "Set as Priority",
     lblRmemWrite: "Write: frequency (MHz) / mode (2-digit) / tag",
     rmemTagPlaceholder: "tag / name",
     btnRmemWrite: "Write",
@@ -2581,6 +2630,10 @@ const I18N = {
     btnSelectClear: "Clear",
     lblSelectRun: "Run: cycles (blank=forever) / dwell seconds",
     btnSelectRun: "Run",
+    lblSelectSchedule: "Repeat automatically, every N minutes (cycles above must NOT be blank)",
+    hintSelectSchedule: "\"select run\" blocks this browser tab's connection to the receiver for the whole scan each time it fires - other panels here won't respond meanwhile. Client-side only: stops if you close or reload this page.",
+    toastSelectScheduleNeedsCycles: "Enter a cycle count first - a blank (\"forever\") run can't be scheduled to repeat",
+    toastSelectScheduleArmed: "Recurring Select-Scan armed - every {m} min",
     hMisc: "Additional Settings",
     hDv13Extras: "DV1/DV3-only extras",
     hintDv13Block: "Not supported by the AR-DV10 - available on AR-DV1/DV3. CLI/raw stay available for any model.",
@@ -2650,6 +2703,20 @@ const I18N = {
     lblBandShortcuts: "Szybkie częstotliwości",
     bandOverlayTitle: "Szybki skok",
     bandOverlayHint: "Tylko ustawienia lokalne (przeglądarki) — to nie jest komenda urządzenia. Wybór strojuje VFO zwykłą komendą ustawienia częstotliwości.",
+    fbPassMark: "POMIŃ CZĘST.",
+    lblModeProfiles: "Szybkie profile trybu",
+    modeProfileOverlayTitle: "Szybkie profile trybu",
+    modeProfileOverlayHint: "Tylko ustawienia lokalne (przeglądarki) — łączy komendy trybu/szerokości pasma/squelchu, które inaczej trzeba by wysłać osobno. Wartości szerokości pasma to rozsądne wartości domyślne dla danego scenariusza, a nie potwierdzone na sprzęcie szczegóły.",
+    mpAirbandName: "Nasłuch lotniczy AM",
+    mpAirbandDesc: "AM, filtr ~6 kHz, squelch Auto - nasłuch łączności lotniczej (118-137 MHz)",
+    mpFt8Name: "FT8 / cyfrowe USB",
+    mpFt8Desc: "USB, filtr 2,4 kHz, squelch Auto - wąskopasmowe tryby cyfrowe",
+    mpCwName: "CW",
+    mpCwDesc: "CW, filtr ~500 Hz, squelch Auto - wąski nasłuch CW",
+    mpNfmName: "NFM (12,5 kHz)",
+    mpNfmDesc: "FM, filtr 12,5 kHz, squelch Auto - wąskopasmowe FM (PMR/biznesowe)",
+    mpWfmName: "WFM (15 kHz)",
+    mpWfmDesc: "FM, filtr 15 kHz, squelch Auto - typowe przemienniki/simplex 2m/70cm FM",
     hMode: "Tryb",
     lblDigital: "Cyfrowy",
     lblAnalog: "Analogowy",
@@ -2807,6 +2874,7 @@ const I18N = {
     btnRmemReadBank: "Odczytaj bank",
     btnRmemTune: "Przestrój",
     btnRmemDelete: "Usuń",
+    btnRmemSetPriority: "Ustaw jako priorytetowy",
     lblRmemWrite: "Zapisz: częstotliwość (MHz) / tryb (2 cyfry) / etykieta",
     rmemTagPlaceholder: "etykieta / nazwa",
     btnRmemWrite: "Zapisz",
@@ -2914,6 +2982,10 @@ const I18N = {
     btnSelectClear: "Wyczyść",
     lblSelectRun: "Uruchom: cykle (puste=bez końca) / czas zatrzymania (s)",
     btnSelectRun: "Uruchom",
+    lblSelectSchedule: "Powtarzaj automatycznie, co N minut (cykle powyżej NIE mogą być puste)",
+    hintSelectSchedule: "„select run” blokuje połączenie tej karty przeglądarki z odbiornikiem na czas całego przebiegu za każdym razem, gdy się uruchomi - inne panele nie będą wtedy odpowiadać. Wyłącznie po stronie przeglądarki: zatrzymuje się po zamknięciu lub odświeżeniu tej strony.",
+    toastSelectScheduleNeedsCycles: "Najpierw podaj liczbę cykli - pustego przebiegu („bez końca”) nie da się zaplanować do powtarzania",
+    toastSelectScheduleArmed: "Uzbrojono cykliczny Select-Scan - co {m} min",
     hMisc: "Dodatkowe ustawienia",
     hDv13Extras: "Wyłącznie DV1/DV3 (dodatki)",
     hintDv13Block: "Nieobsługiwane przez AR-DV10 - dostępne na AR-DV1/DV3. CLI / surowa konsola pozostają dla każdego modelu.",
@@ -3354,9 +3426,22 @@ const QUICK_PL_PRESETS = [
   { name: 'SOTA', mhz: 145.575, modeId: 'F0', mode: 'FM', desc: 'Polski górski kanał wywoławczy (m.in. akcje SOTA)' },
   { name: 'ISS', mhz: 145.800, modeId: 'F0', mode: 'FM', desc: 'Odbiór astronautów / Międzynarodowej Stacji Kosmicznej (ISS)' },
   { name: '70cm', mhz: 433.500, modeId: 'F0', mode: 'FM', desc: 'Ogólnokrajowy kanał wywoławczy w paśmie UHF (70cm)' },
+  // Proposal item 35: extends this same list with PMR446/CW/DMR profiles.
+  { name: 'PMR446 CH1', mhz: 446.00625, modeId: 'F0', mode: 'FM', desc: 'Ogólnoeuropejski kanał PMR446 bez licencji (kanał 1 z 16, rozstaw 12,5 kHz)' },
+  { name: 'PMR446 CH8', mhz: 446.09375, modeId: 'F0', mode: 'FM', desc: 'PMR446 bez licencji - kanał 8, często używany jako wywoławczy' },
+  { name: '80m CW', mhz: 3.560, modeId: 'F6', mode: 'CW', desc: 'Popularny segment CW/QRP w paśmie 80m' },
+  { name: '40m CW', mhz: 7.030, modeId: 'F6', mode: 'CW', desc: 'Segment CW/QRP w paśmie 40m' },
+  { name: '20m CW', mhz: 14.030, modeId: 'F6', mode: 'CW', desc: 'Segment CW/QRP w paśmie 20m, popularny do łączności DX' },
+  // DMR simplex: dwie konkurencyjne konwencje krążą w polskim środowisku
+  // (wg dyskusji na forum SP7-PKI) - 433.550 MHz (CC1/TS1/TG260) jako
+  // "polska rekomendacja", 433.450 MHz (CC1/TS1/TG99) jako zgodność z
+  // resztą Europy. Podana tu jest ta pierwsza, z jawnym zastrzeżeniem -
+  // to konwencja środowiskowa, nie ustalenie regulacyjne, więc zweryfikuj
+  // lokalnie przed użyciem.
+  { name: 'DMR simplex PL', mhz: 433.550, modeId: '70', mode: 'DMR', desc: 'Polska rekomendacja środowiskowa dla łączności bezpośredniej DMR (CC1/TS1/TG260) - część krajów europejskich używa zamiast tego 433.450 MHz (CC1/TS1/TG99); to konwencja środowiskowa, nie ustalenie regulacyjne - zweryfikuj lokalnie' },
 ];
-function openBandOverlay() { renderBandGrid(BAND_PRESETS); document.getElementById('bandOverlay').hidden = false; }
-function openQuickBands() { renderBandGrid(QUICK_PL_PRESETS); document.getElementById('bandOverlay').hidden = false; }
+function openBandOverlay() { setBandOverlayHeader(t('bandOverlayTitle'), t('bandOverlayHint')); renderBandGrid(BAND_PRESETS); document.getElementById('bandOverlay').hidden = false; }
+function openQuickBands() { setBandOverlayHeader(t('bandOverlayTitle'), t('bandOverlayHint')); renderBandGrid(QUICK_PL_PRESETS); document.getElementById('bandOverlay').hidden = false; }
 function closeBandOverlay() { document.getElementById('bandOverlay').hidden = true; }
 function jumpToFreq(mhz, modeId) {
   send('f ' + mhz.toFixed(6));
@@ -3367,6 +3452,49 @@ function jumpToFreq(mhz, modeId) {
 document.getElementById('bandOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'bandOverlay') closeBandOverlay();
 });
+
+// -- Proposal item 34: quick mode+bandwidth+squelch profiles, reusing
+// the exact same overlay/grid DOM as the Band shortcuts above (just a
+// different chip renderer/click handler) rather than duplicating the
+// overlay markup. setBandOverlayHeader() swaps the title/hint text so
+// the overlay reads correctly regardless of which list opened it.
+function setBandOverlayHeader(title, hint) {
+  const titleEl = document.querySelector('.band-overlay-title');
+  const hintEl = document.querySelector('.band-overlay-hint');
+  if (titleEl) titleEl.textContent = title;
+  if (hintEl) hintEl.textContent = hint;
+}
+const MODE_PROFILES = [
+  { nameKey: 'mpAirbandName', descKey: 'mpAirbandDesc', modeId: 'F1', bwHz: 6000, sqMode: '0' },
+  { nameKey: 'mpFt8Name', descKey: 'mpFt8Desc', modeId: 'F4', bwHz: 2400, sqMode: '0' },
+  { nameKey: 'mpCwName', descKey: 'mpCwDesc', modeId: 'F6', bwHz: 500, sqMode: '0' },
+  { nameKey: 'mpNfmName', descKey: 'mpNfmDesc', modeId: 'F0', bwHz: 12500, sqMode: '0' },
+  { nameKey: 'mpWfmName', descKey: 'mpWfmDesc', modeId: 'F0', bwHz: 15000, sqMode: '0' },
+];
+function renderModeProfileGrid() {
+  const grid = document.getElementById('bandGrid');
+  if (!grid) return;
+  grid.innerHTML = MODE_PROFILES.map((p, i) => {
+    const bwLabel = p.bwHz >= 1000 ? (p.bwHz / 1000) + ' kHz' : p.bwHz + ' Hz';
+    return `<div class="band-chip" title="${t(p.descKey).replace(/"/g, '&quot;')}" onclick="applyModeProfile(${i})">` +
+      `<span class="band-name">${t(p.nameKey)}</span>` +
+      `<span class="band-freq">${p.modeId} &middot; ${bwLabel}</span></div>`;
+  }).join('');
+}
+function openModeProfiles() {
+  setBandOverlayHeader(t('modeProfileOverlayTitle'), t('modeProfileOverlayHint'));
+  renderModeProfileGrid();
+  document.getElementById('bandOverlay').hidden = false;
+}
+function applyModeProfile(i) {
+  const p = MODE_PROFILES[i];
+  if (!p) return;
+  send('m ' + p.modeId);
+  send('bw ' + p.bwHz);
+  send('sq ' + p.sqMode);
+  toast(t(p.nameKey), false);
+  closeBandOverlay();
+}
 
 // -- mode --------------------------------------------------------------
 // NOTE: order here is digital-then-analog, matching MD's read format and
@@ -4327,6 +4455,12 @@ function rmemTune() {
 function rmemDelete() {
   sendOut('rmem delete ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
 }
+// Proposal item 37: set the bank/channel already entered above as the
+// receiver's priority channel (PP) - reuses the existing "priochan"
+// verb rather than adding a new one.
+function rmemSetPriority() {
+  sendOut('priochan ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
+}
 // Write-protect guard (proposal item 15): write_memory_channel()/MX will
 // silently overwrite a channel that has its own per-record PT protect
 // field set, with no warning from the device itself. Reads the channel
@@ -4493,6 +4627,14 @@ function passMark() {
   if (bank) { cmd += ' bank ' + bank; if (freq) cmd += ' ' + freq; }
   else if (freq) { cmd += ' ' + freq; }
   sendOut(cmd, 'passOut');
+}
+// Proposal item 36: shortcut next to the tuning controls for the
+// all-blank case of passMark() above (bank blank, frequency blank =
+// mark the receiver's own current frequency into the VFO-search pass
+// list) - also mirrors the reply into the Pass Frequencies panel's own
+// output box so it's visible if that accordion happens to be open too.
+function quickPassMarkCurrent() {
+  send('pass mark', { out: 'passOut', onData: (reply) => toast(reply, false) });
 }
 function passMarkAllBanks() {
   const freq = outVal('passFreqInput', '');
@@ -4681,6 +4823,11 @@ function selectRemove() {
 }
 function selectList() { sendOut('select list', 'selectOut'); }
 function selectClear() { sendOut('select clear', 'selectOut'); }
+// Set while a "select run" is in flight - selectScheduleTick() (proposal
+// item 38) checks this before firing again, so an overrunning scan
+// doesn't pile up a second "select run" behind it on the same
+// single-connection WebSocket.
+let selectRunInFlight = false;
 function selectRun() {
   // "run" blocks the server's WebSocket handler for the whole scan (one
   // tune + sleep per entry, synchronously) - same as the CLI. Leaving
@@ -4689,7 +4836,33 @@ function selectRun() {
   // survivable to wait out or reload past.
   const cycles = outVal('selCyclesInput', '') || 'none';
   const dwell = outVal('selDwellInput', '2.0');
-  sendOut('select run ' + cycles + ' ' + dwell, 'selectOut');
+  selectRunInFlight = true;
+  send('select run ' + cycles + ' ' + dwell, { out: 'selectOut', onData: () => { selectRunInFlight = false; } });
+}
+
+// Proposal item 38: repeat selectRun() on a timer using the same
+// cycles/dwell fields, instead of only running on a manual click.
+// Refuses to arm with a blank cycle count - "forever" would hang this
+// tab's one WebSocket connection on the very first scheduled fire and
+// never get a chance to repeat again anyway.
+let selectScheduleTimer = null;
+function selectScheduleToggle(on) {
+  if (selectScheduleTimer) { clearInterval(selectScheduleTimer); selectScheduleTimer = null; }
+  if (!on) return;
+  const cycles = outVal('selCyclesInput', '');
+  if (!cycles) {
+    toast(t('toastSelectScheduleNeedsCycles'), true);
+    const toggle = document.getElementById('selectScheduleToggle');
+    if (toggle) toggle.checked = false;
+    return;
+  }
+  const minutes = Math.max(1, parseFloat(outVal('selScheduleMinutesInput', '30')) || 30);
+  selectScheduleTimer = setInterval(selectScheduleTick, minutes * 60000);
+  toast(t('toastSelectScheduleArmed').replace('{m}', minutes), false);
+}
+function selectScheduleTick() {
+  if (selectRunInFlight) return; // previous scheduled run hasn't finished yet
+  selectRun();
 }
 
 // -- live protocol trace (polled tail of GET /api/debug/trace) -------------
