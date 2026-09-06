@@ -1543,6 +1543,29 @@
             <button class="panel-btn small" onclick="rmemSetPriority()" data-i18n="btnRmemSetPriority">Set as Priority</button>
           </div>
         </div>
+        <!-- Proposal item 45: move prev/next (ZJ/ZK) already work from the
+             Tune panel - repeated here so they're usable without leaving
+             the memory table/accordion. -->
+        <div class="field-row">
+          <label data-i18n="lblRmemMove">Move receiver to prev/next channel (ZJ/ZK)</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sendOut('moveprev', 'rmemOut')" data-i18n="btnMovePrev">&laquo; prev</button>
+            <button class="panel-btn small" onclick="sendOut('movenext', 'rmemOut')" data-i18n="btnMoveNext">next &raquo;</button>
+          </div>
+        </div>
+        <!-- Proposal item 44: MM - register whatever is currently tuned as
+             the receiver's own "last channel memory" (what it powers back
+             up on). Has a real, not-fully-reversible side effect on the
+             device (see DV10Device.register_last_channel()'s docstring),
+             so guarded the same way as the other DESTRUCTIVE-ish actions
+             in this panel (task 14's confirmDestructive pattern). -->
+        <div class="field-row">
+          <label data-i18n="lblRegChan">Register current channel as receiver's power-on default (MM)</label>
+          <div class="hint" data-i18n="hintRegChan">Registers whatever the receiver is currently tuned to as its own "last channel memory" - what it powers back up on. Has a real effect on the device and can't be un-clicked; invalid while write-protect (PT) is on.</div>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="confirmDestructive(this, rmemRegisterLastChannel)" data-i18n="btnRegChan">Register Last Channel</button>
+          </div>
+        </div>
         <div class="field-row">
           <label data-i18n="lblRmemWrite">Write: frequency (MHz) / mode (2-digit) / tag</label>
           <div class="field-row-pair">
@@ -2067,7 +2090,19 @@
           </div>
         </div>
         <div class="field-row">
-          <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sendOut('serial', 'miscOut')" data-i18n="btnSerial">Read Serial (RN)</button>
+            <!-- Proposal item 48: RN ("serial") and SN are two DIFFERENT
+                 wire commands both named around "serial number" - SN was
+                 an orphaned method (serial_number() existed with no verb
+                 anywhere) until now. Its own registry entry calls it
+                 "deliberately left raw-only" with no spec section backing
+                 it at all (unlike RN, which at least has one) - kept
+                 clearly separate and honestly labeled rather than
+                 pretending it's a confirmed second serial number. -->
+            <button class="panel-btn small" onclick="sendOut('sn', 'miscOut')" data-i18n="btnSerialSn">Read Serial (SN, unconfirmed)</button>
+          </div>
+          <div class="hint" data-i18n="hintSerialSn">SN is a separate command from RN above - not a duplicate. Unlike RN, SN has no dedicated spec section in any reference document available to this project; it may be an orphaned placeholder in the command summary table with nothing confirmed behind it.</div>
         </div>
         <pre class="mini-out" id="miscOut"></pre>
 
@@ -2202,6 +2237,19 @@
           <div class="field-row-controls">
             <button class="panel-btn small" onclick="sendOut('rx', 'expOut')" data-i18n="btnRead">Read</button>
           </div>
+        </div>
+        <!-- Proposal item 49 (Sleep Timer half): device.py already had
+             get_sleep_timer()/set_sleep_timer() (SP) with no verb or
+             control anywhere - the command summary itself marks SP "No
+             function" for the DV10, quoted directly rather than hidden,
+             per this section's own convention for unconfirmed controls. -->
+        <div class="field-row">
+          <label data-i18n="lblSp">Sleep timer (SP)</label>
+          <div class="field-row-controls">
+            <input type="text" id="spInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expSetGet('spInput','sp')" data-i18n="btnSet">Set</button>
+          </div>
+          <div class="hint" data-i18n="hintSp">Marked "No function" for the DV10 in the official command summary table - kept for completeness, since the operating manual doesn't likewise disclaim a sleep feature. Likely a no-op on this receiver.</div>
         </div>
         <div class="field-row">
           <label data-i18n="lblSb">Comm speed (SB)</label>
@@ -2747,6 +2795,15 @@ const I18N = {
     connPingFailed: "Ping failed",
     btnExportTrace: "Export trace to file",
     toastTraceExportFailed: "Trace export failed: ",
+    // proposal items 44/45/48/49: J-section small closures
+    lblRmemMove: "Move receiver to prev/next channel (ZJ/ZK)",
+    lblRegChan: "Register current channel as receiver's power-on default (MM)",
+    hintRegChan: "Registers whatever the receiver is currently tuned to as its own \"last channel memory\" - what it powers back up on. Has a real effect on the device and can't be un-clicked; invalid while write-protect (PT) is on.",
+    btnRegChan: "Register Last Channel",
+    btnSerialSn: "Read Serial (SN, unconfirmed)",
+    hintSerialSn: "SN is a separate command from RN above - not a duplicate. Unlike RN, SN has no dedicated spec section in any reference document available to this project; it may be an orphaned placeholder in the command summary table with nothing confirmed behind it.",
+    lblSp: "Sleep timer (SP)",
+    hintSp: "Marked \"No function\" for the DV10 in the official command summary table - kept for completeness, since the operating manual doesn't likewise disclaim a sleep feature. Likely a no-op on this receiver.",
   },
   pl: {
     pageTitle: "AOR AR-DV10 – Panel sterowania",
@@ -3122,6 +3179,15 @@ const I18N = {
     connPingFailed: "Ping nieudany",
     btnExportTrace: "Eksportuj ślad do pliku",
     toastTraceExportFailed: "Eksport śladu nieudany: ",
+    // pozycje 44/45/48/49: drobne domknięcia z sekcji J
+    lblRmemMove: "Przesuń odbiornik do poprzedniego/następnego kanału (ZJ/ZK)",
+    lblRegChan: "Zarejestruj bieżący kanał jako domyślny przy włączeniu odbiornika (MM)",
+    hintRegChan: "Rejestruje to, na co odbiornik jest obecnie nastrojony, jako własną \"pamięć ostatniego kanału\" - czyli to, z czym się włączy. Ma realny wpływ na urządzenie i nie da się tego cofnąć; nieważne, gdy włączona jest ochrona zapisu (PT).",
+    btnRegChan: "Zarejestruj ostatni kanał",
+    btnSerialSn: "Odczytaj numer seryjny (SN, niepotwierdzone)",
+    hintSerialSn: "SN to inna komenda niż RN powyżej - nie duplikat. W przeciwieństwie do RN, SN nie ma własnej sekcji w żadnym dostępnym dla tego projektu dokumencie źródłowym; może być osieroconym wpisem w tabeli podsumowującej bez niczego potwierdzonego za nim.",
+    lblSp: "Timer uśpienia (SP)",
+    hintSp: "Oznaczone jako \"brak funkcji\" dla DV10 w oficjalnym podsumowaniu komend - zachowane dla kompletności, bo instrukcja obsługi nie zastrzega podobnie braku funkcji uśpienia. Prawdopodobnie no-op na tym odbiorniku.",
   },
 };
 
@@ -4545,6 +4611,13 @@ function rmemDelete() {
 // verb rather than adding a new one.
 function rmemSetPriority() {
   sendOut('priochan ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
+}
+// Proposal item 44: MM - register whatever is currently tuned as the
+// receiver's own "last channel memory" (power-on default). Reuses the
+// existing "regchan" verb (CLI/web already had it - see
+// DV10Device.register_last_channel()); this just adds the button.
+function rmemRegisterLastChannel() {
+  sendOut('regchan', 'rmemOut');
 }
 // Write-protect guard (proposal item 15): write_memory_channel()/MX will
 // silently overwrite a channel that has its own per-record PT protect

@@ -74,6 +74,7 @@ class SimulatorTransport(Transport):
             "VR": "1.00",
             "WI": "AR-DV10",
             "RN": "SIMULATED0001",
+            "SN": "SIMULATED0001",
             "RX": "1",
             # Manual-sourced defaults, added alongside device.py's
             # manual-sourced expansion - plausible defaults so the GUI/CLI
@@ -290,7 +291,7 @@ class SimulatorTransport(Transport):
 
     _ALL_CODES = (
         "EX", "ZP", "QP", "RF", "MD", "SQ", "AG", "AC", "AT", "RG", "LM",
-        "LQ", "NQ", "BP", "VR", "WI", "RN", "RX", "RE", "VF",
+        "LQ", "NQ", "BP", "VR", "WI", "RN", "SN", "RX", "RE", "VF",
         # Manual-sourced expansion - see aor_dv10.device's
         # manual-sourced tables for what's still wire-unconfirmed.
         "ST", "SH", "CI", "CN", "DI", "DS", "CC", "CM", "OT", "PC", "PM",

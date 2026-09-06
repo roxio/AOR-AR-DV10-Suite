@@ -458,7 +458,8 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
             "dcrcode [00000-32767], descr on|off, offset [00-39] [+|-], offsetfreq [00-39] [MHZ], "
             "prio on|off, priochan [BANK] [CH], priointerval [1-99], regchan, beeplvl [0-7], "
             "vollimit [00-15], digain [01.00-15.94], mgain [000-110], contrast [00-63], "
-            "backlight [VALUE], movenext, moveprev, "
+            "backlight [VALUE], movenext, moveprev, sp [VALUE], sn, "
+            "mem load/find/list/goto/export, "
             "debug last [N], debug save PATH, "
             "raw CODE [VALUE], describe CODE"
         )
@@ -826,6 +827,14 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         if args:
             device.set_comm_speed(" ".join(args))
         return device.get_comm_speed()
+    if verb == "sp":
+        if args:
+            device.set_sleep_timer(" ".join(args))
+        return device.get_sleep_timer()
+    if verb == "sn":
+        return device.serial_number()
+    if verb == "mem":
+        return _dispatch_plain_mem(device, args)
     if verb == "rmem":
         return _dispatch_plain_rmem(device, args)
     if verb == "search":
@@ -1156,6 +1165,128 @@ def _dispatch_plain_pass(device: DV10Device, args: list[str]) -> str:
             return "usage: pass delete | pass delete bank <bank> [index] | pass delete allbanks"
         return "deleted"
     return f"unknown 'pass' subcommand: {sub!r}"
+
+
+def _dispatch_plain_mem(device: DV10Device, args: list[str]) -> str:
+    """Proposal item 46: the "mem ..." verb family (load/find/list/goto/
+    export - see Repl._dispatch_mem() for the original) was reachable only
+    through REST (/api/memory/*), never as a text command like every other
+    verb here - awkward from the Raw Console or a script. Ported to operate
+    on this module's shared _memory_banks/_memory_channels (the same state
+    POST /api/memory/import fills and GET /api/memory reads), so importing
+    from the browser and "mem list"-ing from the console see the same data.
+
+    Deliberately separate from "rmem ..." (the live MX/MA/MR/MW/MB/MQ wire
+    commands, see _dispatch_plain_rmem()) - same file-format-only split as
+    the CLI, see aor_dv10.memory's module docstring and
+    aor_dv10.device.MemoryChannelInfo's docstring for why the two field
+    layouts aren't interchangeable.
+
+    "mem load <path>" reads a file from the SERVER's filesystem (the same
+    machine this process runs on) - consistent with "debug save <path>"
+    already doing server-side file I/O from this same console. Browser
+    uploads go through POST /api/memory/import instead; either path fills
+    the same shared state."""
+    global _memory_banks, _memory_channels
+    if not args:
+        return (
+            "usage: mem load <path> | mem find <text> | mem list [bank] | "
+            "mem goto <bank>-<ch> | mem export <path>"
+        )
+    sub, rest = args[0].lower(), args[1:]
+
+    if sub == "load":
+        if not rest:
+            return "usage: mem load <path>"
+        path = rest[0]
+        try:
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8-sig")
+        except OSError as exc:
+            return f"error: could not read {path!r}: {exc}"
+        try:
+            banks, channels = parse_backup_csv(text)
+        except ValueError as exc:
+            return f"error: {exc}"
+        _memory_banks, _memory_channels = banks, channels
+        programmed = sum(1 for c in channels if not c.is_empty)
+        return (
+            f"Loaded {len(banks)} banks / {len(channels)} channel slots "
+            f"({programmed} programmed) from {path}"
+        )
+    if not _memory_channels:
+        return "no memory database loaded - use 'mem load <path>' or POST /api/memory/import first"
+    if sub == "find":
+        if not rest:
+            return "usage: mem find <text>"
+        needle = " ".join(rest).strip().lower()
+        hits = [
+            c for c in _memory_channels
+            if not c.is_empty and needle in c.name.strip().lower()
+        ]
+        if not hits:
+            return "(no matches)"
+        lines = [
+            f"{c.bank_channel}  {c.frequency_mhz:9.5f} MHz  {c.mode}  {c.name.strip()}"
+            for c in hits[:50]
+        ]
+        if len(hits) > 50:
+            lines.append(f"... and {len(hits) - 50} more")
+        return "\n".join(lines)
+    if sub == "list":
+        bank_filter = int(rest[0]) if rest else None
+        rows = [
+            c for c in _memory_channels
+            if not c.is_empty and (bank_filter is None or c.bank == bank_filter)
+        ]
+        if not rows:
+            return ("(no programmed channels)" if bank_filter is None else
+                    f"(no programmed channels in bank {bank_filter:02d})")
+        lines = [
+            f"{c.bank_channel}  {c.frequency_mhz:9.5f} MHz  {c.mode}  {c.name.strip()}"
+            for c in rows[:100]
+        ]
+        if len(rows) > 100:
+            lines.append(f"... and {len(rows) - 100} more (use 'mem find' to narrow)")
+        return "\n".join(lines)
+    if sub == "goto":
+        if not rest:
+            return "usage: mem goto <bank>-<ch>"
+        bank_str, _, ch_str = rest[0].partition("-")
+        try:
+            bank, channel = int(bank_str), int(ch_str)
+        except ValueError:
+            return f'expected "<bank>-<ch>", e.g. "00-05", got {rest[0]!r}'
+        match = next(
+            (c for c in _memory_channels if c.bank == bank and c.channel == channel),
+            None,
+        )
+        if match is None:
+            return f"error: no such channel: {bank:02d}-{channel:02d}"
+        if match.is_empty:
+            return f"error: channel {match.bank_channel} is unprogrammed"
+        device.enter_vfo_mode("A")
+        device.set_frequency_hz(match.frequency_hz)
+        if match.step_hz:
+            device.set_frequency_step_hz(match.step_hz)
+        if match.mode and len(match.mode) == 3:
+            device.set_mode(match.mode[1:3])
+        return (
+            f"Tuned to {match.bank_channel} ({match.name.strip() or 'unnamed'}): "
+            f"{match.frequency_mhz:.5f} MHz"
+        )
+    if sub == "export":
+        if not rest:
+            return "usage: mem export <path>"
+        path = rest[0]
+        out = write_backup_csv(_memory_banks, _memory_channels)
+        try:
+            with open(path, "wb") as f:
+                f.write(out.encode("utf-8"))
+        except OSError as exc:
+            return f"error: could not write {path!r}: {exc}"
+        return f"Wrote {len(_memory_channels)} channel slots to {path}"
+    return f"unknown 'mem' subcommand: {sub!r}"
 
 
 def _dispatch_plain_timer(device: DV10Device, args: list[str]) -> str:

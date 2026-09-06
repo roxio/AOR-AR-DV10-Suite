@@ -250,6 +250,14 @@ caveats.
                           this remotely can sever the very serial connection used to send the
                           command; confirm the new speed matches what your PC side expects
                           before setting it.
+  sp [VALUE]                   SP: show or set the sleep timer - marked "No function" for the
+                          DV10 in the official command summary; kept for completeness since
+                          the operating manual doesn't likewise disclaim a sleep feature.
+  sn                           SN: read the "output serial number" (read-only) - distinct
+                          from "serial"/RN above. SN's own summary-table row has no
+                          page-number cross-reference anywhere in the available spec
+                          documents; likely an orphaned placeholder, not confirmed to
+                          return anything meaningful.
   quit, exit                 Disconnect and leave
 
 Many more settings (DMR/P25/NXDN/D-CR selective codes, priority
@@ -272,6 +280,7 @@ _VERBS = [
     "movenext", "moveprev", "stepadj",
     "zi", "clock", "writeprotect", "reset",
     "an", "ct", "dj", "dk", "lc", "lt", "ox", "ts", "vq", "zs", "zt", "rt", "rx", "sb",
+    "sp", "sn",
 ]
 
 
@@ -718,6 +727,12 @@ class Repl:
             if args:
                 self.device.set_comm_speed(" ".join(args))
             self.console.print(self.device.get_comm_speed())
+        elif verb == "sp":
+            if args:
+                self.device.set_sleep_timer(" ".join(args))
+            self.console.print(self.device.get_sleep_timer())
+        elif verb == "sn":
+            self.console.print(self.device.serial_number())
         elif verb == "sqltype":
             if args:
                 self.device.set_squelch_tone_type(args[0])
