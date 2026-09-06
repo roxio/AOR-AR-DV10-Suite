@@ -770,6 +770,14 @@
     min-height: 1.4em; font-family: var(--font-mono);
   }
 
+  /* -- proposal item 31: S-meter sparkline - same dark "log" surface as
+     .mini-out above, sized for a small inline trend line rather than text. */
+  .sparkline {
+    display: block; width: 100%; height: 40px; margin-top: 4px;
+    background: #12151c; border: 1px solid #232838; border-radius: var(--radius-sm);
+  }
+  html[data-theme="day"] .sparkline { background: #eceff2; border-color: #c9cdd4; }
+
   /* -- day theme: literal-color overrides ----------------------------------
      These components hardcode colors (LCD gloss shadows, soft-tinted chip
      fills, the raw-log panes, the function-button underline, the tuning
@@ -2172,6 +2180,31 @@
         <pre class="mini-out" id="expOut"></pre>
       </div>
 
+      <!-- Proposal items 31-33: visualizations built purely from data
+           already confirmed and already polled every ~1.5s (S-meter,
+           squelch state) or already surfaced as raw console text (result
+           codes) - no new device commands, client-side only. -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hVisualizations">Visualizations</div>
+        <div class="hint" data-i18n="hintVisualizations">Built from data already polled every ~1.5s - purely client-side, no new device commands. History resets on page reload.</div>
+        <div class="field-row">
+          <label data-i18n="lblSmeterSparkline">S-meter over time (last ~60s)</label>
+          <svg id="smeterSparkline" class="sparkline" viewBox="0 0 200 40" preserveAspectRatio="none"></svg>
+          <div class="hint" id="smeterSparklineStats">-- / -- / -- dBm</div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSquelchHistory">Squelch state history (last 8 changes)</label>
+          <pre class="mini-out" id="squelchHistoryList"></pre>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblErrorLog">Recent error codes (decoded from the raw console)</label>
+          <pre class="mini-out" id="errorLogList"></pre>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="clearErrorLog()" data-i18n="btnClearLog">Clear</button>
+          </div>
+        </div>
+      </div>
+
       <!-- DV1/DV3-only extras (inside the Spectrum/Select/Additional accordion; gated to DV1/DV3, disabled on DV10). CLI/raw remain available for any model. -->
       <div class="panel-section gated-dv13">
         <div class="section-label" data-i18n="hDv13Extras">DV1/DV3-only extras</div>
@@ -2587,6 +2620,22 @@ const I18N = {
     hintSb: "Changing this remotely can sever the very serial connection used to send the command. Click once to arm, again within 3 seconds to actually send.",
     btnRead: "Read",
     toastExpValueRequired: "Enter a value first - DJ is write-only",
+    hVisualizations: "Visualizations",
+    hintVisualizations: "Built from data already polled every ~1.5s - purely client-side, no new device commands. History resets on page reload.",
+    lblSmeterSparkline: "S-meter over time (last ~60s)",
+    lblSquelchHistory: "Squelch state history (last 8 changes)",
+    lblErrorLog: "Recent error codes (decoded from the raw console)",
+    btnClearLog: "Clear",
+    lblMinCurMax: "min / current / max",
+    errCodeUnknown: "Rejected by the device (RE off - no detailed code available)",
+    errCode30: "Cannot set given current conditions (30)",
+    errCode31: "Cannot set given current conditions (31, continued)",
+    errCode40: "Format error - malformed command/value (40)",
+    errCode41: "Format error - malformed command/value (41, continued)",
+    errCode50: "Value out of range (50)",
+    errCode51: "Value out of range (51, continued)",
+    errCode60: "Command does not exist / not supported (60)",
+    errCode61: "Command does not exist / not supported (61, continued)",
   },
   pl: {
     pageTitle: "AOR AR-DV10 – Panel sterowania",
@@ -2904,6 +2953,22 @@ const I18N = {
     hintSb: "Zmiana tego zdalnie może zerwać samo połączenie szeregowe użyte do wysłania komendy. Kliknij raz, żeby uzbroić, i drugi raz w ciągu 3 sekund, żeby faktycznie wysłać.",
     btnRead: "Odczytaj",
     toastExpValueRequired: "Najpierw wpisz wartość - DJ jest tylko do zapisu",
+    hVisualizations: "Wizualizacje",
+    hintVisualizations: "Zbudowane z danych już pollowanych co ~1,5s - wyłącznie po stronie przeglądarki, bez nowych komend do urządzenia. Historia resetuje się po odświeżeniu strony.",
+    lblSmeterSparkline: "S-metr w czasie (ostatnie ~60s)",
+    lblSquelchHistory: "Historia stanu squelch (ostatnie 8 zmian)",
+    lblErrorLog: "Ostatnie kody błędów (zdekodowane z surowej konsoli)",
+    btnClearLog: "Wyczyść",
+    lblMinCurMax: "min / bieżąca / max",
+    errCodeUnknown: "Odrzucone przez urządzenie (RE wyłączone - brak szczegółowego kodu)",
+    errCode30: "Nie można ustawić w bieżących warunkach (30)",
+    errCode31: "Nie można ustawić w bieżących warunkach (31, ciąg dalszy)",
+    errCode40: "Błąd formatu - nieprawidłowa komenda/wartość (40)",
+    errCode41: "Błąd formatu - nieprawidłowa komenda/wartość (41, ciąg dalszy)",
+    errCode50: "Wartość poza zakresem (50)",
+    errCode51: "Wartość poza zakresem (51, ciąg dalszy)",
+    errCode60: "Komenda nie istnieje / nieobsługiwana (60)",
+    errCode61: "Komenda nie istnieje / nieobsługiwana (61, ciąg dalszy)",
   },
 };
 
@@ -3045,6 +3110,11 @@ function connectWs() {
     addLine(ev.data, ev.data.startsWith('error:') ? 'err' : 'out');
     if (ev.data.startsWith('error:')) toast(ev.data, true);
     const route = pendingRoutes.length ? pendingRoutes.shift() : null;
+    // Proposal item 33: decode into the error-code log regardless of
+    // which panel's command triggered it - route.cmd (see send() below)
+    // is only used for the log entry's label, so a missing route/cmd
+    // (e.g. a message that arrived with nothing pending) still logs.
+    if (ev.data.startsWith('error:')) logErrorFromMessage(ev.data, route && route.cmd);
     if (route) {
       const target = (typeof route === 'string') ? route : route.out;
       if (target) {
@@ -3066,7 +3136,7 @@ function send(cmd, opts) {
   // route can carry a mini-out element id (out) and/or a callback
   // (onData) - see vfoInfo()'s use of onData to run applyVfoInfoRaw() on
   // the VI response without adding it to every status-poll cycle.
-  pendingRoutes.push({ out: opts.out || null, onData: opts.onData || null });
+  pendingRoutes.push({ out: opts.out || null, onData: opts.onData || null, cmd });
   ws.send(cmd);
 }
 
@@ -4076,12 +4146,14 @@ function renderStatus(s) {
     const lit = Math.round(pct * smeterSegEls.length);
     smeterSegEls.forEach((seg, i) => seg.classList.toggle('lit', i < lit));
     document.getElementById('smeterDb').textContent = s.smeter_dbm + ' dB';
+    pushSmeterSample(s.smeter_dbm);
   }
   const pill = document.getElementById('sqlPill');
   if (s.squelch_state === 3) { pill.textContent = t('sqlDigitalDetect'); pill.classList.remove('open'); pill.classList.add('digital'); }
   else if (s.squelch_open === true) { pill.textContent = t('sqlOpen'); pill.classList.remove('digital'); pill.classList.add('open'); }
   else if (s.squelch_open === false) { pill.textContent = t('sqlClosed'); pill.classList.remove('open'); pill.classList.remove('digital'); }
   else { pill.textContent = t('sqlUnknown'); pill.classList.remove('open'); pill.classList.remove('digital'); }
+  pushSquelchHistory(s);
 
   // -- extended fields - see renderStatus's existing pattern
   // above: only touch a control the person isn't actively using, and only
@@ -4195,7 +4267,7 @@ function sendAwait(cmd, timeoutMs) {
     const timer = setTimeout(() => {
       if (!done) { done = true; reject(new Error('timeout waiting for response')); }
     }, timeoutMs);
-    pendingRoutes.push({ out: null, onData: (data) => {
+    pendingRoutes.push({ out: null, cmd, onData: (data) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
@@ -4705,6 +4777,97 @@ function expWrite(inputId, verb) {
   const v = outVal(inputId, '');
   if (!v) { toast(t('toastExpValueRequired'), true); return; }
   sendOut(verb + ' ' + v, 'expOut');
+}
+
+// -- proposal items 31-33: visualizations from already-polled data --------
+// All three are purely client-side (in-memory only, reset on page
+// reload) - no new device commands, no persistence, just a friendlier
+// view of data this panel already has.
+
+// 31. S-meter sparkline - rolling window over pollStatus()'s ~1.5s cycle.
+const SMETER_HISTORY_MAX = 40; // ~60s at the ~1.5s poll interval
+let smeterHistory = [];
+function pushSmeterSample(dbm) {
+  smeterHistory.push(dbm);
+  if (smeterHistory.length > SMETER_HISTORY_MAX) smeterHistory.shift();
+  renderSmeterSparkline();
+}
+function renderSmeterSparkline() {
+  const svg = document.getElementById('smeterSparkline');
+  const stats = document.getElementById('smeterSparklineStats');
+  if (!svg || !smeterHistory.length) return;
+  const floor = -120, ceiling = 0; // same clamp range as the segmented bar above
+  const w = 200, h = 40;
+  const step = smeterHistory.length > 1 ? w / (smeterHistory.length - 1) : 0;
+  const points = smeterHistory.map((v, i) => {
+    const clamped = Math.max(floor, Math.min(ceiling, v));
+    const y = h - ((clamped - floor) / (ceiling - floor)) * h;
+    return `${(i * step).toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  svg.innerHTML = `<polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke" />`;
+  if (stats) {
+    const min = Math.min(...smeterHistory);
+    const max = Math.max(...smeterHistory);
+    const cur = smeterHistory[smeterHistory.length - 1];
+    stats.textContent = `${min} / ${cur} / ${max} dBm (${t('lblMinCurMax')})`;
+  }
+}
+
+// 32. Squelch mini-history - logs only on actual change, not every poll
+// tick, so it reads as a timeline of transitions rather than noise.
+const SQUELCH_HISTORY_MAX = 8;
+let lastSquelchHistoryLabel = null;
+function squelchStateLabel(s) {
+  const modeNames = { '0': 'Auto', '1': 'Noise', '2': 'Level' };
+  let label = (s.squelch !== null && s.squelch !== undefined && modeNames[s.squelch] !== undefined)
+    ? modeNames[s.squelch] : '?';
+  if (s.squelch_state === 3) label += ' + ' + t('sqlDigitalDetect');
+  else if (s.squelch_open === true) label += ' (' + t('sqlOpen') + ')';
+  else if (s.squelch_open === false) label += ' (' + t('sqlClosed') + ')';
+  return label;
+}
+function pushSquelchHistory(s) {
+  if (s.squelch === null || s.squelch === undefined) return;
+  const label = squelchStateLabel(s);
+  if (label === lastSquelchHistoryLabel) return;
+  lastSquelchHistoryLabel = label;
+  const el = document.getElementById('squelchHistoryList');
+  if (!el) return;
+  const time = new Date().toLocaleTimeString();
+  const lines = el.textContent ? el.textContent.split('\n') : [];
+  lines.push(`${time}  ${label}`);
+  el.textContent = lines.slice(-SQUELCH_HISTORY_MAX).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+// 33. Recent error codes, decoded from the "error: ..." strings the
+// WebSocket already sends (see ws_endpoint() in web/server.py) into a
+// short localized description - RESULT_CODES per aor_dv10.protocol.codec.
+// Only the 4 real error codes (RE off means most rejections just come
+// back as a bare "?" with no numeric code at all - that's not a bug
+// here, it's the device not saying more). Descriptions live in I18N
+// (errCode30/31/40/41/50/51/60/61) like every other UI string, not a
+// separate hardcoded table - otherwise an English-language session would
+// see Polish text leak into this one log.
+const ERROR_LOG_MAX = 20;
+function logErrorFromMessage(msg, cmd) {
+  const el = document.getElementById('errorLogList');
+  if (!el) return;
+  const m = msg.match(/error code '([^']+)'/);
+  const raw = m ? m[1] : null;
+  const numeric = raw && /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+  const key = numeric !== null ? 'errCode' + numeric : null;
+  const desc = (key && key in I18N.en) ? t(key) : t('errCodeUnknown');
+  const time = new Date().toLocaleTimeString();
+  const cmdPart = cmd ? `${cmd}: ` : '';
+  const lines = el.textContent ? el.textContent.split('\n') : [];
+  lines.push(`${time}  ${cmdPart}${desc}`);
+  el.textContent = lines.slice(-ERROR_LOG_MAX).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+function clearErrorLog() {
+  const el = document.getElementById('errorLogList');
+  if (el) el.textContent = '';
 }
 
 applyLanguage(detectDefaultLang());
