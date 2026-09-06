@@ -48,7 +48,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..cli.repl import _on_off, _parse_clock_digits
-from ..device import DV10Device, KEY_BACKLIGHT_COLORS, SD_CARD_STATUS, TONE_SQUELCH_TYPES
+from ..device import DV10Device, KEY_BACKLIGHT_COLORS, MemoryChannelInfo, SD_CARD_STATUS, TONE_SQUELCH_TYPES
 from ..memory import (
     MemoryBank,
     MemoryChannel,
@@ -423,6 +423,176 @@ async def api_memory_diff(bank: int):
         "differences": len(diffs),
         "channels": diffs,
     }
+
+
+def _live_channel_json(c: MemoryChannelInfo) -> dict:
+    return {
+        "bank": c.bank,
+        "channel": c.channel,
+        "bank_channel": f"{c.bank:02d}-{c.channel:02d}",
+        "registered": c.registered,
+        "pass_channel": c.pass_channel,
+        "frequency_hz": c.frequency_hz,
+        "frequency_mhz": (c.frequency_hz / 1_000_000) if c.frequency_hz is not None else None,
+        "step_hz": c.step_hz,
+        "step_adjust_hz": c.step_adjust_hz,
+        "mode": c.mode,
+        "write_protect": c.write_protect,
+        "tag": c.tag.strip() if c.tag else "",
+    }
+
+
+def _parse_live_channel_write_body(body: dict) -> dict:
+    """Shared field parsing for the two write endpoints below - takes the
+    already-JSON-decoded request body dict and returns the kwargs
+    write_memory_channel() wants, doing the mhz->hz conversion and basic
+    type coercion by hand (no pydantic model - this file otherwise parses
+    request bodies manually too, see api_memory_import())."""
+    kwargs: dict = {}
+    if body.get("frequency_mhz") is not None:
+        kwargs["frequency_hz"] = round(float(body["frequency_mhz"]) * 1_000_000)
+    if body.get("step_hz") is not None:
+        kwargs["step_hz"] = int(body["step_hz"])
+    if body.get("step_adjust_hz") is not None:
+        kwargs["step_adjust_hz"] = int(body["step_adjust_hz"])
+    if body.get("mode") is not None and str(body["mode"]).strip() != "":
+        kwargs["mode"] = str(body["mode"]).strip()
+    if body.get("pass_channel"):
+        kwargs["pass_channel"] = True
+    if body.get("write_protect"):
+        kwargs["write_protect"] = True
+    if body.get("tag") is not None:
+        kwargs["tag"] = str(body["tag"])
+    return kwargs
+
+
+@app.get("/api/memory/live_bank/{bank}")
+async def api_memory_live_bank(bank: int):
+    """Bank editor (table view): read every channel slot in a live bank
+    as structured JSON, including the fields the CSV-shaped
+    /api/memory/live_export/{bank} can't carry (step_adjust_hz has no CSV
+    counterpart - see aor_dv10.memory.from_live_channel()'s docstring).
+    Always reads fresh from the device, same as live_export."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    device = get_device()
+    async with _lock:
+        try:
+            channels = device.read_memory_bank(bank)
+            bank_info = device.get_memory_bank_info(bank)
+        except DV10Error as exc:
+            raise HTTPException(502, f"device error: {exc}")
+    return {
+        "bank": bank,
+        "bank_tag": bank_info.tag.strip(),
+        "bank_protect": bank_info.protect,
+        "channel_count": bank_info.channel_count,
+        "channels": [_live_channel_json(c) for c in channels],
+    }
+
+
+@app.post("/api/memory/live_bank/{bank}/batch")
+async def api_memory_live_bank_batch_write(bank: int, request: Request):
+    """Bank editor: write multiple channels in one bank in one request -
+    the "overwrite whole bank" action (the browser loops this endpoint
+    once per selected bank for "overwrite several banks", rather than
+    this project inventing a second cross-bank endpoint for what's really
+    just "do the per-bank thing more than once").
+
+    Body: {"channels": [{"channel": N, ...same fields as the single-write
+    endpoint..., "force": bool}, ...], "force": bool} - a per-item force
+    overrides the batch-level default for that one item. Each channel is
+    attempted independently: one write-protect refusal or device error
+    doesn't abort the rest, so a stuck/protected slot can't turn a whole-
+    bank overwrite into an all-or-nothing operation. Returns per-channel
+    results so the UI can show exactly which rows saved and which
+    didn't."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    body = await request.json()
+    items = body.get("channels") or []
+    batch_force = bool(body.get("force"))
+    device = get_device()
+    results = []
+    async with _lock:
+        for item in items:
+            try:
+                ch = int(item["channel"])
+            except (KeyError, TypeError, ValueError):
+                results.append({"channel": item.get("channel"), "ok": False, "error": "missing/invalid channel"})
+                continue
+            if not (0 <= ch <= 49):
+                results.append({"channel": ch, "ok": False, "error": "channel must be 00-49"})
+                continue
+            force = batch_force or bool(item.get("force"))
+            try:
+                if not force:
+                    current = device.read_memory_channel(bank, ch)
+                    if current.registered and current.write_protect:
+                        results.append({"channel": ch, "ok": False, "error": "write-protected (retry with force)"})
+                        continue
+                kwargs = _parse_live_channel_write_body(item)
+                device.write_memory_channel(bank, ch, **kwargs)
+                results.append({"channel": ch, "ok": True})
+            except DV10Error as exc:
+                results.append({"channel": ch, "ok": False, "error": str(exc)})
+    return {"bank": bank, "results": results}
+
+
+@app.post("/api/memory/live_bank/{bank}/{channel}")
+async def api_memory_live_channel_write(bank: int, channel: int, request: Request):
+    """Bank editor: write one live memory channel (MX) - the per-row Save
+    action. Body: any of frequency_mhz/step_hz/step_adjust_hz/mode/
+    pass_channel/write_protect/tag (all optional, same "omitted = leave
+    unchanged" semantics as write_memory_channel() itself), plus an
+    optional force:true.
+
+    Write-protect guard (same spirit as the WS rmem panel's rmemWrite()
+    JS guard, proposal item 15 - enforced server-side here since this is
+    a stateless per-request API rather than something a JS confirm-arm
+    can straddle across two calls to the SAME endpoint): refuses with 409
+    if the channel is CURRENTLY write-protected and force wasn't set,
+    rather than silently overwriting it. The browser side re-asks the
+    user and retries the same request with force:true."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    if not (0 <= channel <= 49):
+        raise HTTPException(400, "channel must be 00-49")
+    body = await request.json()
+    force = bool(body.get("force"))
+    kwargs = _parse_live_channel_write_body(body)
+    device = get_device()
+    async with _lock:
+        try:
+            if not force:
+                current = device.read_memory_channel(bank, channel)
+                if current.registered and current.write_protect:
+                    raise HTTPException(
+                        409, "channel is write-protected - retry with force:true to override"
+                    )
+            device.write_memory_channel(bank, channel, **kwargs)
+            updated = device.read_memory_channel(bank, channel)
+        except DV10Error as exc:
+            raise HTTPException(502, f"device error: {exc}")
+    return _live_channel_json(updated)
+
+
+@app.delete("/api/memory/live_bank/{bank}/{channel}")
+async def api_memory_live_channel_delete(bank: int, channel: int):
+    """Bank editor: delete one live memory channel (MQ) - the table's
+    per-row Delete action. Same underlying call as the WS "rmem delete"
+    verb (device.delete_memory_channel())."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    if not (0 <= channel <= 49):
+        raise HTTPException(400, "channel must be 00-49")
+    device = get_device()
+    async with _lock:
+        try:
+            device.delete_memory_channel(bank, channel)
+        except DV10Error as exc:
+            raise HTTPException(502, f"device error: {exc}")
+    return {"deleted": f"{bank:02d}-{channel:02d}"}
 
 
 def _dispatch_plain(device: DV10Device, line: str) -> object:

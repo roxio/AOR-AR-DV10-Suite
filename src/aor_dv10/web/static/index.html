@@ -758,6 +758,23 @@
   table.mem-table td.mem-freq { color: var(--accent); font-weight: 600; }
   table.mem-table td.mem-protect { color: var(--amber); }
 
+  /* Memory Bank Editor table (proposal: bank editor) - same base look as
+     .mem-table above, plus editable-cell inputs and per-row status. */
+  table.bank-editor-table input[type="text"] {
+    width: 100%; min-width: 56px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; color: inherit; font: inherit; padding: 3px 5px;
+  }
+  table.bank-editor-table input[type="text"]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  table.bank-editor-table td.be-freq-cell { min-width: 100px; }
+  table.bank-editor-table td.be-mode-cell input, table.bank-editor-table td.be-step-cell input { min-width: 56px; max-width: 70px; }
+  table.bank-editor-table td.be-tag-cell input { min-width: 90px; }
+  table.bank-editor-table tr.be-unregistered { opacity: .55; }
+  table.bank-editor-table tr.be-dirty { box-shadow: inset 3px 0 0 var(--amber); }
+  table.bank-editor-table .be-status-dirty { color: var(--amber); }
+  table.bank-editor-table .be-status-ok { color: var(--good); }
+  table.bank-editor-table .be-status-error { color: var(--bad); }
+  table.bank-editor-table .be-row-actions { display: flex; gap: 4px; }
+
   /* -- per-panel output boxes --------------------------------------------
      Small read-only readouts for the rmem/VFO+timer/SD/scope/select
      panels below - same dark "log" surface as .term, but scoped to one
@@ -1606,6 +1623,77 @@
         <pre class="mini-out" id="rmemOut"></pre>
       </div>
       </div><!-- /.memory-pair -->
+
+      <!-- MEMORY BANK EDITOR: a table-based live-memory editor, built on
+           the /api/memory/live_bank/* REST endpoints - reads a whole bank
+           (or every bank) via MA into an editable table, edits any field
+           per channel, and saves either one row (MX), a whole bank's
+           worth of rows in one go, or several loaded banks at once.
+           Deliberately separate from the single-channel "rmem" panel
+           above (kept for quick one-off reads/writes over the WS text
+           verb) and from the CSV-backup browser to its left (edits an
+           offline file, not the receiver). -->
+      <div class="panel-section" id="bankEditorSection">
+        <div class="section-label" data-i18n="hBankEditor">Memory Bank Editor</div>
+        <div class="hint" data-i18n="hintBankEditor">Loads live memory bank(s) from the receiver (MA) into the editable table below. Edit any field, then save just that row, or push a whole loaded bank's rows back (MX) in one go with "Overwrite Bank" / "Overwrite All Loaded Banks" - either overwrite action is DESTRUCTIVE in the same sense any MX write is: it replaces whatever was in that slot, edited or not.</div>
+
+        <div class="field-row">
+          <label data-i18n="lblBankEditorLoad">Load bank(s) from receiver</label>
+          <div class="field-row-controls">
+            <input type="text" id="bankEditorBankInput" inputmode="numeric" value="0" style="max-width:6em" data-i18n-ph="rmemBankPlaceholder" placeholder="bank" />
+            <button class="panel-btn small" onclick="bankEditorLoadOne()" data-i18n="btnBankEditorLoad">Load Bank</button>
+            <button class="panel-btn small" onclick="bankEditorLoadAll()" data-i18n="btnBankEditorLoadAll">Load All Banks (00-39)</button>
+            <button class="panel-btn small" onclick="bankEditorStopLoading()" data-i18n="btnBankEditorStop">Stop Loading</button>
+            <button class="panel-btn small" onclick="bankEditorClear()" data-i18n="btnBankEditorClear">Clear Table</button>
+          </div>
+        </div>
+        <div class="rocker-row">
+          <label data-i18n="lblBankEditorHideEmpty">Hide unregistered/empty channels</label>
+          <label class="rocker mini">
+            <input type="checkbox" id="bankEditorHideEmpty" checked onchange="bankEditorRenderTable()" />
+            <span class="rocker-track"></span>
+          </label>
+        </div>
+        <div class="hint" id="bankEditorLoadStatus"></div>
+
+        <div class="mem-table-wrap">
+          <table class="mem-table bank-editor-table" id="bankEditorTable">
+            <thead>
+              <tr>
+                <th data-i18n="beColBankCh">Bank-Ch</th>
+                <th data-i18n="beColFreq">Freq (MHz)</th>
+                <th data-i18n="beColMode">Mode</th>
+                <th data-i18n="beColStep">Step (kHz)</th>
+                <th data-i18n="beColStepAdj">Step-adj (kHz)</th>
+                <th data-i18n="beColTag">Tag</th>
+                <th data-i18n="beColPass">Pass</th>
+                <th data-i18n="beColProtect">Protect</th>
+                <th data-i18n="beColStatus">Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="bankEditorTableBody"></tbody>
+          </table>
+        </div>
+        <div class="hint" id="bankEditorRowCount"></div>
+
+        <div class="rocker-row">
+          <label data-i18n="lblBankEditorIncludeProtected">Include write-protected rows in Overwrite actions</label>
+          <label class="rocker mini">
+            <input type="checkbox" id="bankEditorIncludeProtected" />
+            <span class="rocker-track"></span>
+          </label>
+        </div>
+        <div class="field-row">
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="bankEditorSaveAllDirty()" data-i18n="btnBankEditorSaveDirty">Save Changed Rows</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, bankEditorOverwriteCurrentBank)" data-i18n="btnBankEditorOverwriteBank">Overwrite Bank</button>
+            <button class="panel-btn small" onclick="confirmDestructive(this, bankEditorOverwriteAllLoaded)" data-i18n="btnBankEditorOverwriteAll">Overwrite All Loaded Banks</button>
+          </div>
+        </div>
+        <div class="hint-danger" data-i18n="hintBankEditorOverwrite">"Overwrite Bank" uses the bank number entered above and pushes every registered row currently shown for it back to the receiver, whether you edited it or not. "Overwrite All Loaded Banks" does the same for every bank currently in the table. Write-protected rows are skipped unless the checkbox above is on. Click once to arm, again within 3 seconds to actually send.</div>
+        <pre class="mini-out" id="bankEditorOut"></pre>
+      </div>
         </div><!-- /.memory-acc-body -->
       </details>
 
@@ -2804,6 +2892,50 @@ const I18N = {
     hintSerialSn: "SN is a separate command from RN above - not a duplicate. Unlike RN, SN has no dedicated spec section in any reference document available to this project; it may be an orphaned placeholder in the command summary table with nothing confirmed behind it.",
     lblSp: "Sleep timer (SP)",
     hintSp: "Marked \"No function\" for the DV10 in the official command summary table - kept for completeness, since the operating manual doesn't likewise disclaim a sleep feature. Likely a no-op on this receiver.",
+    // Memory Bank Editor (live MA/MX/MQ table editor)
+    hBankEditor: "Memory Bank Editor",
+    hintBankEditor: "Loads live memory bank(s) from the receiver (MA) into the editable table below. Edit any field, then save just that row, or push a whole loaded bank's rows back (MX) in one go with \"Overwrite Bank\" / \"Overwrite All Loaded Banks\" - either overwrite action is DESTRUCTIVE in the same sense any MX write is: it replaces whatever was in that slot, edited or not.",
+    lblBankEditorLoad: "Load bank(s) from receiver",
+    btnBankEditorLoad: "Load Bank",
+    btnBankEditorLoadAll: "Load All Banks (00-39)",
+    btnBankEditorStop: "Stop Loading",
+    btnBankEditorClear: "Clear Table",
+    lblBankEditorHideEmpty: "Hide unregistered/empty channels",
+    lblBankEditorIncludeProtected: "Include write-protected rows in Overwrite actions",
+    beColBankCh: "Bank-Ch",
+    beColFreq: "Freq (MHz)",
+    beColMode: "Mode",
+    beColStep: "Step (kHz)",
+    beColStepAdj: "Step-adj (kHz)",
+    beColTag: "Tag",
+    beColPass: "Pass",
+    beColProtect: "Protect",
+    beColStatus: "Status",
+    btnBankEditorSaveRow: "Save",
+    btnBankEditorDeleteRow: "Delete",
+    btnBankEditorSaveDirty: "Save Changed Rows",
+    btnBankEditorOverwriteBank: "Overwrite Bank",
+    btnBankEditorOverwriteAll: "Overwrite All Loaded Banks",
+    hintBankEditorOverwrite: "\"Overwrite Bank\" uses the bank number entered above and pushes every registered row currently shown for it back to the receiver, whether you edited it or not. \"Overwrite All Loaded Banks\" does the same for every bank currently in the table. Write-protected rows are skipped unless the checkbox above is on. Click once to arm, again within 3 seconds to actually send.",
+    lblBankEditorRowCount: "{shown} shown / {total} loaded",
+    beStatusDirty: "edited",
+    beStatusSaving: "saving...",
+    beStatusSaved: "saved",
+    beStatusProtected: "protected - click again to override",
+    beStatusError: "error",
+    toastBankEditorLoading: "Loading bank",
+    toastBankEditorLoadedBank: "Bank {n}: {c} registered channels loaded",
+    toastBankEditorLoadFailed: "Load failed: ",
+    toastBankEditorLoadingAll: "Loading bank",
+    toastBankEditorLoadedAll: "All banks loaded - {n} channel rows in table",
+    toastBankEditorLoadStopped: "Loading stopped",
+    toastBankEditorDeleted: "Channel deleted",
+    toastBankEditorNoDirty: "No edited rows to save",
+    toastBankEditorNothingToOverwrite: "No registered rows loaded for this bank",
+    toastBankEditorOverwritingProgress: "Overwriting bank {bank}...",
+    beSaveSummary: "Saved: {ok} ok, {skipped} skipped (protected), {failed} failed",
+    beOverwriteSummary: "Bank {bank}: {ok} ok, {skipped} skipped (protected), {failed} failed",
+    beOverwriteAllSummary: "{banks} bank(s): {ok} ok, {skipped} skipped (protected), {failed} failed",
   },
   pl: {
     pageTitle: "AOR AR-DV10 – Panel sterowania",
@@ -3188,6 +3320,50 @@ const I18N = {
     hintSerialSn: "SN to inna komenda niż RN powyżej - nie duplikat. W przeciwieństwie do RN, SN nie ma własnej sekcji w żadnym dostępnym dla tego projektu dokumencie źródłowym; może być osieroconym wpisem w tabeli podsumowującej bez niczego potwierdzonego za nim.",
     lblSp: "Timer uśpienia (SP)",
     hintSp: "Oznaczone jako \"brak funkcji\" dla DV10 w oficjalnym podsumowaniu komend - zachowane dla kompletności, bo instrukcja obsługi nie zastrzega podobnie braku funkcji uśpienia. Prawdopodobnie no-op na tym odbiorniku.",
+    // Edytor banków pamięci (tabela edycyjna live MA/MX/MQ)
+    hBankEditor: "Edytor banków pamięci",
+    hintBankEditor: "Wczytuje bank(i) pamięci na żywo z odbiornika (MA) do edytowalnej tabeli poniżej. Edytuj dowolne pole, a potem zapisz tylko ten wiersz, albo wypchnij wszystkie wiersze wczytanego banku z powrotem (MX) jednym kliknięciem przyciskiem \"Nadpisz bank\" / \"Nadpisz wszystkie wczytane banki\" - obie akcje nadpisania są DESTRUKCYJNE w tym samym sensie co każdy zapis MX: zastępują to, co było w danym slocie, niezależnie od tego czy było edytowane.",
+    lblBankEditorLoad: "Wczytaj bank(i) z odbiornika",
+    btnBankEditorLoad: "Wczytaj bank",
+    btnBankEditorLoadAll: "Wczytaj wszystkie banki (00-39)",
+    btnBankEditorStop: "Zatrzymaj wczytywanie",
+    btnBankEditorClear: "Wyczyść tabelę",
+    lblBankEditorHideEmpty: "Ukryj niezarejestrowane/puste kanały",
+    lblBankEditorIncludeProtected: "Uwzględnij wiersze chronione przed zapisem w akcjach nadpisania",
+    beColBankCh: "Bank-Kan",
+    beColFreq: "Częst. (MHz)",
+    beColMode: "Tryb",
+    beColStep: "Krok (kHz)",
+    beColStepAdj: "Koryg. kroku (kHz)",
+    beColTag: "Etykieta",
+    beColPass: "Pomiń",
+    beColProtect: "Ochrona",
+    beColStatus: "Status",
+    btnBankEditorSaveRow: "Zapisz",
+    btnBankEditorDeleteRow: "Usuń",
+    btnBankEditorSaveDirty: "Zapisz zmienione wiersze",
+    btnBankEditorOverwriteBank: "Nadpisz bank",
+    btnBankEditorOverwriteAll: "Nadpisz wszystkie wczytane banki",
+    hintBankEditorOverwrite: "\"Nadpisz bank\" używa numeru banku wpisanego powyżej i wypycha do odbiornika każdy zarejestrowany wiersz aktualnie pokazany dla tego banku, niezależnie od tego, czy był edytowany. \"Nadpisz wszystkie wczytane banki\" robi to samo dla każdego banku aktualnie w tabeli. Wiersze chronione przed zapisem są pomijane, chyba że powyższe pole jest zaznaczone. Kliknij raz, aby uzbroić, ponownie w ciągu 3 sekund, aby faktycznie wysłać.",
+    lblBankEditorRowCount: "pokazano {shown} / wczytano {total}",
+    beStatusDirty: "edytowano",
+    beStatusSaving: "zapisywanie...",
+    beStatusSaved: "zapisano",
+    beStatusProtected: "chronione - kliknij ponownie, aby nadpisać",
+    beStatusError: "błąd",
+    toastBankEditorLoading: "Wczytywanie banku",
+    toastBankEditorLoadedBank: "Bank {n}: wczytano {c} zarejestrowanych kanałów",
+    toastBankEditorLoadFailed: "Wczytywanie nieudane: ",
+    toastBankEditorLoadingAll: "Wczytywanie banku",
+    toastBankEditorLoadedAll: "Wczytano wszystkie banki - {n} wierszy kanałów w tabeli",
+    toastBankEditorLoadStopped: "Wczytywanie zatrzymane",
+    toastBankEditorDeleted: "Kanał usunięty",
+    toastBankEditorNoDirty: "Brak edytowanych wierszy do zapisania",
+    toastBankEditorNothingToOverwrite: "Brak zarejestrowanych wierszy wczytanych dla tego banku",
+    toastBankEditorOverwritingProgress: "Nadpisywanie banku {bank}...",
+    beSaveSummary: "Zapisano: {ok} ok, {skipped} pominięto (chronione), {failed} nieudanych",
+    beOverwriteSummary: "Bank {bank}: {ok} ok, {skipped} pominięto (chronione), {failed} nieudanych",
+    beOverwriteAllSummary: "{banks} bank(ów): {ok} ok, {skipped} pominięto (chronione), {failed} nieudanych",
   },
 };
 
@@ -4686,6 +4862,378 @@ function rmemBankSet() {
   sendOut(cmd, 'rmemOut');
 }
 function rmemBankDelete() { sendOut('rmem bankdel ' + outVal('rmemBankInput', '0'), 'rmemOut'); }
+
+// -- Memory Bank Editor -----------------------------------------------------
+// Table-based live-memory editor built on /api/memory/live_bank/* (REST,
+// not the WS "rmem" text verb above - structured JSON is a much better
+// fit for a form with several optional fields per row than a positional
+// text command would be). Its own in-memory model (bankEditorRows) is
+// completely separate from the CSV-backup browser's memHasDb/
+// _memory_channels state to its left: this one is always a live read of
+// the RECEIVER (MA), never an imported file.
+let bankEditorRows = new Map(); // "bank-channel" -> row state object
+let bankEditorLoadAllAbort = false;
+
+function _beKey(bank, channel) { return bank + '-' + channel; }
+function _beFmtFreq(mhz) { return (mhz === null || mhz === undefined) ? '' : mhz.toFixed(6); }
+function _beFmtKhz(hz) { return (hz === null || hz === undefined) ? '' : (hz / 1000).toFixed(2); }
+
+function _beUpsertBank(bank, json) {
+  json.channels.forEach((c) => {
+    bankEditorRows.set(_beKey(bank, c.channel), {
+      bank: c.bank,
+      channel: c.channel,
+      registered: c.registered,
+      dirty: false,
+      freq: _beFmtFreq(c.frequency_mhz),
+      mode: c.mode || '',
+      step: _beFmtKhz(c.step_hz),
+      stepAdj: _beFmtKhz(c.step_adjust_hz),
+      tag: c.tag || '',
+      pass: !!c.pass_channel,
+      protect: !!c.write_protect,
+    });
+  });
+}
+
+// Turns one row's current (possibly-edited) field values into the JSON
+// body write_memory_channel() wants - see _parse_live_channel_write_body()
+// in web/server.py for the matching server-side half. Booleans are always
+// sent explicitly (a checkbox has no "omitted" state the way a blank text
+// field does); freq/mode/step/tag are only sent when non-blank, same
+// "omitted = leave unchanged" semantics as the underlying device.py call.
+function _beComputeBody(row) {
+  const body = {};
+  if (row.freq !== '') body.frequency_mhz = parseFloat(row.freq);
+  if (row.mode !== '') body.mode = row.mode;
+  if (row.step !== '') body.step_hz = Math.round(parseFloat(row.step) * 1000);
+  if (row.stepAdj !== '') body.step_adjust_hz = Math.round(parseFloat(row.stepAdj) * 1000);
+  if (row.tag !== '') body.tag = row.tag;
+  body.pass_channel = !!row.pass;
+  body.write_protect = !!row.protect;
+  return body;
+}
+
+function bankEditorClear() {
+  bankEditorRows = new Map();
+  bankEditorRenderTable();
+  document.getElementById('bankEditorLoadStatus').textContent = '';
+  document.getElementById('bankEditorOut').textContent = '';
+}
+
+function bankEditorStopLoading() { bankEditorLoadAllAbort = true; }
+
+async function bankEditorLoadOne() {
+  const bank = parseInt(outVal('bankEditorBankInput', '0'), 10) || 0;
+  const statusEl = document.getElementById('bankEditorLoadStatus');
+  statusEl.textContent = t('toastBankEditorLoading') + ' ' + String(bank).padStart(2, '0') + '...';
+  try {
+    const res = await fetch('/api/memory/live_bank/' + bank);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    _beUpsertBank(bank, body);
+    bankEditorRenderTable();
+    const registered = body.channels.filter((c) => c.registered).length;
+    statusEl.textContent = t('toastBankEditorLoadedBank')
+      .replace('{n}', String(bank).padStart(2, '0')).replace('{c}', registered);
+  } catch (e) {
+    statusEl.textContent = t('toastBankEditorLoadFailed') + e.message;
+    toast(t('toastBankEditorLoadFailed') + e.message, true);
+  }
+}
+
+async function bankEditorLoadAll() {
+  const statusEl = document.getElementById('bankEditorLoadStatus');
+  bankEditorLoadAllAbort = false;
+  for (let bank = 0; bank <= 39; bank++) {
+    if (bankEditorLoadAllAbort) { statusEl.textContent = t('toastBankEditorLoadStopped'); return; }
+    statusEl.textContent = t('toastBankEditorLoadingAll') + ' ' + (bank + 1) + '/40...';
+    try {
+      const res = await fetch('/api/memory/live_bank/' + bank);
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || res.statusText);
+      _beUpsertBank(bank, body);
+      bankEditorRenderTable();
+    } catch (e) {
+      statusEl.textContent = t('toastBankEditorLoadFailed') + e.message;
+      toast(t('toastBankEditorLoadFailed') + e.message, true);
+      return;
+    }
+  }
+  statusEl.textContent = t('toastBankEditorLoadedAll').replace('{n}', String(bankEditorRows.size));
+}
+
+function bankEditorRenderTable() {
+  const tbody = document.getElementById('bankEditorTableBody');
+  tbody.innerHTML = '';
+  const hideEmpty = document.getElementById('bankEditorHideEmpty').checked;
+  const keys = Array.from(bankEditorRows.keys()).sort((a, b) => {
+    const [ba, ca] = a.split('-').map(Number);
+    const [bb, cb] = b.split('-').map(Number);
+    return ba - bb || ca - cb;
+  });
+  let shown = 0;
+  keys.forEach((key) => {
+    const row = bankEditorRows.get(key);
+    if (hideEmpty && !row.registered && !row.dirty) return;
+    tbody.appendChild(bankEditorBuildRow(key, row));
+    shown++;
+  });
+  document.getElementById('bankEditorRowCount').textContent = bankEditorRows.size
+    ? t('lblBankEditorRowCount').replace('{shown}', shown).replace('{total}', bankEditorRows.size)
+    : '';
+}
+
+// Built with document.createElement()/property assignment rather than
+// innerHTML template strings (unlike memRenderResults() above) - this
+// table's cells are live <input>/<checkbox> elements with per-row closures
+// (Save/Delete need to know which bank/channel they belong to, and a tag
+// containing a stray quote must never be able to break the markup the way
+// it could via an innerHTML-built value="..." attribute).
+function bankEditorBuildRow(key, row) {
+  const tr = document.createElement('tr');
+  tr.dataset.key = key;
+  if (!row.registered) tr.classList.add('be-unregistered');
+  if (row.dirty) tr.classList.add('be-dirty');
+
+  const tdBankCh = document.createElement('td');
+  tdBankCh.textContent = String(row.bank).padStart(2, '0') + '-' + String(row.channel).padStart(2, '0');
+  tr.appendChild(tdBankCh);
+
+  const statusCell = document.createElement('td');
+
+  function markDirty() {
+    row.dirty = true;
+    tr.classList.add('be-dirty');
+    statusCell.textContent = t('beStatusDirty');
+    statusCell.className = 'be-status-dirty';
+  }
+
+  function makeTextCell(field, value, cellClass) {
+    const td = document.createElement('td');
+    if (cellClass) td.className = cellClass;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value;
+    input.addEventListener('input', () => { row[field] = input.value; markDirty(); });
+    td.appendChild(input);
+    tr.appendChild(td);
+  }
+  makeTextCell('freq', row.freq, 'be-freq-cell');
+  makeTextCell('mode', row.mode, 'be-mode-cell');
+  makeTextCell('step', row.step, 'be-step-cell');
+  makeTextCell('stepAdj', row.stepAdj, 'be-step-cell');
+  makeTextCell('tag', row.tag, 'be-tag-cell');
+
+  function makeCheckCell(field, checked) {
+    const td = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = checked;
+    input.addEventListener('change', () => { row[field] = input.checked; markDirty(); });
+    td.appendChild(input);
+    tr.appendChild(td);
+  }
+  makeCheckCell('pass', row.pass);
+  makeCheckCell('protect', row.protect);
+
+  statusCell.textContent = row.dirty ? t('beStatusDirty') : '';
+  statusCell.className = row.dirty ? 'be-status-dirty' : '';
+  tr.appendChild(statusCell);
+
+  const tdActions = document.createElement('td');
+  tdActions.className = 'be-row-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'panel-btn small';
+  saveBtn.textContent = t('btnBankEditorSaveRow');
+  saveBtn.onclick = () => bankEditorSaveRow(key, saveBtn, statusCell, tr);
+  tdActions.appendChild(saveBtn);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'panel-btn small';
+  delBtn.textContent = t('btnBankEditorDeleteRow');
+  delBtn.onclick = () => confirmDestructive(delBtn, () => bankEditorDeleteRow(key, statusCell, tr));
+  tdActions.appendChild(delBtn);
+  tr.appendChild(tdActions);
+
+  return tr;
+}
+
+// Per-row Save (proposal: "save each line individually"). Mirrors
+// rmemWrite()'s write-protect confirm-arm pattern (item 15): a 409 from
+// the server arms this same button via confirmDestructive() instead of
+// writing immediately, so a second click on THIS row retries with force.
+async function bankEditorSaveRow(key, btn, statusCell, tr) {
+  const row = bankEditorRows.get(key);
+  if (!row) return;
+
+  async function doSave(force) {
+    const body = _beComputeBody(row);
+    if (force) body.force = true;
+    statusCell.textContent = t('beStatusSaving');
+    statusCell.className = '';
+    try {
+      const res = await fetch(`/api/memory/live_bank/${row.bank}/${row.channel}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const resBody = await res.json();
+      if (res.status === 409) {
+        toast(t('toastChannelProtected'), true);
+        statusCell.textContent = t('beStatusProtected');
+        statusCell.className = 'be-status-error';
+        confirmDestructive(btn, () => doSave(true));
+        return;
+      }
+      if (!res.ok) throw new Error(resBody.detail || res.statusText);
+      row.registered = resBody.registered;
+      row.freq = _beFmtFreq(resBody.frequency_mhz);
+      row.mode = resBody.mode || '';
+      row.step = _beFmtKhz(resBody.step_hz);
+      row.stepAdj = _beFmtKhz(resBody.step_adjust_hz);
+      row.tag = resBody.tag || '';
+      row.pass = !!resBody.pass_channel;
+      row.protect = !!resBody.write_protect;
+      row.dirty = false;
+      tr.classList.remove('be-dirty');
+      statusCell.textContent = t('beStatusSaved');
+      statusCell.className = 'be-status-ok';
+    } catch (e) {
+      statusCell.textContent = t('beStatusError') + ': ' + e.message;
+      statusCell.className = 'be-status-error';
+    }
+  }
+
+  if (btn.classList.contains('confirm-armed')) {
+    confirmDestructive(btn, () => doSave(true));
+    return;
+  }
+  doSave(false);
+}
+
+async function bankEditorDeleteRow(key, statusCell, tr) {
+  const row = bankEditorRows.get(key);
+  if (!row) return;
+  try {
+    const res = await fetch(`/api/memory/live_bank/${row.bank}/${row.channel}`, { method: 'DELETE' });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    bankEditorRows.delete(key);
+    bankEditorRenderTable();
+    toast(t('toastBankEditorDeleted'));
+  } catch (e) {
+    statusCell.textContent = t('beStatusError') + ': ' + e.message;
+    statusCell.className = 'be-status-error';
+  }
+}
+
+// "Save Changed Rows" - every dirty row, whatever bank it's in, saved
+// individually (not the batch endpoint below, which is per-bank and dirty
+// rows here may span several banks at once).
+async function bankEditorSaveAllDirty() {
+  const includeProtected = document.getElementById('bankEditorIncludeProtected').checked;
+  const dirtyKeys = Array.from(bankEditorRows.entries()).filter(([, r]) => r.dirty).map(([k]) => k);
+  const out = document.getElementById('bankEditorOut');
+  if (!dirtyKeys.length) { out.textContent = t('toastBankEditorNoDirty'); return; }
+  let ok = 0, skipped = 0, failed = 0;
+  for (const key of dirtyKeys) {
+    const row = bankEditorRows.get(key);
+    const body = _beComputeBody(row);
+    if (includeProtected) body.force = true;
+    try {
+      const res = await fetch(`/api/memory/live_bank/${row.bank}/${row.channel}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const resBody = await res.json();
+      if (res.status === 409) { skipped++; continue; }
+      if (!res.ok) { failed++; continue; }
+      row.dirty = false;
+      row.registered = resBody.registered;
+      row.freq = _beFmtFreq(resBody.frequency_mhz);
+      row.mode = resBody.mode || '';
+      row.step = _beFmtKhz(resBody.step_hz);
+      row.stepAdj = _beFmtKhz(resBody.step_adjust_hz);
+      row.tag = resBody.tag || '';
+      row.pass = !!resBody.pass_channel;
+      row.protect = !!resBody.write_protect;
+      ok++;
+    } catch (e) {
+      failed++;
+    }
+  }
+  bankEditorRenderTable();
+  out.textContent = t('beSaveSummary').replace('{ok}', ok).replace('{skipped}', skipped).replace('{failed}', failed);
+}
+
+// "Overwrite Bank" / "Overwrite All Loaded Banks" (proposal: "overwrite
+// the whole memory bank or several") - pushes every REGISTERED row
+// currently shown for a bank back to the receiver via the batch endpoint,
+// whether that row was actually edited or not (an unregistered slot has
+// nothing meaningful to push - use per-row Save to program one from
+// scratch instead).
+async function _beOverwriteBank(bank) {
+  const includeProtected = document.getElementById('bankEditorIncludeProtected').checked;
+  const rowsForBank = Array.from(bankEditorRows.values()).filter((r) => r.bank === bank && r.registered);
+  if (!rowsForBank.length) return { bank, ok: 0, skipped: 0, failed: 0, empty: true };
+  const channels = rowsForBank.map((r) => {
+    const body = _beComputeBody(r);
+    body.channel = r.channel;
+    if (includeProtected) body.force = true;
+    return body;
+  });
+  const res = await fetch(`/api/memory/live_bank/${bank}/batch`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channels }),
+  });
+  const resBody = await res.json();
+  if (!res.ok) throw new Error(resBody.detail || res.statusText);
+  let ok = 0, skipped = 0, failed = 0;
+  resBody.results.forEach((r) => {
+    if (r.ok) {
+      ok++;
+      const row = bankEditorRows.get(_beKey(bank, r.channel));
+      if (row) row.dirty = false;
+    } else if (r.error && r.error.indexOf('protect') !== -1) {
+      skipped++;
+    } else {
+      failed++;
+    }
+  });
+  return { bank, ok, skipped, failed };
+}
+
+async function bankEditorOverwriteCurrentBank() {
+  const bank = parseInt(outVal('bankEditorBankInput', '0'), 10) || 0;
+  const out = document.getElementById('bankEditorOut');
+  try {
+    const result = await _beOverwriteBank(bank);
+    bankEditorRenderTable();
+    if (result.empty) { out.textContent = t('toastBankEditorNothingToOverwrite'); return; }
+    out.textContent = t('beOverwriteSummary')
+      .replace('{bank}', String(bank).padStart(2, '0'))
+      .replace('{ok}', result.ok).replace('{skipped}', result.skipped).replace('{failed}', result.failed);
+  } catch (e) {
+    out.textContent = t('beStatusError') + ': ' + e.message;
+    toast(e.message, true);
+  }
+}
+
+async function bankEditorOverwriteAllLoaded() {
+  const banks = Array.from(new Set(Array.from(bankEditorRows.values()).map((r) => r.bank))).sort((a, b) => a - b);
+  const out = document.getElementById('bankEditorOut');
+  if (!banks.length) { out.textContent = t('toastBankEditorNothingToOverwrite'); return; }
+  let totalOk = 0, totalSkipped = 0, totalFailed = 0;
+  for (const bank of banks) {
+    out.textContent = t('toastBankEditorOverwritingProgress').replace('{bank}', String(bank).padStart(2, '0'));
+    try {
+      const result = await _beOverwriteBank(bank);
+      totalOk += result.ok; totalSkipped += result.skipped; totalFailed += result.failed;
+    } catch (e) {
+      totalFailed++;
+    }
+  }
+  bankEditorRenderTable();
+  out.textContent = t('beOverwriteAllSummary')
+    .replace('{banks}', banks.length)
+    .replace('{ok}', totalOk).replace('{skipped}', totalSkipped).replace('{failed}', totalFailed);
+}
 
 // -- search banks / scan groups / pass frequencies -------------------------
 // SE/SR/SS/SX/SL/SU, SG/MG/AS/BK, PW/PR/PD - the server's
