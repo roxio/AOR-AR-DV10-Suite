@@ -151,3 +151,82 @@ def test_memory_export_roundtrips(panel):
     assert len(banks) == 40
     assert len(channels) == 2000
     assert sum(1 for c in channels if not c.is_empty) == 469
+
+
+def test_memory_live_export_rejects_bad_bank(panel):
+    p, _dev = panel
+    status, _ = _get(f"{p.url}api/memory/live_export/40")
+    assert status == 400
+    status, _ = _get(f"{p.url}api/memory/live_export/-1")
+    assert status == 400
+
+
+def test_memory_live_export_reads_the_live_device(panel):
+    """Proposal item 17: /api/memory/live_export/<bank> reads the LIVE
+    receiver (MA), not the imported CSV state - no import needed at all
+    for this endpoint to work."""
+    p, dev = panel
+    dev.write_memory_channel(
+        3, 5, frequency_hz=146_520_000, mode="F0", tag="LIVE CH", write_protect=True
+    )
+
+    status, body = _get(f"{p.url}api/memory/live_export/3")
+    assert status == 200
+
+    from aor_dv10.memory import parse_backup_csv
+    banks, channels = parse_backup_csv(body.decode("utf-8"))
+    assert len(banks) == 1
+    assert banks[0].index == 3
+    assert len(channels) == 50  # one bank's worth, not the full 2000
+
+    ch5 = next(c for c in channels if c.channel == 5)
+    assert ch5.frequency_mhz == 146.52
+    assert ch5.name == "LIVE CH"
+    assert ch5.protect is True
+    # every other slot in the bank is still empty
+    assert sum(1 for c in channels if not c.is_empty) == 1
+
+
+def test_memory_diff_requires_import_first(panel):
+    p, _dev = panel
+    status, body = _get(f"{p.url}api/memory/diff/3")
+    assert status == 404
+    assert "import" in json.loads(body)["detail"]
+
+
+def test_memory_diff_rejects_bad_bank(panel):
+    p, _dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+    status, _ = _get(f"{p.url}api/memory/diff/40")
+    assert status == 400
+
+
+def test_memory_diff_reports_only_changed_channels(panel):
+    """Proposal item 18: diff shows what changed on the receiver since
+    the CSV backup - importing the real fixture, then writing ONE live
+    channel in that same bank to a different frequency/name, should
+    surface exactly that one channel as a difference."""
+    p, dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+
+    # bank 00 channel 00 is a known-programmed slot in the fixture
+    # (145.5 MHz, "CH-001" per test_memory_import_and_search_real_export).
+    # Diff should be empty before anything live has been touched, since
+    # the simulator starts with no live memory programmed and the fixture
+    # import doesn't write the device - so bank 00's live side is all
+    # empty and should differ from the fixture's programmed channels.
+    status, body = _get(f"{p.url}api/memory/diff/0")
+    assert status == 200
+    result = json.loads(body)
+    assert result["bank"] == 0
+    assert result["compared"] == 50
+    assert result["differences"] > 0
+    assert any(d["bank_channel"] == "00-00" for d in result["channels"])
+
+    # Now write the live device to MATCH the fixture's ch 00-00 exactly
+    # (145.5 MHz, mode "000", name "CH-001", per the fixture) and confirm
+    # that one channel drops out of the diff.
+    dev.write_memory_channel(0, 0, frequency_hz=145_500_000, mode="000", tag="CH-001")
+    status, body = _get(f"{p.url}api/memory/diff/0")
+    result = json.loads(body)
+    assert not any(d["bank_channel"] == "00-00" for d in result["channels"])

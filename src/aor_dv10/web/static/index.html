@@ -1446,7 +1446,7 @@
       <!-- MEMORY CHANNELS -->
       <div class="panel-section" id="memoryPanel">
         <div class="section-label" data-i18n="hMemory">Memory Channels</div>
-        <div class="hint" data-i18n="hintMemory">Imports an "AR-DV10 Connect" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).</div>
+        <div class="hint" data-i18n="hintMemory">Imports an "AR-DV10 Connect" backup CSV export (companion PC app) and lets you browse/search/tune from it. "Export Live Bank" and "Compare vs Live" below bridge to the receiver's live MA read for one bank at a time - see their own hint for the field caveats that bridge can't fully paper over (mode format, no offset/step-adjust on the live side).</div>
 
         <div class="field-row">
           <label data-i18n="lblMemFile">Backup CSV file</label>
@@ -1485,12 +1485,22 @@
         <div class="field-row">
           <button class="panel-btn small" onclick="memExport()" data-i18n="btnMemExport">Export current database (.csv)</button>
         </div>
+
+        <div class="field-row">
+          <label data-i18n="lblMemLiveBridge">Live bank bridge (MA) - uses the bank number in Search above</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="memExportLive()" data-i18n="btnMemExportLive">Export Live Bank (.csv)</button>
+            <button class="panel-btn small" onclick="memDiffLive()" data-i18n="btnMemDiffLive">Compare vs Live</button>
+          </div>
+        </div>
+        <div class="hint" data-i18n="hintMemLiveBridge">Live reads have a different confirmed field set than this CSV format (device.py's MemoryChannelInfo docstring): no offset or step-adjust on the live side, and the mode code's exact shape isn't confirmed to match - treat a reported mode difference with that in mind. Frequency/protect/name/pass-flag differences are solid.</div>
+        <pre class="mini-out" id="memDiffOut"></pre>
       </div>
 
       <!-- LIVE MEMORY (receiver's own MA/MX/MR/MW/MB/MQ) -->
       <div class="panel-section">
         <div class="section-label" data-i18n="hRmem">Live Memory (Receiver)</div>
-        <div class="hint" data-i18n="hintRmem">Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - unlike the CSV-import browser above, which only ever works on an offline backup file.</div>
+        <div class="hint" data-i18n="hintRmem">Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - the CSV browser to the left works from an offline backup file by default, though its own Export Live Bank / Compare vs Live buttons also reach into live MA reads.</div>
         <div class="field-row">
           <div class="field-row-pair">
             <input type="text" id="rmemBankInput" inputmode="numeric" value="0" data-i18n-ph="rmemBankPlaceholder" placeholder="bank" />
@@ -2265,7 +2275,11 @@ const I18N = {
     hMemory: "Memory Channels",
     hMemoryPair: "Memory Channels &amp; Live Memory (Receiver)",
     hRecSd: "VFO · VFO Search · Scheduled Recording · SD Card",
-    hintMemory: "Imports an \"AR-DV10 Connect\" backup CSV export (companion PC app) and lets you browse/search/tune from it - file-format only, this never reads or writes the receiver's live memory banks (MX/MA).",
+    hintMemory: "Imports an \"AR-DV10 Connect\" backup CSV export (companion PC app) and lets you browse/search/tune from it. \"Export Live Bank\" and \"Compare vs Live\" below bridge to the receiver's live MA read for one bank at a time - see their own hint for the field caveats that bridge can't fully paper over (mode format, no offset/step-adjust on the live side).",
+    lblMemLiveBridge: "Live bank bridge (MA) - uses the bank number in Search above",
+    btnMemExportLive: "Export Live Bank (.csv)",
+    btnMemDiffLive: "Compare vs Live",
+    hintMemLiveBridge: "Live reads have a different confirmed field set than this CSV format (device.py's MemoryChannelInfo docstring): no offset or step-adjust on the live side, and the mode code's exact shape isn't confirmed to match - treat a reported mode difference with that in mind. Frequency/protect/name/pass-flag differences are solid.",
     lblMemFile: "Backup CSV file",
     btnMemImport: "Import",
     memNoDb: "No memory database imported yet.",
@@ -2285,8 +2299,10 @@ const I18N = {
     toastMemImportFailed: "import failed: ",
     toastMemTuneFailed: "tune failed: ",
     toastMemExportFailed: "export failed: ",
+    toastMemEnterBank: "enter a bank number (00-39) first",
+    toastMemDiffFailed: "compare failed: ",
     hRmem: "Live Memory (Receiver)",
-    hintRmem: "Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - unlike the CSV-import browser above, which only ever works on an offline backup file.",
+    hintRmem: "Reads/writes the receiver's own memory banks directly (MA/MX/MR/MW) - the CSV browser to the left works from an offline backup file by default, though its own Export Live Bank / Compare vs Live buttons also reach into live MA reads.",
     rmemBankPlaceholder: "bank",
     rmemChPlaceholder: "channel",
     btnRmemRead: "Read",
@@ -2557,7 +2573,11 @@ const I18N = {
     hMemory: "Kanały pamięci",
     hMemoryPair: "Kanały pamięci i pamięć na żywo (odbiornik)",
     hRecSd: "VFO · Wyszukiwanie VFO · Zaplanowane nagrywanie · Karta SD",
-    hintMemory: "Importuje eksport kopii zapasowej \"AR-DV10 Connect\" (aplikacja PC) i pozwala przeglądać/wyszukiwać/przestrajać na jej podstawie - działa wyłącznie na pliku, nigdy nie czyta ani nie zapisuje pamięci odbiornika na żywo (MX/MA).",
+    hintMemory: "Importuje eksport kopii zapasowej \"AR-DV10 Connect\" (aplikacja PC) i pozwala przeglądać/wyszukiwać/przestrajać na jej podstawie. \"Export Live Bank\" i \"Compare vs Live\" poniżej łączą to z żywym odczytem odbiornika (MA) dla jednego banku naraz - zobacz ich własną podpowiedź po zastrzeżenia, których ten most nie potrafi w pełni zatuszować (format pola mode, brak offsetu/step-adjust po stronie żywej).",
+    lblMemLiveBridge: "Most do banku na żywo (MA) - używa numeru banku z pola Szukaj powyżej",
+    btnMemExportLive: "Eksportuj bank na żywo (.csv)",
+    btnMemDiffLive: "Porównaj z żywym",
+    hintMemLiveBridge: "Odczyt na żywo ma inny potwierdzony zestaw pól niż ten format CSV (docstring MemoryChannelInfo w device.py): brak offsetu i step-adjust po stronie żywej, a dokładny kształt kodu mode nie jest potwierdzony jako zgodny - zgłoszoną różnicę w mode traktuj z tym zastrzeżeniem. Różnice w częstotliwości/ochronie/nazwie/fladze pass są wiarygodne.",
     lblMemFile: "Plik CSV kopii zapasowej",
     btnMemImport: "Importuj",
     memNoDb: "Nie zaimportowano jeszcze bazy pamięci.",
@@ -2577,8 +2597,10 @@ const I18N = {
     toastMemImportFailed: "import nieudany: ",
     toastMemTuneFailed: "przestrojenie nieudane: ",
     toastMemExportFailed: "eksport nieudany: ",
+    toastMemEnterBank: "najpierw podaj numer banku (00-39)",
+    toastMemDiffFailed: "porównanie nieudane: ",
     hRmem: "Pamięć na żywo (odbiornik)",
-    hintRmem: "Czyta/zapisuje bezpośrednio pamięć odbiornika (MA/MX/MR/MW) - w odróżnieniu od przeglądarki importu CSV powyżej, która działa wyłącznie na pliku kopii zapasowej.",
+    hintRmem: "Czyta/zapisuje bezpośrednio pamięć odbiornika (MA/MX/MR/MW) - przeglądarka CSV po lewej domyślnie działa na pliku kopii zapasowej, ale jej przyciski Export Live Bank / Compare vs Live też sięgają do żywego odczytu MA.",
     rmemBankPlaceholder: "bank",
     rmemChPlaceholder: "kanał",
     btnRmemRead: "Odczytaj",
@@ -3322,6 +3344,72 @@ async function memExport() {
     URL.revokeObjectURL(url);
   } catch (e) {
     toast(t('toastMemExportFailed') + e.message, true);
+  }
+}
+
+// -- live bank bridge (proposal items 17/18): the CSV-backup world above
+// and the live MA/MX world (rmem panel) have been two separate islands -
+// these two functions are the bridge, going device -> CSV shape only
+// (never the reverse - see aor_dv10.memory.from_live_channel()'s
+// docstring for the exact field caveats this can't paper over: no
+// offset/step-adjust on the live side, and the mode code's shape isn't
+// confirmed to match between the two worlds).
+function memBankInputValue() {
+  return (document.getElementById('memBankInput').value || '').trim();
+}
+
+async function memExportLive() {
+  const bank = memBankInputValue();
+  if (!bank) { toast(t('toastMemEnterBank'), true); return; }
+  const bankNum = parseInt(bank, 10);
+  try {
+    const res = await fetch(`/api/memory/live_export/${bankNum}`);
+    if (!res.ok) { const body = await res.json(); throw new Error(body.detail || res.statusText); }
+    const text = await res.text();
+    const blob = new Blob([text], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ardv10_bank${String(bankNum).padStart(2, '0')}_live_export.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast(t('toastMemExportFailed') + e.message, true);
+  }
+}
+
+// Plain-English technical report, not run through t() - same precedent
+// as memSetStatus()'s "X banks / Y slots (Z programmed)" status line.
+function memFmtChannelForDiff(c) {
+  if (c.is_empty) return '(empty)';
+  return `${c.frequency_mhz.toFixed(5)} MHz  mode=${c.mode || ''}  protect=${c.protect}  pass=${c.pass_flag}  ${JSON.stringify(c.name || '')}`;
+}
+
+async function memDiffLive() {
+  if (!memHasDb) { toast(t('toastMemChooseFile'), true); return; }
+  const bank = memBankInputValue();
+  if (!bank) { toast(t('toastMemEnterBank'), true); return; }
+  const out = document.getElementById('memDiffOut');
+  out.textContent = 'comparing...';
+  try {
+    const res = await fetch(`/api/memory/diff/${parseInt(bank, 10)}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || res.statusText);
+    if (!body.differences) {
+      out.textContent = `bank ${bank}: no differences (${body.compared} channels compared against the imported CSV)`;
+      return;
+    }
+    const lines = body.channels.map((d) =>
+      `${d.bank_channel}\n  backup: ${memFmtChannelForDiff(d.backup)}\n  live:   ${memFmtChannelForDiff(d.live)}`
+    );
+    out.textContent =
+      `bank ${bank}: ${body.differences} of ${body.compared} channels differ from the imported CSV\n\n` +
+      lines.join('\n');
+  } catch (e) {
+    out.textContent = '';
+    toast(t('toastMemDiffFailed') + e.message, true);
   }
 }
 

@@ -49,7 +49,13 @@ from fastapi.staticfiles import StaticFiles
 
 from ..cli.repl import _on_off, _parse_clock_digits
 from ..device import DV10Device, KEY_BACKLIGHT_COLORS, SD_CARD_STATUS, TONE_SQUELCH_TYPES
-from ..memory import MemoryBank, MemoryChannel, parse_backup_csv, write_backup_csv
+from ..memory import (
+    MemoryBank,
+    MemoryChannel,
+    from_live_channel,
+    parse_backup_csv,
+    write_backup_csv,
+)
 from ..protocol.codec import DV10Error
 from ..selectscan import SelectScanList, run_select_scan
 from ..timer import (
@@ -332,6 +338,91 @@ async def api_memory_export():
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="ardv10_memory_export.csv"'},
     )
+
+
+@app.get("/api/memory/live_export/{bank}")
+async def api_memory_live_export(bank: int):
+    """Export a bank's LIVE content (MA) into this same backup-CSV shape
+    (proposal item 17) - bridging the two separate worlds this project
+    has had until now: the CSV-backup browser above (aor_dv10.memory,
+    populated only by POST /api/memory/import) and the live-read/write
+    rmem WS verbs (MA/MX directly against the receiver). Always reads
+    fresh from the device - nothing cached here the way
+    /api/memory/import's server-side state is. See
+    aor_dv10.memory.from_live_channel()'s docstring for the field
+    caveats this bridge can't fully paper over (mode format, no
+    offset/step-adjust on the live side)."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    device = get_device()
+    async with _lock:
+        try:
+            live_channels = device.read_memory_bank(bank)
+            bank_info = device.get_memory_bank_info(bank)
+        except DV10Error as exc:
+            raise HTTPException(502, f"device error: {exc}")
+    csv_channels = [from_live_channel(c) for c in live_channels]
+    csv_bank = MemoryBank(index=bank, protect=bank_info.protect, title=bank_info.tag)
+    csv_text = write_backup_csv([csv_bank], csv_channels)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="ardv10_bank{bank:02d}_live_export.csv"'
+        },
+    )
+
+
+@app.get("/api/memory/diff/{bank}")
+async def api_memory_diff(bank: int):
+    """Compare a CSV-imported bank (see /api/memory/import) against a
+    fresh LIVE re-read (MA) of the same bank, to see what has changed on
+    the receiver since the last backup (proposal item 18). Returns only
+    the channels that actually differ - an empty list means this bank's
+    CSV backup still matches the live receiver (or both sides are fully
+    unprogrammed). See aor_dv10.memory.from_live_channel()'s docstring
+    for what this comparison can't reliably say: there is no live
+    counterpart for offset_khz/step_adjust_hz, and the mode field's
+    exact wire shape isn't confirmed to match between the two worlds, so
+    a reported mode difference is weaker evidence than a frequency/
+    protect/name/pass-flag one."""
+    if not (0 <= bank <= 39):
+        raise HTTPException(400, "bank must be 00-39")
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    backup_by_channel = {c.channel: c for c in _memory_channels if c.bank == bank}
+    device = get_device()
+    async with _lock:
+        try:
+            live_channels = device.read_memory_bank(bank)
+        except DV10Error as exc:
+            raise HTTPException(502, f"device error: {exc}")
+
+    diffs = []
+    for live in live_channels:
+        live_csv = from_live_channel(live)
+        backup = backup_by_channel.get(live.channel) or MemoryChannel(bank=bank, channel=live.channel)
+        backup_key = (
+            backup.is_empty, backup.frequency_hz, backup.mode,
+            backup.protect, backup.pass_flag, backup.name.strip(),
+        )
+        live_key = (
+            live_csv.is_empty, live_csv.frequency_hz, live_csv.mode,
+            live_csv.protect, live_csv.pass_flag, live_csv.name.strip(),
+        )
+        if backup_key == live_key:
+            continue
+        diffs.append({
+            "bank_channel": live_csv.bank_channel,
+            "backup": _channel_json(backup),
+            "live": _channel_json(live_csv),
+        })
+    return {
+        "bank": bank,
+        "compared": len(live_channels),
+        "differences": len(diffs),
+        "channels": diffs,
+    }
 
 
 def _dispatch_plain(device: DV10Device, line: str) -> object:

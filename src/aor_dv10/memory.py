@@ -45,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .device import ANALOG_MODES, DIGITAL_MODES
+from .device import ANALOG_MODES, DIGITAL_MODES, MemoryChannelInfo
 
 _HEADER_PREFIX = "DEPMICRO-BACKUP"
 _BANK_COUNT = 40
@@ -126,6 +126,47 @@ class MemoryChannel:
             f"{step_khz:06.2f},{offset:06.2f},{mode},"
             f"{1 if self.pass_flag else 0},{_pad_name(self.name)}"
         )
+
+
+
+def from_live_channel(info: MemoryChannelInfo) -> MemoryChannel:
+    """Best-effort bridge from a live MX/MA read (aor_dv10.device.
+    MemoryChannelInfo) into this module's own backup-CSV MemoryChannel
+    shape (proposal items 17/18: export a live bank / diff it against an
+    imported backup, in the same file format). Goes device -> CSV shape
+    ONLY - never feed the result into anything that writes back to the
+    device, and see MemoryChannelInfo's own docstring for the confirmed
+    field differences this has to paper over:
+
+    - mode: MemoryChannelInfo.mode is whatever raw string MD's sub-field
+      echoes on a read. write_memory_channel()'s docstring records a
+      real-hardware finding that a DV10 actually stores/echoes MD's
+      3-char "dan" shape (this format's own mode encoding), not the
+      2-char "<digital><analog>" form MemoryChannelInfo's class comment
+      was originally written assuming - but that finding came from a
+      WRITE round-trip, not a fresh read, so it is passed through
+      verbatim here rather than reinterpreted either way.
+      MemoryChannel.to_csv_row() already pads/truncates mode to 3 chars
+      defensively, so a value that turns out to be the shorter 2-char
+      form degrades to a wrong-but-well-formed CSV cell, not a crash.
+    - offset_khz: has no live counterpart at all - MX/MA carry no offset
+      sub-field - so this is always None here.
+    - step_adjust_hz: the reverse gap. MemoryChannelInfo has it (MX/MA's
+      SH sub-field), this CSV format doesn't, so it is silently dropped.
+    """
+    if not info.registered:
+        return MemoryChannel(bank=info.bank, channel=info.channel)
+    return MemoryChannel(
+        bank=info.bank,
+        channel=info.channel,
+        protect=info.write_protect,
+        frequency_hz=info.frequency_hz,
+        step_hz=info.step_hz,
+        offset_khz=None,
+        mode=info.mode,
+        pass_flag=info.pass_channel,
+        name=info.tag.strip(),
+    )
 
 
 def parse_backup_csv(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
