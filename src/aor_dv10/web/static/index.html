@@ -2239,6 +2239,35 @@
         </div>
       </div>
 
+      <!-- Proposal items 39/41/42: connection & device diagnostics,
+           consolidating what today is scattered across the console, the
+           topbar dot, and silent per-button .disabled flags into one
+           place. The device/gating half mirrors renderDV10Gating()/
+           renderScopeGating() exactly (same conditions, just also shown
+           instead of only silently applied); the counters/ping half is
+           new, purely client-side, observed by this browser session
+           only. -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hConnDiag">Connection & Device Status</div>
+        <div class="hint" data-i18n="hintConnDiag">Detected-device gating mirrors the same per-button conditions already applied elsewhere in this panel - just shown in one place instead of only as silent .disabled flags. The counters and ping below are this browser session's own observations (client-side, reset on reload) - not device telemetry.</div>
+        <div class="field-row">
+          <label data-i18n="lblDetectedFamily">Detected device</label>
+          <div class="hint" id="gatingFamilyLabel">--</div>
+          <pre class="mini-out" id="gatingList"></pre>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblConnStats">Connection stats (this browser session)</label>
+          <pre class="mini-out" id="connStatsOut"></pre>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblPingTest">Connectivity test (raw WI round trip)</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="connPing()" data-i18n="btnPing">Ping</button>
+          </div>
+          <pre class="mini-out" id="connPingOut"></pre>
+        </div>
+      </div>
+
       <!-- DV1/DV3-only extras (inside the Spectrum/Select/Additional accordion; gated to DV1/DV3, disabled on DV10). CLI/raw remain available for any model. -->
       <div class="panel-section gated-dv13">
         <div class="section-label" data-i18n="hDv13Extras">DV1/DV3-only extras</div>
@@ -2311,6 +2340,12 @@
       </div>
       <div class="hint" data-i18n="hintDebugLive">Polls /api/debug/trace about once a second and appends new lines - best-effort, a very fast burst between polls can still skip a line. Use "debug last N" in the console above for a guaranteed full read at that moment.</div>
       <pre class="mini-out" id="debugLiveOut"></pre>
+      <!-- Proposal item 40: the REST endpoint already exists (used by the
+           live-trace poll above and "debug save" in the CLI/console) -
+           this just adds a browser-side download button for it. -->
+      <div class="field-row-controls">
+        <button class="panel-btn small" onclick="exportTraceToFile()" data-i18n="btnExportTrace">Export trace to file</button>
+      </div>
     </details>
 
     <footer data-i18n="footerNote">Every control here sends the same short verbs as <code>dv10-cli</code>, over one shared WebSocket connection.</footer>
@@ -2689,6 +2724,29 @@ const I18N = {
     errCode51: "Value out of range (51, continued)",
     errCode60: "Command does not exist / not supported (60)",
     errCode61: "Command does not exist / not supported (61, continued)",
+    // proposal items 39-42: Connection & Device Status panel
+    hConnDiag: "Connection & Device Status",
+    hintConnDiag: "Detected-device gating mirrors the same per-button conditions already applied elsewhere in this panel - just shown in one place instead of only as silent .disabled flags. The counters and ping below are this browser session's own observations (client-side, reset on reload) - not device telemetry.",
+    lblDetectedFamily: "Detected device",
+    lblConnStats: "Connection stats (this browser session)",
+    lblPingTest: "Connectivity test (raw WI round trip)",
+    btnPing: "Ping",
+    lblErrorCount: "Errors seen this session",
+    lblLastResult: "Last result",
+    lblNone: "none",
+    lblNextPoll: "Next status poll in",
+    famDetectedPrefix: "Detected:",
+    famUnknown: "Detected: unknown (no status yet)",
+    gateVsVeTr: "VFO search and the recording timer - not supported by the AR-DV10 (AR-DV1/DV3 feature)",
+    gateDv13Extras: "AR-DV1/DV3-only extras (LD/LU/NR/LS) - not supported by the AR-DV10",
+    gateRecStop: "Remote stop of recording - not supported on the AR-DV10, use the front-panel ● (record) key",
+    gateSdBackup: "SD card backup/restore (SD MMW / SD MMR) - not supported on the AR-DV10",
+    gatePower: "Remote power ON/OFF - not supported on the AR-DV10 (a battery handheld)",
+    gateScope: "Spectrum scope (FD/GL) - only documented for AR-DV1/DV3, not available on the AR-DV10",
+    gateNoneDisabled: "No features currently disabled for this device.",
+    connPingFailed: "Ping failed",
+    btnExportTrace: "Export trace to file",
+    toastTraceExportFailed: "Trace export failed: ",
   },
   pl: {
     pageTitle: "AOR AR-DV10 – Panel sterowania",
@@ -3041,6 +3099,29 @@ const I18N = {
     errCode51: "Wartość poza zakresem (51, ciąg dalszy)",
     errCode60: "Komenda nie istnieje / nieobsługiwana (60)",
     errCode61: "Komenda nie istnieje / nieobsługiwana (61, ciąg dalszy)",
+    // proposal items 39-42: panel łączności i statusu urządzenia
+    hConnDiag: "Łączność i status urządzenia",
+    hintConnDiag: "Blokady zależne od wykrytego urządzenia odzwierciedlają te same warunki, które są już stosowane przy poszczególnych przyciskach w tym panelu - tutaj są po prostu pokazane w jednym miejscu zamiast tylko jako ciche flagi .disabled. Liczniki i ping poniżej to obserwacje własne tej sesji przeglądarki (po stronie klienta, kasowane po odświeżeniu) - nie telemetria urządzenia.",
+    lblDetectedFamily: "Wykryte urządzenie",
+    lblConnStats: "Statystyki połączenia (ta sesja przeglądarki)",
+    lblPingTest: "Test łączności (surowe zapytanie WI)",
+    btnPing: "Ping",
+    lblErrorCount: "Błędy w tej sesji",
+    lblLastResult: "Ostatni wynik",
+    lblNone: "brak",
+    lblNextPoll: "Kolejne odpytanie statusu za",
+    famDetectedPrefix: "Wykryto:",
+    famUnknown: "Wykryto: nieznane (brak jeszcze statusu)",
+    gateVsVeTr: "Wyszukiwanie VFO i timer nagrywania - nieobsługiwane przez AR-DV10 (funkcja AR-DV1/DV3)",
+    gateDv13Extras: "Dodatki tylko dla AR-DV1/DV3 (LD/LU/NR/LS) - nieobsługiwane przez AR-DV10",
+    gateRecStop: "Zdalne zatrzymanie nagrywania - nieobsługiwane na AR-DV10, użyj przycisku ● (nagrywanie) na panelu odbiornika",
+    gateSdBackup: "Kopia zapasowa/przywracanie karty SD (SD MMW / SD MMR) - nieobsługiwane na AR-DV10",
+    gatePower: "Zdalne włączanie/wyłączanie zasilania - nieobsługiwane na AR-DV10 (przenośne na baterię)",
+    gateScope: "Skop widma (FD/GL) - udokumentowany tylko dla AR-DV1/DV3, niedostępny na AR-DV10",
+    gateNoneDisabled: "Brak obecnie wyłączonych funkcji dla tego urządzenia.",
+    connPingFailed: "Ping nieudany",
+    btnExportTrace: "Eksportuj ślad do pliku",
+    toastTraceExportFailed: "Eksport śladu nieudany: ",
   },
 };
 
@@ -4250,6 +4331,7 @@ function renderStatus(s) {
   renderDV10Gating(s);
   renderScopeGating(s);
   renderModelGating(s);
+  renderGatingSummary(s);
   renderConsole(s);
 
   if (s.squelch !== null && s.squelch !== undefined) {
@@ -4358,12 +4440,15 @@ function renderStatus(s) {
 }
 
 async function pollStatus() {
+  lastPollAt = Date.now();
   let s;
   try {
     const res = await fetch('/api/status');
     s = await res.json();
   } catch (e) {
     setDot(false);
+    transportErrorCount++;
+    renderConnStats();
     return;
   }
   lastStatus = s;
@@ -5024,14 +5109,23 @@ function pushSquelchHistory(s) {
 // see Polish text leak into this one log.
 const ERROR_LOG_MAX = 20;
 function logErrorFromMessage(msg, cmd) {
-  const el = document.getElementById('errorLogList');
-  if (!el) return;
   const m = msg.match(/error code '([^']+)'/);
   const raw = m ? m[1] : null;
   const numeric = raw && /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
   const key = numeric !== null ? 'errCode' + numeric : null;
   const desc = (key && key in I18N.en) ? t(key) : t('errCodeUnknown');
   const time = new Date().toLocaleTimeString();
+
+  // Proposal item 39: this is also the one place every decoded rejection
+  // passes through, so it doubles as the source for "last result code"
+  // and the session's running problem counter (see the Connection &
+  // Device Status panel / renderConnStats() below).
+  transportErrorCount++;
+  lastResultDesc = { time, text: desc };
+  renderConnStats();
+
+  const el = document.getElementById('errorLogList');
+  if (!el) return;
   const cmdPart = cmd ? `${cmd}: ` : '';
   const lines = el.textContent ? el.textContent.split('\n') : [];
   lines.push(`${time}  ${cmdPart}${desc}`);
@@ -5041,6 +5135,96 @@ function logErrorFromMessage(msg, cmd) {
 function clearErrorLog() {
   const el = document.getElementById('errorLogList');
   if (el) el.textContent = '';
+}
+
+// -- proposal items 39/40/41/42: Connection & Device Status panel ---------
+// Purely client-side, session-scoped observations (reset on reload) plus a
+// read-only summary of gating logic that already exists elsewhere in this
+// file (renderDV10Gating/renderScopeGating) - this panel doesn't invent any
+// new gating rules, it just surfaces the existing ones in one place.
+
+// 39. Transport error counter + last-result description + next-poll
+// countdown. logErrorFromMessage() (above) already increments
+// transportErrorCount/lastResultDesc on every decoded rejection;
+// pollStatus() does the same in its catch{} for outright fetch failures.
+let transportErrorCount = 0;
+let lastResultDesc = null; // {time, text}
+let lastPollAt = null;
+function renderConnStats() {
+  const el = document.getElementById('connStatsOut');
+  if (!el) return;
+  const remaining = lastPollAt !== null ? Math.max(0, 1500 - (Date.now() - lastPollAt)) : null;
+  const lines = [
+    `${t('lblErrorCount')}: ${transportErrorCount}`,
+    `${t('lblLastResult')}: ${lastResultDesc ? lastResultDesc.time + '  ' + lastResultDesc.text : t('lblNone')}`,
+    `${t('lblNextPoll')}: ${remaining !== null ? (remaining / 1000).toFixed(1) + 's' : '--'}`,
+  ];
+  el.textContent = lines.join('\n');
+}
+setInterval(renderConnStats, 200);
+
+// 41. Detected-device family + which UI features are currently gated off
+// because of it - same conditions as renderDV10Gating()/renderScopeGating(),
+// just also displayed here instead of only silently applied as .disabled.
+function renderGatingSummary(s) {
+  const fam = (s && s.device_family) || null;
+  const labelEl = document.getElementById('gatingFamilyLabel');
+  if (labelEl) labelEl.textContent = fam ? t('famDetectedPrefix') + ' ' + fam : t('famUnknown');
+  const list = document.getElementById('gatingList');
+  if (!list) return;
+  const disabledNow = [];
+  if (fam === 'DV10') {
+    disabledNow.push(t('gateVsVeTr'));
+    disabledNow.push(t('gateDv13Extras'));
+    disabledNow.push(t('gateRecStop'));
+    disabledNow.push(t('gateSdBackup'));
+    disabledNow.push(t('gatePower'));
+  }
+  if (fam !== 'DV1' && fam !== 'DV3') {
+    disabledNow.push(t('gateScope'));
+  }
+  list.textContent = disabledNow.length ? disabledNow.map(x => '• ' + x).join('\n') : t('gateNoneDisabled');
+}
+
+// 42. Connectivity test - a raw "WI" (device ID) round trip via the same
+// sendAwait() helper rmemWrite()'s write-protect guard already uses, timed
+// client-side. Not a device "ping" command (none exists) - just the
+// cheapest existing read-only query, reused for latency feedback.
+async function connPing() {
+  if (!wsReady) { toast(t('toastNotConnected'), true); return; }
+  const out = document.getElementById('connPingOut');
+  const start = performance.now();
+  try {
+    const reply = await sendAwait('raw WI', 4000);
+    const ms = (performance.now() - start).toFixed(0);
+    if (out) out.textContent = `${ms} ms — ${reply}`;
+  } catch (e) {
+    if (out) out.textContent = t('connPingFailed') + ': ' + e.message;
+  }
+}
+
+// 40. Trace export - same fetch+Blob+temporary-<a>-download pattern as
+// memExportLive() (proposal item from an earlier section), just pointed at
+// the existing /api/debug/trace endpoint instead of the memory-export one.
+async function exportTraceToFile() {
+  try {
+    const res = await fetch('/api/debug/trace?n=2000');
+    if (!res.ok) throw new Error(res.statusText);
+    const body = await res.json();
+    const text = (body.lines || []).join('\n') + '\n';
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    a.href = url;
+    a.download = `ardv10_trace_${stamp}.log`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    toast(t('toastTraceExportFailed') + e.message, true);
+  }
 }
 
 applyLanguage(detectDefaultLang());
