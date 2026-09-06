@@ -2040,6 +2040,138 @@
         <pre class="mini-out" id="resetOut"></pre>
       </div>
 
+      <!-- Proposal items 19-28: previously raw-console-only commands. Only
+           a one-line description exists for these in the command registry
+           (no fuller AR-DV1 spec detail was available to confirm field
+           formats) - every control here is a literal raw passthrough, see
+           DV10Device's get_*/set_* docstrings for each one's caveats. -->
+      <div class="panel-section">
+        <div class="section-label" data-i18n="hExperimental">Experimental / Unused Commands</div>
+        <div class="hint" data-i18n="hintExperimental">Only a one-line description exists for these in the command registry - no fuller protocol spec was available to confirm field formats, so every control here is a literal raw passthrough. Treat values as unconfirmed.</div>
+        <div class="field-row">
+          <label data-i18n="lblAn">Earphone/antenna output (AN)</label>
+          <div class="field-row-controls">
+            <select id="anInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('anInput','an')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblCt">Function code (CT)</label>
+          <div class="field-row-controls">
+            <input type="text" id="ctInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expSetGet('ctInput','ct')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblDj">Digital data output (DJ) - write-only</label>
+          <div class="field-row-controls">
+            <input type="text" id="djInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expWrite('djInput','dj')" data-i18n="btnSend">Send</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblDk">Digital data acquire (DK) - read-only</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sendOut('dk', 'expOut')" data-i18n="btnRead">Read</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblLc">Frequency data output (LC)</label>
+          <div class="field-row-controls">
+            <select id="lcInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('lcInput','lc')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblLt">S-meter data output (LT)</label>
+          <div class="field-row-controls">
+            <select id="ltInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('ltInput','lt')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblOx">Monitor offset (OX)</label>
+          <div class="field-row-controls">
+            <select id="oxInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('oxInput','ox')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblTs">TTC slot number (TS)</label>
+          <div class="field-row-controls">
+            <input type="text" id="tsInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expSetGet('tsInput','ts')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblVq">Voice squelch (VQ)</label>
+          <div class="field-row-controls">
+            <input type="text" id="vqInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expSetGet('vqInput','vq')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblZs">Power save (ZS)</label>
+          <div class="field-row-controls">
+            <select id="zsInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('zsInput','zs')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblZt">Power save silent time (ZT)</label>
+          <div class="field-row-controls">
+            <input type="text" id="ztInput" placeholder="text" />
+            <button class="panel-btn small" onclick="expSetGet('ztInput','zt')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblRt">Receiver status output (RT)</label>
+          <div class="field-row-controls">
+            <select id="rtInput">
+              <option value="">--</option>
+              <option value="off">off</option>
+              <option value="on">on</option>
+            </select>
+            <button class="panel-btn small" onclick="expSetGet('rtInput','rt')" data-i18n="btnSet">Set</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblRx">Receiver status (RX) - read-only</label>
+          <div class="field-row-controls">
+            <button class="panel-btn small" onclick="sendOut('rx', 'expOut')" data-i18n="btnRead">Read</button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label data-i18n="lblSb">Comm speed (SB)</label>
+          <div class="field-row-controls">
+            <input type="text" id="sbInput" placeholder="text" />
+            <button id="sbSetBtn" class="panel-btn small" onclick="confirmDestructive(this, () => expSetGet('sbInput','sb'))" data-i18n="btnSet">Set</button>
+          </div>
+          <div class="hint-danger" data-i18n="hintSb">Changing this remotely can sever the very serial connection used to send the command. Click once to arm, again within 3 seconds to actually send.</div>
+        </div>
+        <pre class="mini-out" id="expOut"></pre>
+      </div>
+
       <!-- DV1/DV3-only extras (inside the Spectrum/Select/Additional accordion; gated to DV1/DV3, disabled on DV10). CLI/raw remain available for any model. -->
       <div class="panel-section gated-dv13">
         <div class="section-label" data-i18n="hDv13Extras">DV1/DV3-only extras</div>
@@ -2436,6 +2568,25 @@ const I18N = {
     btnResetSystem: "System Reset",
     btnResetFull: "Full Reset",
     btnSerial: "Read Serial (RN)",
+    hExperimental: "Experimental / Unused Commands",
+    hintExperimental: "Only a one-line description exists for these in the command registry - no fuller protocol spec was available to confirm field formats, so every control here is a literal raw passthrough. Treat values as unconfirmed.",
+    lblAn: "Earphone/antenna output (AN)",
+    lblCt: "Function code (CT)",
+    lblDj: "Digital data output (DJ) - write-only",
+    lblDk: "Digital data acquire (DK) - read-only",
+    lblLc: "Frequency data output (LC)",
+    lblLt: "S-meter data output (LT)",
+    lblOx: "Monitor offset (OX)",
+    lblTs: "TTC slot number (TS)",
+    lblVq: "Voice squelch (VQ)",
+    lblZs: "Power save (ZS)",
+    lblZt: "Power save silent time (ZT)",
+    lblRt: "Receiver status output (RT)",
+    lblRx: "Receiver status (RX) - read-only",
+    lblSb: "Comm speed (SB)",
+    hintSb: "Changing this remotely can sever the very serial connection used to send the command. Click once to arm, again within 3 seconds to actually send.",
+    btnRead: "Read",
+    toastExpValueRequired: "Enter a value first - DJ is write-only",
   },
   pl: {
     pageTitle: "AOR AR-DV10 – Panel sterowania",
@@ -2734,6 +2885,25 @@ const I18N = {
     btnResetSystem: "Reset systemowy",
     btnResetFull: "Reset pełny",
     btnSerial: "Odczytaj numer seryjny (RN)",
+    hExperimental: "Eksperymentalne / nieużywane komendy",
+    hintExperimental: "Dla tych komend w rejestrze istnieje tylko jednolinijkowy opis - brak pełniejszej specyfikacji protokołu do potwierdzenia formatu pól, więc każdy element tutaj to dosłowny surowy przekaz. Traktuj wartości jako niepotwierdzone.",
+    lblAn: "Wyjście słuchawkowe/antenowe (AN)",
+    lblCt: "Kod funkcji (CT)",
+    lblDj: "Wyjście danych cyfrowych (DJ) - tylko zapis",
+    lblDk: "Odczyt danych cyfrowych (DK) - tylko odczyt",
+    lblLc: "Wyjście danych częstotliwości (LC)",
+    lblLt: "Wyjście danych S-metra (LT)",
+    lblOx: "Przesunięcie monitora (OX)",
+    lblTs: "Numer slotu TTC (TS)",
+    lblVq: "Squelch głosowy (VQ)",
+    lblZs: "Oszczędzanie energii (ZS)",
+    lblZt: "Czas ciszy oszczędzania energii (ZT)",
+    lblRt: "Wyjście statusu odbiornika (RT)",
+    lblRx: "Status odbiornika (RX) - tylko odczyt",
+    lblSb: "Prędkość transmisji (SB)",
+    hintSb: "Zmiana tego zdalnie może zerwać samo połączenie szeregowe użyte do wysłania komendy. Kliknij raz, żeby uzbroić, i drugi raz w ciągu 3 sekund, żeby faktycznie wysłać.",
+    btnRead: "Odczytaj",
+    toastExpValueRequired: "Najpierw wpisz wartość - DJ jest tylko do zapisu",
   },
 };
 
@@ -4517,6 +4687,24 @@ function miscSetGet(inputId, verb) {
 function dv13Send(inputId, code) {
   const v = outVal(inputId, '');
   sendOut(v ? ('raw ' + code + ' ' + v) : 'raw ' + code, 'dv13Out');
+}
+
+// -- proposal items 19-28: previously raw-console-only commands ---------
+// Same "blank = plain read, non-blank = write then re-read" shape as
+// miscSetGet() above, just aimed at its own output box - kept separate
+// since these are EXPERIMENTAL/unconfirmed passthroughs, not the
+// higher-confidence "Additional Settings" group.
+function expSetGet(inputId, verb) {
+  const v = outVal(inputId, '');
+  sendOut(v ? (verb + ' ' + v) : verb, 'expOut');
+}
+// DJ is write-only (see DV10Device.set_digital_data_output()) - there's
+// no read-back, so unlike expSetGet() a blank value is refused rather
+// than silently turning into a plain read.
+function expWrite(inputId, verb) {
+  const v = outVal(inputId, '');
+  if (!v) { toast(t('toastExpValueRequired'), true); return; }
+  sendOut(verb + ' ' + v, 'expOut');
 }
 
 applyLanguage(detectDefaultLang());

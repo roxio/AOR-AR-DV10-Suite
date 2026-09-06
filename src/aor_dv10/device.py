@@ -2899,6 +2899,158 @@ class DV10Device:
         software equivalent of one clockwise dial-knob click."""
         self._chan.send("ZK")
 
+    # -- proposal items 19-28: previously raw-console-only commands ---------
+    #
+    # aor_dv10.protocol.commands has each of these registered (so "raw <code>
+    # <value>" in the console already reaches them), but none had a typed
+    # get_*/set_* wrapper until now, and this project has no confirmed
+    # field-format detail for most of them beyond the one-line description
+    # in that registry (no fuller AR-DV1/AR-DV10 spec transcription exists
+    # here for this group the way there is for, say, memory channels or
+    # search banks). Rather than inventing digit counts/ranges/enums that
+    # would just be guesses, every wrapper below is a thin, literal
+    # passthrough: reads return whatever raw string the device sends,
+    # writes send whatever string the caller gives (stripped, nothing
+    # else). Where the registry's own description says "ON/OFF" outright
+    # (AN, OX, ZS) this uses the same bool/_on_off-style convention as
+    # every other confirmed on/off command elsewhere in this file - not a
+    # new guess, just this project's standard boolean encoding ("1"/"0").
+    # EXPERIMENTAL in the sense that none of this has been exercised
+    # against real hardware; see each method's own docstring for its
+    # specific caveat.
+
+    def get_earphone_antenna(self) -> str:
+        """Raw AN value: earphone antenna ON/OFF (FM 64-108MHz only, per
+        aor_dv10.protocol.commands' one-line description) - EXPERIMENTAL,
+        unconfirmed against real hardware."""
+        return self._chan.read("AN").value or ""
+
+    def set_earphone_antenna(self, on: bool) -> None:
+        self._chan.write("AN", "1" if on else "0")
+
+    def get_function_code(self) -> str:
+        """Raw CT value ("Function") - EXPERIMENTAL: the command registry
+        gives no field-format detail beyond that one word, so this is a
+        completely literal passthrough - nothing about digit count, range,
+        or meaning is assumed."""
+        return self._chan.read("CT").value or ""
+
+    def set_function_code(self, value: str) -> None:
+        self._chan.write("CT", value.strip())
+
+    def set_digital_data_output(self, value: str) -> None:
+        """Raw DJ (write-only, no confirmed read form): "Digital data
+        output" per the command registry - EXPERIMENTAL, purpose
+        unconfirmed in any documentation available to this project. Sends
+        whatever raw string is given; pairs with acquire_digital_data()
+        (DK) for reading data back, though whether DJ's write actually
+        needs to precede a DK read, and in what shape, is unconfirmed."""
+        self._chan.write("DJ", value.strip())
+
+    def acquire_digital_data(self) -> str:
+        """Raw DK (read-only per the command registry): "Acquire digital
+        data" - EXPERIMENTAL, purpose unconfirmed in any documentation
+        available to this project. Returns whatever raw string the device
+        sends."""
+        return self._chan.read("DK").value or ""
+
+    def get_freq_data_output(self) -> str:
+        """Raw LC value: "Frequency data output" - a data-stream toggle
+        per the command registry's RW access, EXPERIMENTAL. What toggling
+        it on actually does to the wire (an unsolicited stream this
+        project has no receive path for, or something else) is
+        unconfirmed."""
+        return self._chan.read("LC").value or ""
+
+    def set_freq_data_output(self, on: bool) -> None:
+        self._chan.write("LC", "1" if on else "0")
+
+    def get_smeter_data_output(self) -> str:
+        """Raw LT value: "S-meter data output" - same data-stream-toggle
+        shape and caveats as get_freq_data_output() (LC), EXPERIMENTAL."""
+        return self._chan.read("LT").value or ""
+
+    def set_smeter_data_output(self, on: bool) -> None:
+        self._chan.write("LT", "1" if on else "0")
+
+    def get_monitor_offset(self) -> str:
+        """Raw OX value: "Monitor offset" ON/OFF per the command
+        registry's own description - EXPERIMENTAL, unconfirmed against
+        real hardware, and what it actually does (monitor the configured
+        repeater offset frequency? something else?) is not documented
+        anywhere available to this project."""
+        return self._chan.read("OX").value or ""
+
+    def set_monitor_offset(self, on: bool) -> None:
+        self._chan.write("OX", "1" if on else "0")
+
+    def get_ttc_slot_number(self) -> str:
+        """Raw TS value: "T-TC mode slot number" (TETRA T-TC) per the
+        command registry - EXPERIMENTAL, no confirmed digit count/range,
+        literal passthrough."""
+        return self._chan.read("TS").value or ""
+
+    def set_ttc_slot_number(self, value: str) -> None:
+        self._chan.write("TS", value.strip())
+
+    def get_voice_squelch(self) -> str:
+        """Raw VQ value: "Voice squelch", described by the command
+        registry as independent of CI/DI (tone/DCS squelch type) -
+        EXPERIMENTAL. Not assumed to be a simple on/off despite the name -
+        literal passthrough, since neither shape is confirmed."""
+        return self._chan.read("VQ").value or ""
+
+    def set_voice_squelch(self, value: str) -> None:
+        self._chan.write("VQ", value.strip())
+
+    def get_power_save(self) -> str:
+        """Raw ZS value: power save ON/OFF per the command registry -
+        EXPERIMENTAL, unconfirmed against real hardware. Pairs with
+        get_power_save_silent_time() (ZT)."""
+        return self._chan.read("ZS").value or ""
+
+    def set_power_save(self, on: bool) -> None:
+        self._chan.write("ZS", "1" if on else "0")
+
+    def get_power_save_silent_time(self) -> str:
+        """Raw ZT value: power save's "silent time" setting - EXPERIMENTAL,
+        no confirmed digit count/range/units, literal passthrough."""
+        return self._chan.read("ZT").value or ""
+
+    def set_power_save_silent_time(self, value: str) -> None:
+        self._chan.write("ZT", value.strip())
+
+    def get_receiver_status_output(self) -> str:
+        """Raw RT value: "Receiver status output" - a data-stream toggle,
+        same shape/caveats as get_freq_data_output() (LC), EXPERIMENTAL.
+        Pairs with get_receiver_status() (RX) for reading status back."""
+        return self._chan.read("RT").value or ""
+
+    def set_receiver_status_output(self, on: bool) -> None:
+        self._chan.write("RT", "1" if on else "0")
+
+    def get_receiver_status(self) -> str:
+        """Raw RX (read-only per the command registry): "Receiver status" -
+        EXPERIMENTAL, returns whatever raw string the device sends."""
+        return self._chan.read("RX").value or ""
+
+    def get_comm_speed(self) -> str:
+        """Raw SB value: "Communication speed (baud)" - EXPERIMENTAL,
+        literal passthrough, no confirmed value set. DANGEROUS to write
+        remotely: if this actually reconfigures the serial link's own baud
+        rate, changing it through that same link would sever the
+        connection this app is using to send the command in the first
+        place, requiring physical access to recover - see
+        set_comm_speed()."""
+        return self._chan.read("SB").value or ""
+
+    def set_comm_speed(self, value: str) -> None:
+        """See get_comm_speed()'s docstring for why this is dangerous to
+        call over a remote/serial connection - if SB really does change
+        the link's own baud rate, this call's own response may never be
+        received at the old rate."""
+        self._chan.write("SB", value.strip())
+
     def register_last_channel(self, completion_timeout: float = 5.0) -> int:
         """Raw MM (write-only, no value): register the currently-tuned
         VFO/bank/channel as the receiver's own "last channel memory" (what

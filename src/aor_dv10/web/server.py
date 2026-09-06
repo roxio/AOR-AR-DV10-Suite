@@ -769,6 +769,63 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         full = bool(args) and args[0].strip().lower() in ("full", "1")
         device.reset(full=full)
         return "reset sent (full)" if full else "reset sent (system)"
+    # -- proposal items 19-28: previously raw-console-only commands - see
+    # aor_dv10.cli.repl's own copy of this block and DV10Device's
+    # get_*/set_* docstrings for the shared "raw passthrough, format
+    # unconfirmed" caveats.
+    if verb == "an":
+        if args:
+            device.set_earphone_antenna(_on_off(args[0]))
+        return device.get_earphone_antenna()
+    if verb == "ct":
+        if args:
+            device.set_function_code(" ".join(args))
+        return device.get_function_code()
+    if verb == "dj":
+        if not args:
+            raise ValueError("dj requires a value - it's write-only, there's nothing to read back")
+        device.set_digital_data_output(" ".join(args))
+        return "sent"
+    if verb == "dk":
+        return device.acquire_digital_data()
+    if verb == "lc":
+        if args:
+            device.set_freq_data_output(_on_off(args[0]))
+        return device.get_freq_data_output()
+    if verb == "lt":
+        if args:
+            device.set_smeter_data_output(_on_off(args[0]))
+        return device.get_smeter_data_output()
+    if verb == "ox":
+        if args:
+            device.set_monitor_offset(_on_off(args[0]))
+        return device.get_monitor_offset()
+    if verb == "ts":
+        if args:
+            device.set_ttc_slot_number(" ".join(args))
+        return device.get_ttc_slot_number()
+    if verb == "vq":
+        if args:
+            device.set_voice_squelch(" ".join(args))
+        return device.get_voice_squelch()
+    if verb == "zs":
+        if args:
+            device.set_power_save(_on_off(args[0]))
+        return device.get_power_save()
+    if verb == "zt":
+        if args:
+            device.set_power_save_silent_time(" ".join(args))
+        return device.get_power_save_silent_time()
+    if verb == "rt":
+        if args:
+            device.set_receiver_status_output(_on_off(args[0]))
+        return device.get_receiver_status_output()
+    if verb == "rx":
+        return device.get_receiver_status()
+    if verb == "sb":
+        if args:
+            device.set_comm_speed(" ".join(args))
+        return device.get_comm_speed()
     if verb == "rmem":
         return _dispatch_plain_rmem(device, args)
     if verb == "search":

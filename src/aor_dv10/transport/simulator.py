@@ -136,6 +136,27 @@ class SimulatorTransport(Transport):
             "IF": "3",  # IF bandwidth selector, spec default (FM: 15KHz)
             "DL": "020",  # standalone delay time (deciseconds), spec default
             "FR": "00",  # standalone free time (seconds), spec default OFF
+            # Proposal items 19-28: previously raw-console-only commands
+            # newly wrapped by device.py get_*/set_* methods - these
+            # defaults are placeholders so reads/writes round-trip at all
+            # (same "not confirmed, just something for the GUI/CLI to
+            # show" spirit as the manual-sourced block above), NOT values
+            # confirmed against real hardware. On/off ones default off
+            # ("0"); the rest default to an empty string since no format
+            # detail is available to guess a plausible default from.
+            "AN": "0",
+            "CT": "",
+            "DJ": "",
+            "DK": "",
+            "LC": "0",
+            "LT": "0",
+            "OX": "0",
+            "TS": "",
+            "VQ": "",
+            "ZS": "0",
+            "ZT": "",
+            "RT": "0",
+            "SB": "",
         }
         # Per-slot offset-frequency table (OL, keyed by 2-digit slot) -
         # see the AR-DV1-spec-confirmed OL handling in _handle() below.
@@ -294,6 +315,11 @@ class SimulatorTransport(Transport):
         # frequency scope. Bare 2-letter codes, unlike the "SD "-prefixed
         # family above.
         "FD", "GL",
+        # proposal items 19-28: previously raw-console-only commands
+        # (RX was already listed above). See device.py's get_*/set_*
+        # wrappers for these - _handle()'s generic state-dict fallback
+        # below serves them, but only once they're recognised here first.
+        "AN", "CT", "DJ", "DK", "LC", "LT", "OX", "TS", "VQ", "ZS", "ZT", "RT", "SB",
     )
 
     def _respond(self, body: str) -> str:

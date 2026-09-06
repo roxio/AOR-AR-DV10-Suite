@@ -227,6 +227,29 @@ Commands:
   pass delete bank <bank> [index]
                           PD: delete one bank's whole pass-frequency list, or one entry by index
   pass delete allbanks      PD: delete every bank's pass-frequency list (DESTRUCTIVE)
+
+Proposal items 19-28: previously raw-console-only commands. Only a one-line
+description exists for these in aor_dv10.protocol.commands (no fuller AR-DV1
+spec detail available) - all wired up as literal raw passthroughs rather than
+guessed formats; see the DV10Device get_*/set_* docstrings for each one's
+caveats.
+  an on|off                   AN: show or set the earphone/antenna output
+  ct [VALUE]                   CT: show or set the raw function code (format unconfirmed)
+  dj VALUE                     DJ: set digital data output (write-only; purpose unconfirmed)
+  dk                           DK: read digital data output (read-only; purpose unconfirmed)
+  lc on|off                   LC: show or set frequency-data output
+  lt on|off                   LT: show or set S-meter data output
+  ox on|off                   OX: show or set monitor-offset
+  ts [VALUE]                   TS: show or set the raw TTC slot number (format unconfirmed)
+  vq [VALUE]                   VQ: show or set the raw voice squelch value (format unconfirmed)
+  zs on|off                   ZS: show or set power-save
+  zt [VALUE]                   ZT: show or set the raw power-save silent time (format unconfirmed)
+  rt on|off                   RT: show or set receiver-status output
+  rx                           RX: read receiver status (read-only)
+  sb [VALUE]                   SB: DESTRUCTIVE-ish - show or set the raw comm speed. Changing
+                          this remotely can sever the very serial connection used to send the
+                          command; confirm the new speed matches what your PC side expects
+                          before setting it.
   quit, exit                 Disconnect and leave
 
 Many more settings (DMR/P25/NXDN/D-CR selective codes, priority
@@ -248,6 +271,7 @@ _VERBS = [
     "beeplvl", "vollimit", "digain", "mgain", "contrast",
     "movenext", "moveprev", "stepadj",
     "zi", "clock", "writeprotect", "reset",
+    "an", "ct", "dj", "dk", "lc", "lt", "ox", "ts", "vq", "zs", "zt", "rt", "rx", "sb",
 ]
 
 
@@ -641,6 +665,59 @@ class Repl:
             full = bool(args) and args[0].strip().lower() in ("full", "1")
             self.device.reset(full=full)
             self.console.print("reset sent (full)" if full else "reset sent (system)")
+        elif verb == "an":
+            if args:
+                self.device.set_earphone_antenna(_on_off(args[0]))
+            self.console.print(self.device.get_earphone_antenna())
+        elif verb == "ct":
+            if args:
+                self.device.set_function_code(" ".join(args))
+            self.console.print(self.device.get_function_code())
+        elif verb == "dj":
+            if not args:
+                raise ValueError("dj requires a value - it's write-only, there's nothing to read back")
+            self.device.set_digital_data_output(" ".join(args))
+            self.console.print("sent")
+        elif verb == "dk":
+            self.console.print(self.device.acquire_digital_data())
+        elif verb == "lc":
+            if args:
+                self.device.set_freq_data_output(_on_off(args[0]))
+            self.console.print(self.device.get_freq_data_output())
+        elif verb == "lt":
+            if args:
+                self.device.set_smeter_data_output(_on_off(args[0]))
+            self.console.print(self.device.get_smeter_data_output())
+        elif verb == "ox":
+            if args:
+                self.device.set_monitor_offset(_on_off(args[0]))
+            self.console.print(self.device.get_monitor_offset())
+        elif verb == "ts":
+            if args:
+                self.device.set_ttc_slot_number(" ".join(args))
+            self.console.print(self.device.get_ttc_slot_number())
+        elif verb == "vq":
+            if args:
+                self.device.set_voice_squelch(" ".join(args))
+            self.console.print(self.device.get_voice_squelch())
+        elif verb == "zs":
+            if args:
+                self.device.set_power_save(_on_off(args[0]))
+            self.console.print(self.device.get_power_save())
+        elif verb == "zt":
+            if args:
+                self.device.set_power_save_silent_time(" ".join(args))
+            self.console.print(self.device.get_power_save_silent_time())
+        elif verb == "rt":
+            if args:
+                self.device.set_receiver_status_output(_on_off(args[0]))
+            self.console.print(self.device.get_receiver_status_output())
+        elif verb == "rx":
+            self.console.print(self.device.get_receiver_status())
+        elif verb == "sb":
+            if args:
+                self.device.set_comm_speed(" ".join(args))
+            self.console.print(self.device.get_comm_speed())
         elif verb == "sqltype":
             if args:
                 self.device.set_squelch_tone_type(args[0])
