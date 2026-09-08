@@ -112,12 +112,15 @@ def test_mx_build_fixture_matches_documented_field_order():
     assert "MX0001 MP1 RF0439.30000 ST012.50 SH003.12 MD0F0 PT1 TT2m rptr" in tx
 
 
-def test_mx_build_fixture_omits_untouched_fields():
-    # Only bbcc + whatever was explicitly given - no field the spec calls
-    # optional should show up when left at its Python default.
+def test_mx_build_fixture_omits_untouched_value_fields_but_always_sends_mp_pt():
+    # The value-carrying optional fields (ST/SH/MD/TT) stay absent when not
+    # given. MP/PT do NOT: they are flags with no "unset" value, and a real
+    # receiver's own channel dump always spells them out ("MX0418 MP0 ...
+    # PT0 ..."), while every MX this project sent without them came back
+    # error 40 - see write_memory_channel()'s comment.
     dev = make_device()
     tx = capture_tx(dev, lambda: dev.write_memory_channel(1, 5, frequency_hz=146_520_000))
-    assert "MX0105 RF0146.52000" in tx
+    assert "MX0105 MP0 RF0146.52000 PT0" in tx
     for absent in ("MP1", "ST0", "SH0", "MD", "PT1", "TT"):
         assert absent not in tx
 

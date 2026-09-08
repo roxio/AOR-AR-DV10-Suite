@@ -1723,9 +1723,16 @@ class DV10Device:
         MX write; that test wrote MD alone to an UNREGISTERED slot with no
         RF field (``raw MR`` on it answers 30, "channel not registered"),
         so it was measuring the empty-slot rejection, not the pad."""
-        parts = []
-        if pass_channel:
-            parts.append("MP1")
+        # MP and PT are ALWAYS emitted, never omitted-when-false. The spec
+        # calls them optional (defaulting to 0), but a real AR-DV10's own
+        # canonical channel dump always carries them -
+        #   "MX0418 MP0 RF0439.10000 ST012.50 SH000.00 MD000 PT0 TTSR2BT..."
+        # (see tests/test_memory_channels.py's captured hardware fixture) -
+        # and every live MX write this project sent WITHOUT them came back
+        # error 40 (PC_RESULT_FORMAT_ERR), whatever the MD value was. Sending
+        # the explicit 0 is semantically identical per the spec and matches
+        # byte-for-byte what the receiver itself produces.
+        parts = ["MP1" if pass_channel else "MP0"]
         if frequency_hz is not None:
             parts.append(f"RF{float(frequency_hz) / 1_000_000:010.5f}")
         if step_hz is not None:
@@ -1752,8 +1759,7 @@ class DV10Device:
                     f'or a 3-char dan value (e.g. "0F0") - got {m!r}'
                 )
             parts.append(f"MD{m}")
-        if write_protect:
-            parts.append("PT1")
+        parts.append("PT1" if write_protect else "PT0")
         if tag is not None:
             parts.append(f"TT{tag.strip()[:12]}")
         value = f"{int(bank):02d}{int(channel):02d}"

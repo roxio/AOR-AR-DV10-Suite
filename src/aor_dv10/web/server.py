@@ -466,6 +466,40 @@ def _parse_live_channel_write_body(body: dict) -> dict:
     return kwargs
 
 
+def _complete_write_kwargs(device: DV10Device, bank: int, channel: int, kwargs: dict) -> dict:
+    """Fill any field the request left out from the channel's CURRENT stored
+    record, so the MX that goes out is always the receiver's own complete
+    canonical form (MP/RF/ST/SH/MD/PT/TT), never a partial one.
+
+    Real-hardware finding: a partial MX - one missing sub-fields the
+    receiver's own channel dump always carries - comes back error 40
+    (PC_RESULT_FORMAT_ERR), even though the AR-DV1 spec calls those fields
+    optional-and-keep-previous. Rather than trust "keep previous", this
+    reads the record and resends the previous values explicitly, which is
+    also what makes an edit of one field provably leave the rest alone.
+
+    An unregistered slot has nothing to carry over (every field but
+    bank/channel/registered is meaningless there - see MemoryChannelInfo),
+    so it is programmed from exactly what the request supplied."""
+    try:
+        current = device.read_memory_channel(bank, channel)
+    except DV10Error:
+        return kwargs
+    if not current.registered:
+        return kwargs
+    merged = dict(kwargs)
+    for key, value in (
+        ("frequency_hz", current.frequency_hz),
+        ("step_hz", current.step_hz),
+        ("step_adjust_hz", current.step_adjust_hz),
+        ("mode", current.mode),
+        ("tag", current.tag),
+    ):
+        if merged.get(key) is None and value is not None:
+            merged[key] = value
+    return merged
+
+
 @app.get("/api/memory/live_bank/{bank}")
 async def api_memory_live_bank(bank: int):
     """Bank editor (table view): read every channel slot in a live bank
@@ -531,7 +565,9 @@ async def api_memory_live_bank_batch_write(bank: int, request: Request):
                     if current.registered and current.write_protect:
                         results.append({"channel": ch, "ok": False, "error": "write-protected (retry with force)"})
                         continue
-                kwargs = _parse_live_channel_write_body(item)
+                kwargs = _complete_write_kwargs(
+                    device, bank, ch, _parse_live_channel_write_body(item)
+                )
                 device.write_memory_channel(bank, ch, **kwargs)
                 results.append({"channel": ch, "ok": True})
             except DV10Error as exc:
@@ -570,6 +606,7 @@ async def api_memory_live_channel_write(bank: int, channel: int, request: Reques
                     raise HTTPException(
                         409, "channel is write-protected - retry with force:true to override"
                     )
+            kwargs = _complete_write_kwargs(device, bank, channel, kwargs)
             device.write_memory_channel(bank, channel, **kwargs)
             updated = device.read_memory_channel(bank, channel)
         except DV10Error as exc:
