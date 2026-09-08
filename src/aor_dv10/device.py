@@ -1701,15 +1701,28 @@ class DV10Device:
         DESTRUCTIVE in the sense that it overwrites whatever was in that
         slot.
 
-        **Safety-critical distinction - real-DV10 finding**: standalone MD
-        writes are confirmed against real hardware to need a 3-character
-        wire value in MD's "dan" read shape, not a shorter 2-char form. A
-        live MX write on the real unit returned error 40, so this method
-        no longer invents any pad. ``mode`` is sent VERBATIM in whichever
-        form the caller supplies the natural 2-char "<digital><analog>"
-        (DV1, e.g. "F0") or the 3-char dan value a DV10 register
-        stores/echoes (e.g. "000"). Sending the stored dan straight back
-        is how a real DV10 round-trips cleanly."""
+        **Real-DV10 finding (revised)**: MX's embedded MD sub-field wants
+        the SAME 3-character "dan" wire shape standalone MD does - the
+        command shape above literally spells it ``MDdan``, real captured
+        channel dumps carry ``MD000``/``MD0F0`` (see
+        tests/test_memory_channels.py's hardware fixtures), and a live
+        ``m F1``/``m F0`` round-trip reads back ``0F1``/``0F0``. Sending
+        the bare 2-char "<digital><analog>" form this method used to pass
+        through verbatim is confirmed against real hardware to fail with
+        error 40 (PC_RESULT_FORMAT_ERR): it is one character short of the
+        shape MX parses.
+
+        So a 2-char ``mode`` is now padded through the same
+        _mode_write_value() set_mode() already uses (validating both
+        digits and prefixing "0" for the read-only leading "d"
+        position), and a 3-char value - e.g. the stored dan a read just
+        echoed back - is still sent verbatim, which is what makes an
+        unedited round-trip byte-identical.
+
+        An earlier note here claimed a padded "0F0" also failed on a live
+        MX write; that test wrote MD alone to an UNREGISTERED slot with no
+        RF field (``raw MR`` on it answers 30, "channel not registered"),
+        so it was measuring the empty-slot rejection, not the pad."""
         parts = []
         if pass_channel:
             parts.append("MP1")
@@ -1720,18 +1733,23 @@ class DV10Device:
         if step_adjust_hz is not None:
             parts.append(f"SH{float(step_adjust_hz) / 1000:06.2f}")
         if mode is not None:
-            # MX must reflect what the target family actually stores:
-            #   2 chars  (natural, e.g. "F0")  -> DV1 convention, send as-is
-            #   3 chars  (dan value, e.g. "000") -> a real DV10 register
-            # echoes/stores this exact shape, so send it verbatim too.
-            # Do NOT invent a pad (e.g. "0F0"): that produced a live DV10
-            # error 40 (PC_RESULT_FORMAT_ERR) because it's neither shape.
+            # MX's MD sub-field is "MDdan" - 3 characters, same shape
+            # standalone MD reads back and writes. See the docstring:
+            #   2 chars  (natural, e.g. "F0") -> pad to the wire shape the
+            #                                    same way set_mode() does
+            #   3 chars  (dan value, e.g. "0F0"/"000") -> already the wire
+            #                                    shape, send verbatim so an
+            #                                    unedited round-trip is
+            #                                    byte-identical
+            # A bare 2-char MD is confirmed on real hardware to fail with
+            # error 40 - it is one character short.
             m = str(mode).strip().upper()
-            if len(m) not in (2, 3):
+            if len(m) == 2:
+                m = _mode_write_value(m)
+            elif len(m) != 3:
                 raise ValueError(
-                    f'mode must be "<digital><analog>" 2 chars (DV1, e.g. '
-                    f'"F0") or a 3-char dan value (DV10, e.g. "000") - '
-                    f'got {m!r}'
+                    f'mode must be "<digital><analog>" 2 chars (e.g. "F0") '
+                    f'or a 3-char dan value (e.g. "0F0") - got {m!r}'
                 )
             parts.append(f"MD{m}")
         if write_protect:

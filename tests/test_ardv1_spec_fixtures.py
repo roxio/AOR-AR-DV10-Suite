@@ -105,7 +105,11 @@ def test_mx_build_fixture_matches_documented_field_order():
             tag="2m rptr",
         ),
     )
-    assert "MX0001 MP1 RF0439.30000 ST012.50 SH003.12 MDF0 PT1 TT2m rptr" in tx
+    # MD is "MDdan" - 3 chars, same wire shape standalone MD uses and the
+    # shape real captured dumps carry (MD000/MD0F0). A caller-supplied
+    # 2-char "F0" is padded to "0F0"; a bare 2-char MD is confirmed on
+    # real hardware to fail with error 40.
+    assert "MX0001 MP1 RF0439.30000 ST012.50 SH003.12 MD0F0 PT1 TT2m rptr" in tx
 
 
 def test_mx_build_fixture_omits_untouched_fields():

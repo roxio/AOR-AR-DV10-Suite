@@ -121,7 +121,10 @@ def test_live_bank_reflects_a_channel_written_directly_on_the_device(panel):
     assert ch["frequency_mhz"] == pytest.approx(146.52)
     assert ch["step_hz"] == 25_000
     assert ch["step_adjust_hz"] == 5_000
-    assert ch["mode"] == "F0"
+    # MX stores MD in its 3-char "dan" wire shape, so a 2-char "F0"
+    # goes in as (and reads back as) "0F0" - the browser table strips
+    # the leading read-only "d" for its mode dropdown.
+    assert ch["mode"] == "0F0"
     assert ch["pass_channel"] is True
     assert ch["write_protect"] is False
     assert ch["tag"] == "DIRECT"
@@ -143,7 +146,7 @@ def test_live_channel_write_round_trips_every_field(panel):
     assert body["frequency_mhz"] == pytest.approx(445.0)
     assert body["step_hz"] == 12500
     assert body["step_adjust_hz"] == 2500
-    assert body["mode"] == "00"
+    assert body["mode"] == "000"  # 2-char "00" padded to the "dan" wire shape
     assert body["pass_channel"] is True
     assert body["tag"] == "REST-WR"
 

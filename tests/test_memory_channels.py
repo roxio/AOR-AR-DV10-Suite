@@ -40,13 +40,11 @@ def test_write_then_read_memory_channel_roundtrip():
         assert info.pass_channel is True
         assert info.write_protect is True
         assert info.tag == "TESTCH"
-        # Unlike standalone MD (confirmed reversed on the wire - see
-        # set_mode()), MX's own embedded MD sub-field is sent/read in
-        # NATURAL "<digital><analog>" order - see
-        # write_memory_channel()'s "safety-critical distinction"
-        # docstring note for why these two must
-        # not be conflated.
-        assert info.mode == "F0"
+        # MX's MD sub-field carries the same 3-char "dan" wire shape
+        # standalone MD does, so a 2-char "F0" written above goes out
+        # (and reads back) as "0F0" - matching both the spec's own
+        # "MDdan" shape and real captured dumps (MD000/MD0F0).
+        assert info.mode == "0F0"
 
 
 def test_write_memory_channel_omitted_fields_keep_previous_except_mp_pt():
@@ -72,10 +70,12 @@ def test_tune_memory_channel_changes_receive_state():
         dev.write_memory_channel(2, 3, frequency_hz=433_000_000, mode="10")
         dev.tune_memory_channel(2, 3)
         assert dev.get_frequency_hz() == 433_000_000
-        # the simulator copies MX's stored (natural-order) MD field
-        # straight into the live MD state on tune - see
-        # SimulatorTransport's MR handling.
-        assert dev.get_mode() == "10"
+        # the simulator copies MX's stored MD field straight into the
+        # live MD state on tune - see SimulatorTransport's MR handling.
+        # MX stores the 3-char "dan" wire shape (a 2-char "10" written
+        # above is padded to "010"), which is exactly the shape a
+        # standalone MD read returns, so the two agree byte-for-byte.
+        assert dev.get_mode() == "010"
 
 
 def test_tune_unregistered_channel_raises():
