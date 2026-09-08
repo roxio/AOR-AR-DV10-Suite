@@ -765,8 +765,14 @@
     border-radius: 4px; color: inherit; font: inherit; padding: 3px 5px;
   }
   table.bank-editor-table input[type="text"]:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  table.bank-editor-table select.be-mode-select {
+    width: 100%; min-width: 96px; max-width: 130px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; color: inherit; font: inherit; padding: 3px 5px;
+  }
+  table.bank-editor-table select.be-mode-select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
   table.bank-editor-table td.be-freq-cell { min-width: 100px; }
-  table.bank-editor-table td.be-mode-cell input, table.bank-editor-table td.be-step-cell input { min-width: 56px; max-width: 70px; }
+  table.bank-editor-table td.be-mode-cell { min-width: 100px; }
+  table.bank-editor-table td.be-step-cell input { min-width: 56px; max-width: 70px; }
   table.bank-editor-table td.be-tag-cell input { min-width: 90px; }
   table.bank-editor-table tr.be-unregistered { opacity: .55; }
   table.bank-editor-table tr.be-dirty { box-shadow: inset 3px 0 0 var(--amber); }
@@ -4379,6 +4385,8 @@ function renderModelGating(s) {
     btn.disabled = isGated;
     btn.title = isGated ? t('hintNotDistinctOnDevice') : '';
   });
+  gatedAnalogModes = gated;
+  document.querySelectorAll('select.be-mode-select').forEach(gateModeSelect);
 }
 
 // avoid clobbering a control the person is actively dragging/typing
@@ -4873,6 +4881,11 @@ function rmemBankDelete() { sendOut('rmem bankdel ' + outVal('rmemBankInput', '0
 // the RECEIVER (MA), never an imported file.
 let bankEditorRows = new Map(); // "bank-channel" -> row state object
 let bankEditorLoadAllAbort = false;
+// Populated from /api/status's analog_modes_without_distinction (see
+// renderModelGating() below) - the same SAH/SAL-on-DV10 gating the VFO/
+// squelch analog-mode controls already apply, now also reflected in every
+// mode <select> this table renders.
+let gatedAnalogModes = new Set();
 
 function _beKey(bank, channel) { return bank + '-' + channel; }
 function _beFmtFreq(mhz) { return (mhz === null || mhz === undefined) ? '' : mhz.toFixed(6); }
@@ -4990,6 +5003,67 @@ function bankEditorRenderTable() {
 // (Save/Delete need to know which bank/channel they belong to, and a tag
 // containing a stray quote must never be able to break the markup the way
 // it could via an innerHTML-built value="..." attribute).
+// Mode dropdown - same option set and "<digital><analog>" 2-char MD
+// convention as the VFO panel's #vfoModeInput select (write_memory_channel()
+// in device.py documents accepting exactly this 2-char form, or the 3-char
+// "dan" shape a real DV10 read echoes back - see its docstring). Built once
+// per row rather than duplicated as static HTML in the table markup.
+const BE_MODE_GROUPS = [
+  ['Analog (digital off)', [['F0', 'FM'], ['F1', 'AM'], ['F2', 'SAH'], ['F3', 'SAL'], ['F4', 'USB'], ['F5', 'LSB'], ['F6', 'CW']]],
+  ['Digital over FM', [['00', 'Auto / FM'], ['10', 'D-STAR'], ['20', 'YAESU'], ['30', 'ALINCO'], ['40', 'D-CR'], ['50', 'P25'], ['60', 'dPMR'], ['70', 'DMR'], ['80', 'TETRA-DM'], ['90', 'TETRA-TC']]],
+];
+function _beBuildModeSelect() {
+  const select = document.createElement('select');
+  select.className = 'be-mode-select';
+  select.title = 'Mode: 2-char digital+analog code (e.g. F0 = digital off / FM)';
+  BE_MODE_GROUPS.forEach(([label, opts]) => {
+    const og = document.createElement('optgroup');
+    og.label = label;
+    opts.forEach(([value, text]) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      og.appendChild(opt);
+    });
+    select.appendChild(og);
+  });
+  gateModeSelect(select);
+  return select;
+}
+
+// A value just loaded from the receiver can be the 3-char "dan" shape (see
+// device.py's MD decode-table comment: d = currently-receiving digital
+// [read-only], a = selected digital, n = selected analog) - only the last
+// two characters ("an") match this dropdown's 2-char convention, so a
+// leading 3rd char is stripped for display only; row.mode itself is left
+// untouched until the person actually picks something (see the 'change'
+// handler below), so an unedited row still writes back the exact stored
+// value on Save, not a reinterpreted one. A code this list doesn't know
+// about is kept as its own option instead of being silently replaced, so
+// opening this table can never quietly change a mode nobody touched.
+function _beSelectModeValue(select, raw) {
+  const m = String(raw || '').trim().toUpperCase();
+  const twoChar = m.length === 3 ? m.slice(1) : m;
+  if (twoChar && !Array.from(select.options).some((o) => o.value === twoChar)) {
+    const opt = document.createElement('option');
+    opt.value = twoChar;
+    opt.textContent = twoChar + ' (?)';
+    select.insertBefore(opt, select.firstChild);
+  }
+  select.value = twoChar;
+}
+
+// SAH/SAL are not functionally distinct on a real DV10 (see
+// renderModelGating() / ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY in
+// device.py) - disable the matching option(s) here too, same as the
+// standalone #analogMode select already does. The analog digit is always
+// the 2nd character of this dropdown's "<digital><analog>" values.
+function gateModeSelect(select) {
+  Array.from(select.options).forEach((opt) => {
+    if (opt.value.length === 2) opt.disabled = gatedAnalogModes.has(opt.value.charAt(1));
+  });
+}
+
 function bankEditorBuildRow(key, row) {
   const tr = document.createElement('tr');
   tr.dataset.key = key;
@@ -5019,8 +5093,17 @@ function bankEditorBuildRow(key, row) {
     td.appendChild(input);
     tr.appendChild(td);
   }
+  function makeModeCell(field, value, cellClass) {
+    const td = document.createElement('td');
+    if (cellClass) td.className = cellClass;
+    const select = _beBuildModeSelect();
+    _beSelectModeValue(select, value);
+    select.addEventListener('change', () => { row[field] = select.value; markDirty(); });
+    td.appendChild(select);
+    tr.appendChild(td);
+  }
   makeTextCell('freq', row.freq, 'be-freq-cell');
-  makeTextCell('mode', row.mode, 'be-mode-cell');
+  makeModeCell('mode', row.mode, 'be-mode-cell');
   makeTextCell('step', row.step, 'be-step-cell');
   makeTextCell('stepAdj', row.stepAdj, 'be-step-cell');
   makeTextCell('tag', row.tag, 'be-tag-cell');
