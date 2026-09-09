@@ -18,17 +18,14 @@ from .base import Transport
 
 _CRLF_VARIANTS = (b"\r\n", b"\r", b"\n")
 
-# Mirrors aor_dv10.device._VFO_MODE_WRITE_CODES (kept independent to avoid
-# a transport->device import) - commands whose writes are rejected outside
-# VFO mode, confirmed against real hardware. Deliberately NOT including
-# "MD" (never independently confirmed) or "VF" (confirmed to itself be the
-# way *into* VFO mode - gating it on already being in VFO mode would be
-# backwards).
+# Mirrors aor_dv10.device._VFO_MODE_WRITE_CODES (kept independent to avoid a
+# transport->device import): writes rejected outside VFO mode, confirmed
+# against real hardware. Excludes "MD" (never confirmed) and "VF" (confirmed
+# to be the way *into* VFO mode - gating it would be backwards).
 _VFO_MODE_CODES = {"RF", "AC", "SQ", "AT", "RG", "ST", "SH"}
 
-# Numeric RE result codes used to simulate the "RE 1" (result-code
-# prefixing) behaviour confirmed against real hardware - see
-# aor_dv10.protocol.codec.RESULT_CODES.
+# RE ("RE 1" result-code prefixing) codes, confirmed against real hardware -
+# see aor_dv10.protocol.codec.RESULT_CODES.
 _RESULT_CODE_FOR_KIND = {
     "cannot_set": 30,  # e.g. a VFO-mode-gated write while browsing memory
     "format": 40,  # e.g. VF given something other than a VFO letter
@@ -38,9 +35,8 @@ _RESULT_CODE_FOR_KIND = {
 
 _VFO_LETTERS = {"A", "B", "Z"}
 
-# Mirrors aor_dv10.device.DIGITAL_MODES / ANALOG_MODES keys (kept
-# independent to avoid a transport->device import) - used to validate MD
-# writes the same way the real firmware does, see _handle() below.
+# Mirrors aor_dv10.device.DIGITAL_MODES / ANALOG_MODES keys (kept independent
+# to avoid a transport->device import) - validates MD writes as the firmware does.
 _DIGITAL_MODE_CODES = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "F"}
 _ANALOG_MODE_CODES = {"0", "1", "2", "3", "4", "5", "6"}
 
@@ -51,12 +47,10 @@ class SimulatorTransport(Transport):
     def __init__(self) -> None:
         self._open = False
         self._inbox: Deque[bytes] = deque()
-        # Confirmed against real hardware: writes to tuning/level parameters
-        # are rejected while the receiver is browsing a memory channel
-        # rather than in VFO mode. This is a Python-level knob (set sim.vfo_mode =
-        # False) purely for exercising that behaviour in tests/demos; a
-        # successful "VF <letter>" write (see _handle) flips it back on,
-        # mirroring the newly-confirmed real "VF A" success.
+        # Confirmed against real hardware: tuning/level writes are rejected
+        # while browsing a memory channel rather than in VFO mode. A test-only
+        # knob (set sim.vfo_mode = False); a successful "VF <letter>" write
+        # flips it back on, mirroring real "VF A".
         self.vfo_mode = True
         self.state = {
             "RF": "0145.50000",  # receive frequency, decimal MHz - confirmed against real hardware
@@ -76,19 +70,12 @@ class SimulatorTransport(Transport):
             "RN": "SIMULATED0001",
             "SN": "SIMULATED0001",
             "RX": "1",
-            # Manual-sourced defaults, added alongside device.py's
-            # manual-sourced expansion - plausible defaults so the GUI/CLI
-            # have something to show, not values confirmed against real
-            # hardware.
-            # ST default in the confirmed kHz-decimal wire format
-            # (STggg.gg) - see DV10Device.get_frequency_step_hz()/
-            # set_frequency_step_hz(). 12.50 kHz == 12500 Hz, matching
-            # this simulator's previous bare-integer default.
+            # Manual-sourced defaults - plausible values so the GUI/CLI have
+            # something to show, NOT confirmed against real hardware. ST uses
+            # the confirmed kHz-decimal wire format (STggg.gg).
             "ST": "012.50",
-            # SH default corrected: the AR-DV1 spec's own default for
-            # the standalone SH command is "000.00" (kHz-decimal), not a
-            # bare "0" - see
-            # DV10Device.get_step_adjust_hz()/set_step_adjust_hz().
+            # Per the AR-DV1 spec, SH's default is "000.00" (kHz-decimal),
+            # not a bare "0".
             "SH": "000.00",
             "CI": "0",
             "CN": "01",  # AR-DV1 spec is a 1-based CTCSS-table index, not a literal Hz string
@@ -105,9 +92,8 @@ class SimulatorTransport(Transport):
             "SI": "0",
             "SC": "2000",
             "OF": "00",  # slot 00 + omitted sign (offset reception off) - see set_offset_slot()
-            # "OL" is not a flat state entry here, see self.offset_freqs
-            # below - OL reads/writes always require an explicit slot
-            # number (OLnn), per the AR-DV1 spec.
+            # "OL" lives in self.offset_freqs, not here: per the AR-DV1 spec
+            # its reads/writes always require an explicit slot number (OLnn).
             "PO": "0",
             "PP": "0000",  # AR-DV1 spec is bbcc with no separator
             "TI": "05",
@@ -119,32 +105,23 @@ class SimulatorTransport(Transport):
             "DT": "2601010000",
             "ZI": "0000",
             "PT": "0",
-            # SL/SU/AS/BK are all spec-confirmed both-directions
-            # ("Setting / Reading completed") and simple single-value
-            # fields, so they need no special-case handling in _handle()
-            # below, unlike the composite SE/SG/MG/PW/PR/PD commands.
+            # SL/SU/AS/BK are spec-confirmed both-directions single-value
+            # fields, so they need no special-casing in _handle(), unlike the
+            # composite SE/SG/MG/PW/PR/PD commands.
             "SL": "0000.0000",  # search-range lower limit, session-only per the spec's own Remarks
             "SU": "0000.0000",  # search-range upper limit, session-only per the spec's own Remarks
             "AS": "0",  # standalone auto-store flag
             "BK": "99",  # standalone bank-link list ("99" = none linked)
-            # KL/IF/DL/FR are also simple single-value fields, same
-            # "no special-case handling needed" category as SL/SU/AS/BK
-            # above. IF's default ("3") is FM's own spec default
-            # ("default: 3 FM") - the simulator doesn't model
-            # per-mode IF-bandwidth validation (result code 30, "Invalid
-            # decode mode"), just stores/echoes whatever was last written.
+            # KL/IF/DL/FR: same simple single-value category as SL/SU/AS/BK.
+            # IF's "3" is FM's spec default; per-mode IF-bandwidth validation
+            # (result code 30) is not modelled, values are just echoed back.
             "KL": "0",  # key backlight color, spec default OFF
             "IF": "3",  # IF bandwidth selector, spec default (FM: 15KHz)
             "DL": "020",  # standalone delay time (deciseconds), spec default
             "FR": "00",  # standalone free time (seconds), spec default OFF
-            # Proposal items 19-28: previously raw-console-only commands
-            # newly wrapped by device.py get_*/set_* methods - these
-            # defaults are placeholders so reads/writes round-trip at all
-            # (same "not confirmed, just something for the GUI/CLI to
-            # show" spirit as the manual-sourced block above), NOT values
-            # confirmed against real hardware. On/off ones default off
-            # ("0"); the rest default to an empty string since no format
-            # detail is available to guess a plausible default from.
+            # Placeholder defaults so these round-trip at all - NOT confirmed
+            # against real hardware. On/off ones default off ("0"); the rest to
+            # an empty string, no format detail being available to guess from.
             "AN": "0",
             "CT": "",
             "DJ": "",
@@ -159,43 +136,30 @@ class SimulatorTransport(Transport):
             "RT": "0",
             "SB": "",
         }
-        # Per-slot offset-frequency table (OL, keyed by 2-digit slot) -
-        # see the AR-DV1-spec-confirmed OL handling in _handle() below.
-        # Slot "00" is fixed at 0Hz (offset reception off) and slots
-        # "20"-"39" are modelled as read-only factory presets, matching
-        # the spec's "cannot be changed" note.
+        # Per-slot offset-frequency table (OL, keyed by 2-digit slot). Slot
+        # "00" is fixed at 0Hz (offset off) and "20"-"39" are read-only factory
+        # presets, matching the spec's "cannot be changed" note.
         self.offset_freqs = {f"{i:02d}": "0000.00000" for i in range(40)}
-        # Live memory channels/banks (MX/MA/MR/MW/MB/MQ) - keyed by
-        # "bbcc"/"bb" strings, present only once written (unlike
-        # offset_freqs above, which pre-populates all 40 slots - a memory
-        # channel that's never been written is genuinely "not registered,"
-        # not "registered with a zero value", so absence from this dict IS
-        # that state - see _handle()'s MA/MW handling below.
+        # Live memory channels/banks (MX/MA/MR/MW/MB/MQ), keyed "bbcc"/"bb"
+        # and present only once written: a never-written channel is genuinely
+        # "not registered", so absence from this dict IS that state.
         self.memory_channels: dict = {}
         self.memory_banks: dict = {}
-        # Search banks / scan groups / pass frequencies (SE/SR/SS/SX/SL/SU,
-        # SG/MG/AS/BK, PW/PR/PD) - see _handle()'s handling below. SL/SU/
-        # AS/BK are simple enough (single value, spec-confirmed "may be
-        # used alone") to just live in self.state and go through the
-        # generic bare-read/write fallback at the bottom of _handle() - no
-        # special casing needed for those four.
-        # One RF/ST/SH/MD snapshot per VFO letter, independent of
-        # self.state's own RF/ST/SH/MD (which track whichever VFO is
-        # CURRENTLY receiving) - see the "VF" and "VI" _handle() cases
-        # below. Defaults match self.state's own RF/ST/SH/MD defaults.
+        # Search banks / scan groups / pass frequencies (SE/SR/SS/SX, SG/MG,
+        # PW/PR/PD). SL/SU/AS/BK stay in self.state and use _handle()'s generic
+        # fallback instead.
+        # One RF/ST/SH/MD snapshot per VFO letter, independent of self.state's
+        # own RF/ST/SH/MD (which track whichever VFO is CURRENTLY receiving).
         self.vfos: dict = {
             v: {"RF": "0145.50000", "ST": "012.50", "SH": "000.00", "MD": "0F0"}
             for v in _VFO_LETTERS
         }
-        # VE: a single, receiver-wide (not per-VFO, not per-group) delay/
-        # free-time/auto-store setting used by VS - see the "VE"/"VS"
-        # _handle() cases below.
+        # VE: one receiver-wide (not per-VFO, not per-group) delay/free-time/
+        # auto-store setting, used by VS.
         self.vfo_search_settings: dict = {"DL": "20", "FR": "00", "AS": "0"}
-        # TR, the scheduled recording/alarm timer - see aor_dv10.timer's
-        # module docstring for the significant
-        # spec-reconstruction caveats. Defaults match the AR-DV1 spec's
-        # own Default line exactly (WE/AG have no stated default, so
-        # start unset/None here).
+        # TR, the scheduled recording/alarm timer - see aor_dv10.timer's module
+        # docstring for the spec-reconstruction caveats. Defaults match the
+        # AR-DV1 spec's Default line (WE/AG have none stated, so start None).
         self.recording_timer: dict = {
             "XE": "0", "TY": "0", "RP": "0", "RM": "VFA",
             "TS": "01010000", "TE": "01010000", "WE": None, "AG": None,
@@ -205,33 +169,21 @@ class SimulatorTransport(Transport):
         self.scan_groups_memory: dict = {}  # "gg" -> {"DL","FR","BK"} (MG, no AS)
         self.pass_freqs_vfo: dict = {}  # "nn" (00-49) -> "ffff.ffff", sparse
         self.pass_freqs_bank: dict = {}  # "bb" -> {"nn": "ffff.ffff"}, sparse
-        # SD card management. sd_files is keyed by
-        # "NAME.EXT" (upper-cased extension as-stored); each entry has
-        # either "duration" (WAV) or "size" (everything else) set, mirroring
-        # the two per-file line shapes SD DIR documents - see
-        # aor_dv10.device.DV10Device.sd_dir()'s docstring. sd_error_injection
-        # is a test-only, one-shot seam: set it to one of the documented SD
-        # error tokens (CARDBUSY/NOCARD/FAT12/NOFILE/CARDFULL) and the next
-        # SD DIR/INF/PST/REC/PLY/MMW/MMR command returns that token instead
-        # of its normal behaviour, then clears it - there's no real "card
-        # state" modelled here otherwise (no busy/full/wrong-format
-        # simulation), so this is how tests exercise the documented error
-        # paths without one.
+        # SD card management. sd_files is keyed "NAME.EXT"; each entry sets
+        # either "duration" (WAV) or "size", mirroring SD DIR's two line shapes.
+        # sd_error_injection is a test-only one-shot seam: set it to a documented
+        # error token (CARDBUSY/NOCARD/FAT12/NOFILE/CARDFULL) and the next SD
+        # command returns that instead, then clears it. No real card state is
+        # modelled, so this is how tests reach the documented error paths.
         self.sd_files: dict = {}
         self.sd_recording: Optional[str] = None
         self.sd_playing: Optional[str] = None
         self.sd_error_injection: Optional[str] = None
-        # Frequency scope (FD/GL). Both are
-        # documented as only succeeding while the receiver is "in scope
-        # mode" (result code 30, "Not in scope mode", otherwise) - and no
-        # command or front-panel procedure to enter that mode was found in
-        # any reference document, including the full operating manual (see
-        # aor_dv10.device's "Frequency scope" section docstring). There is
-        # no real scope-mode state machine to model here, so - mirroring
-        # sd_error_injection's precedent - this is a test-only, manually-set
-        # toggle: leave it False to exercise the documented "not in scope
-        # mode" error path, or set it True to get cooked deterministic fake
-        # scan data back instead.
+        # Frequency scope (FD/GL). Both only succeed "in scope mode" (result
+        # code 30 otherwise), and NO command or front-panel procedure to enter
+        # that mode was found in any reference document, the full operating
+        # manual included. So this is a test-only manual toggle: False exercises
+        # the documented error path, True returns deterministic fake scan data.
         self.scope_mode: bool = False
 
     # -- Transport interface -------------------------------------------------
@@ -268,26 +220,15 @@ class SimulatorTransport(Transport):
 
     # -- Fake firmware ---------------------------------------------------
     #
-    # Framing confirmed against real hardware: no space between a
-    # command's code and its value, in either direction; unsupported/error
-    # responses are a bare "?" by default, or "<numeric code>?" once "RE 1"
-    # has been sent (see _error() below); and at least one command (WI)
-    # responds with just the value, no code echo - we replicate that one
-    # deliberately so anything exercising the simulator also exercises that
-    # code path.
+    # Framing confirmed against real hardware: no space between code and value
+    # in either direction; errors are a bare "?", or "<numeric code>?" once
+    # "RE 1" has been sent; and WI responds with just the value, no code echo,
+    # replicated here so that path gets exercised too.
     #
-    # Real-hardware bug: with "RE" left on from an earlier session, a
-    # crash on real hardware showed RE prefixes EVERY response, not just
-    # error ones - e.g. a
-    # plain "RF" read comes back "20RF0145.50000" (see
-    # aor_dv10.protocol.codec's module docstring for the full story). That
-    # crash also retroactively clarified that a successful write's ack body
-    # is actually EMPTY (not a bare-code echo as first assumed - the two
-    # were indistinguishable in CLI output with RE off, since
-    # Response.code always shows the *sent* code regardless of what's
-    # actually on the wire; RE's own "20"-only ack is what broke the tie).
-    # _respond() below implements this: every successful response is
-    # "<20 if RE is on><the plain RE-off body, which may be empty>".
+    # Real-hardware finding: with RE on, EVERY response is prefixed, not just
+    # errors ("20RF0145.50000" for a plain RF read - see codec's module
+    # docstring). The same crash showed a successful write's ack body is EMPTY,
+    # not a code echo. Hence _respond(): "<20 if RE is on><body, may be empty>".
 
     _ALL_CODES = (
         "EX", "ZP", "QP", "RF", "MD", "SQ", "AG", "AC", "AT", "RG", "LM",
@@ -307,19 +248,17 @@ class SimulatorTransport(Transport):
         # atomic VFO / VFO-search / VFO-info
         "VE", "VS",
         "TR",
-        # SD card management. Multi-word candidates matched by the same
-        # startswith() scan above - safe because none of them is a prefix
-        # of another (they differ by the 3rd/6th character), and there's
-        # no bare "SD" command to collide with in the first place.
+        # SD card management. Multi-word candidates use the same startswith()
+        # scan - safe because none is a prefix of another and there is no bare
+        # "SD" command to collide with.
         "SD DIR", "SD INF", "SD PST", "SD REC", "SD PLY", "SD RSQ",
         "SD MMW", "SD MMR",
         # frequency scope. Bare 2-letter codes, unlike the "SD "-prefixed
         # family above.
         "FD", "GL",
-        # proposal items 19-28: previously raw-console-only commands
-        # (RX was already listed above). See device.py's get_*/set_*
-        # wrappers for these - _handle()'s generic state-dict fallback
-        # below serves them, but only once they're recognised here first.
+        # Previously raw-console-only commands (RX already listed above).
+        # _handle()'s generic state-dict fallback serves them, but only once
+        # they are recognised here first.
         "AN", "CT", "DJ", "DK", "LC", "LT", "OX", "TS", "VQ", "ZS", "ZT", "RT", "SB",
     )
 
@@ -426,48 +365,36 @@ class SimulatorTransport(Transport):
             return
 
         if code in ("EX", "QP"):
-            # Ack shape not independently confirmed for these two
-            # specifically, but modelled consistently with the corrected
-            # "empty ack body" understanding below (see _respond()).
+            # Ack shape unconfirmed for these two; modelled consistently with
+            # the "empty ack body" finding (see _respond()).
             yield self._respond("")
             return
 
         if code in ("ZJ", "ZK"):
-            # "Move to previous/next frequency/bank/channel" - no value,
-            # modelled as a no-op ack (real hardware's actual frequency
-            # side effect isn't simulated).
+            # "Move to previous/next" - no value, no-op ack; the real frequency
+            # side effect is not simulated.
             yield self._respond("")
             return
 
         if code == "RS":
-            # "Reset" - takes a "0"/"1" (system/full) argument per
-            # device.reset(); modelled as a no-op ack, no actual state
-            # wipe (DESTRUCTIVE on real hardware).
+            # "Reset" - takes "0"/"1" (system/full); no-op ack here, no state
+            # wipe. DESTRUCTIVE on real hardware.
             yield self._respond("")
             return
 
         if code == "AG":
-            # Confirmed on real DV10 (via RE 1): not just the bare read -
-            # writes fail with the same result code 60 (PC_RESULT_NONE)
-            # too. This unit/firmware genuinely doesn't support AG at all
-            # remotely.
+            # Confirmed on real DV10 (via RE 1): reads AND writes both fail
+            # with result code 60 - this firmware has no remote AG support.
             yield self._error("not_supported")
             return
 
         if code == "MD" and arg is not None:
-            # Confirmed on real DV10: MD writes take a 3-character value
-            # in the SAME "dan" shape MD itself reads back, not the
-            # shorter 2-character form this project sent for a long time
-            # (which the real device silently accepted without ever
-            # applying it) - see aor_dv10.device._mode_write_value()/
-            # set_mode(). The leading "d" position is read-only on the
-            # read side and accepted an arbitrary digit in real-hardware
-            # testing, so it isn't validated here either; the middle
-            # "digital select" and trailing "analog select" positions are
-            # validated the same way the old 2-char check used to (an
-            # unrecognised code in either position rejected the same way
-            # real hardware rejected "F1" as an invalid analog code):
-            # result code 40.
+            # Confirmed on real DV10: MD writes take a 3-character "dan" value,
+            # the same shape MD reads back - not the 2-char form this project
+            # sent for a long time (silently accepted, never applied). The
+            # leading read-only "d" accepted an arbitrary digit in testing so it
+            # is not validated; the digital/analog positions are, rejecting an
+            # unknown code with result code 40.
             if len(arg) != 3:
                 yield self._error("format")
                 return
@@ -475,11 +402,9 @@ class SimulatorTransport(Transport):
             if digital_code not in _DIGITAL_MODE_CODES or analog_code not in _ANALOG_MODE_CODES:
                 yield self._error("format")
                 return
-            # Best-effort approximation of the read-only "currently
-            # receiving digital" field: not independently confirmed how the
-            # real firmware settles this right after a write, so we just
-            # report "no active digital decode" (Auto) - see
-            # aor_dv10.device.ModeInfo.
+            # Best-effort: how real firmware settles the read-only "currently
+            # receiving digital" field after a write is unconfirmed, so report
+            # "no active digital decode" (Auto).
             receiving_digital = "0"
             self.state["MD"] = f"{receiving_digital}{digital_code}{analog_code}"
             yield self._respond("")
@@ -496,12 +421,9 @@ class SimulatorTransport(Transport):
                 # returns result code 40 (PC_RESULT_FORMAT_ERR).
                 yield self._error("format")
                 return
-            # Confirmed on real DV10: "VF A" (bare, no other fields)
-            # succeeds - and, per this project's best current
-            # understanding, is how you get *into* VFO mode. Extended
-            # with the spec's optional embedded RF/ST/SH/MD fields -
-            # UNCONFIRMED against real hardware past the bare-letter
-            # form, see DV10Device.enter_vfo_mode().
+            # Confirmed on real DV10: bare "VF A" succeeds and is, as best
+            # understood, how you get INTO VFO mode. The spec's optional
+            # embedded RF/ST/SH/MD fields are UNCONFIRMED past that bare form.
             self.vfo_mode = True
             if rest:
                 fields = self._parse_fields(rest)
@@ -512,9 +434,8 @@ class SimulatorTransport(Transport):
                     "SH": fields.get("SH", prev["SH"]),
                     "MD": fields.get("MD", prev["MD"]),
                 }
-            # Per the spec, VF also makes this the actively-receiving VFO
-            # - mirror its (possibly just-updated) snapshot into the
-            # "live" RF/ST/SH/MD state every other command reads/writes.
+            # Per the spec VF also makes this the actively-receiving VFO, so
+            # mirror its snapshot into the live RF/ST/SH/MD state.
             live = self.vfos[letter]
             self.state["RF"] = live["RF"]
             self.state["ST"] = live["ST"]
@@ -524,10 +445,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "VE":
-            # VFO-search delay/free-time/auto-store - a single
-            # receiver-wide setting (no group number), unlike SG/MG - see
-            # aor_dv10.device.DV10Device.read_vfo_search_settings()/
-            # write_vfo_search_settings().
+            # VFO-search delay/free-time/auto-store: one receiver-wide setting
+            # (no group number), unlike SG/MG.
             arg_s = (arg or "").strip()
             if not arg_s:
                 s = self.vfo_search_settings
@@ -550,12 +469,10 @@ class SimulatorTransport(Transport):
             return
 
         if code == "VI":
-            # Read all three VFOs (A/B/Z) in one 3-line multi-response -
-            # same 21-continuing shape this project already models for
-            # PR/MA - see aor_dv10.device.DV10Device.read_vfo_info() for
-            # why the request/response shape had to be reconstructed from
-            # the AR-DV1 spec's prose rather than its own (corrupted)
-            # table cell.
+            # All three VFOs (A/B/Z) in one 3-line 21-continuing response, the
+            # same shape used for PR/MA. read_vfo_info() explains why this shape
+            # had to be reconstructed from the spec's prose, its table cell
+            # being corrupted.
             for i, letter in enumerate(("A", "B", "Z")):
                 v = self.vfos[letter]
                 body = f"VF{letter} RF{v['RF']} ST{v['ST']} SH{v['SH']} MD{v['MD']}"
@@ -566,12 +483,9 @@ class SimulatorTransport(Transport):
             return
 
         if code == "TR":
-            # Scheduled recording/alarm timer - see
-            # aor_dv10.device.DV10Device.write_recording_timer()/
-            # read_recording_timer() and aor_dv10.timer's module
-            # docstring for the significant spec-reconstruction caveats
-            # (the AR-DV1 spec PDF's own TR table entry is internally
-            # inconsistent about which fields exist at all).
+            # Scheduled recording/alarm timer. See aor_dv10.timer's module
+            # docstring: the AR-DV1 spec PDF's TR entry is internally
+            # inconsistent about which fields even exist.
             arg_s = (arg or "").strip()
             if not arg_s:
                 t = self.recording_timer
@@ -607,9 +521,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "FD":
-            # Fast-speed scope scan - see the scope_mode docstring in
-            # __init__ above and aor_dv10.device's "Frequency scope"
-            # section for the "no known way to enter scope mode" caveat.
+            # Fast-speed scope scan - see scope_mode in __init__ for the
+            # "no known way to enter scope mode" caveat.
             if not self.scope_mode:
                 yield self._error("cannot_set")  # spec: 30 = Not in scope mode
                 return
@@ -618,22 +531,18 @@ class SimulatorTransport(Transport):
             return
 
         if code == "GL":
-            # Normal-speed scope scan - 21-continuing multi-line shape,
-            # same yield-with-continue-code pattern as "SD DIR"/"VI"/"PR"
-            # below. See the scope_mode docstring in __init__ and
-            # aor_dv10.device's "Frequency scope" section for the "no
-            # known way to enter scope mode" caveat, and ScopeLine's
-            # docstring for the 2-digit-level-width caveat.
+            # Normal-speed scope scan - 21-continuing multi-line shape, same
+            # pattern as "SD DIR"/"VI"/"PR". See scope_mode in __init__ for the
+            # "no known way to enter scope mode" caveat.
             if not self.scope_mode:
                 yield self._error("cannot_set")  # spec: 30 = Not in scope mode
                 return
             base_mhz_x1e5 = 11_800_000  # 118.00000 MHz, as integer 1e-5-MHz units
             lines = []
             for i in range(10):
-                # Integer arithmetic throughout, then split into a
-                # zero-padded 4-digit integer part and 5-digit fractional
-                # part - avoids float-formatting edge cases and guarantees
-                # the 4-digit integer width _GL_LINE_RE expects.
+                # Integer arithmetic throughout, split into 4-digit integer and
+                # 5-digit fractional parts: avoids float-formatting edge cases
+                # and guarantees the width _GL_LINE_RE expects.
                 freq_x1e5 = base_mhz_x1e5 + i * 2_500  # 0.025 MHz steps
                 int_part, frac_part = divmod(freq_x1e5, 100_000)
                 level = self._fake_scope_bin_dbm(i, 2)
@@ -648,9 +557,7 @@ class SimulatorTransport(Transport):
             return
 
         if code == "SD DIR":
-            # Multi-line, 21-continuing shape - see
-            # aor_dv10.device.DV10Device.sd_dir() and the "VI"/"PR" blocks
-            # above for the same yield-with-continue-code pattern.
+            # Multi-line 21-continuing shape, same pattern as "VI"/"PR".
             if self.sd_error_injection:
                 token, self.sd_error_injection = self.sd_error_injection, None
                 yield self._respond(f"SD DIR {token}")
@@ -682,10 +589,9 @@ class SimulatorTransport(Transport):
 
         if code == "SD PST":
             if self.sd_error_injection:
-                # SD PST has no documented textual error tokens of its own -
-                # "4" already covers "not found/unusable" as a status
-                # value - so an injected token here just forces status "4"
-                # rather than echoing the token as text.
+                # SD PST has no documented textual error tokens ("4" already
+                # means "not found/unusable"), so an injected token just forces
+                # status "4" rather than echoing text.
                 self.sd_error_injection = None
                 yield self._respond("SD PST4")
                 return
@@ -796,21 +702,12 @@ class SimulatorTransport(Transport):
             return
 
         if code == "MM":
-            # Two-phase response, confirmed against the AR-DV1
-            # wire spec: 21 (registration started) then, once registration
-            # finishes, 20 (registration completed) - modelled here as
-            # both lines queued for the SAME "MM" request (this is a
-            # behavioural stand-in for "registration is fast enough that
-            # both lines are ready immediately", not a claim about real
-            # timing, which is unconfirmed - see
-            # aor_dv10.device.DV10Device.register_last_channel()). Only
-            # modelled as two lines when RE is on: RE off can't
-            # distinguish 20 from 21 at all (both are empty acks), and the
-            # spec's own two-phase text is itself part of the RE-on result
-            # -code description, so there's no documented basis for
-            # claiming two lines still arrive with RE off - see
-            # DV10Device.register_last_channel()'s docstring for how it
-            # handles that case (no follow-up read attempted).
+            # Two-phase response per the AR-DV1 wire spec: 21 (started) then
+            # 20 (completed), both queued for the same "MM" request. Real timing
+            # is unconfirmed; this just stands in for "fast enough that both are
+            # ready". Two lines only when RE is on - with RE off, 20 and 21 are
+            # indistinguishable empty acks and the spec's two-phase text is part
+            # of the RE-on description, so there is no basis for claiming two.
             if self.state.get("RE") == "1":
                 yield "21"
                 yield "20"
@@ -834,8 +731,7 @@ class SimulatorTransport(Transport):
                 "ST": "012.50", "SH": "000.00", "MD": "0F0", "TT": "",
             })
             # Per the spec: RF/ST/SH/MD/TT keep their previous value when
-            # omitted; MP/PT (unlike those) reset to 0 when omitted, they
-            # do NOT carry over - see write_memory_channel()'s docstring.
+            # omitted; MP/PT reset to 0 instead of carrying over.
             self.memory_channels[bbcc] = {
                 "MP": fields.get("MP", "0"),
                 "RF": fields.get("RF", prev["RF"]),
@@ -849,16 +745,10 @@ class SimulatorTransport(Transport):
             return
 
         if code == "MA":
-            # Read memory channel(s) - see
-            # aor_dv10.device.DV10Device.read_memory_channel()/
-            # read_memory_bank(). The bank form ("MAbb") is modelled as a
-            # full 50-line response (one per channel slot, registered or
-            # not - matching the single-channel form's own "- - -"
-            # placeholder for an unregistered slot), 21-prefixed except
-            # the last line (20) when RE is on - the same multi-line shape
-            # this project already models for MM, see
-            # DV10Device.read_memory_bank()'s docstring for what's
-            # unconfirmed about this.
+            # Read memory channel(s). The bank form ("MAbb") is a full 50-line
+            # response (one per slot, "- - -" where unregistered), 21-prefixed
+            # except the last line (20) when RE is on. See
+            # read_memory_bank()'s docstring for what is unconfirmed here.
             if arg is None:
                 yield self._error("format")
                 return
@@ -906,12 +796,9 @@ class SimulatorTransport(Transport):
             return
 
         if code == "MW":
-            # Memory bank metadata (channel count/protect/tag) - see
-            # aor_dv10.device.DV10Device.write_memory_bank()/
-            # get_memory_bank_info(). Bare "MWbb" is modelled as
-            # read-or-create-with-defaults (see get_memory_bank_info()'s
-            # own "unconfirmed" docstring note - there's no documented
-            # read form to be sure about).
+            # Memory bank metadata (channel count/protect/tag). Bare "MWbb" is
+            # modelled as read-or-create-with-defaults; there is no documented
+            # read form to be sure about (see get_memory_bank_info()).
             if arg is None:
                 yield self._error("format")
                 return
@@ -980,11 +867,9 @@ class SimulatorTransport(Transport):
                 "SL": "0000.0000", "SU": "0000.0000",
                 "ST": "012.50", "SH": "000.00", "MD": "0F0", "TT": "",
             })
-            # Per the spec: ST/SH/MD/TT keep their previous value when
-            # omitted, PT resets to 0 - same shape as MX. SL/SU have no
-            # documented "previous value" fallback of their own; kept
-            # here too (there's no better alternative for an omitted
-            # limit on an existing bank).
+            # Per the spec: ST/SH/MD/TT keep their previous value when omitted,
+            # PT resets to 0 - same shape as MX. SL/SU have no documented
+            # fallback; kept anyway, there being no better option.
             self.search_banks[bank] = {
                 "SL": fields.get("SL", prev["SL"]),
                 "SU": fields.get("SU", prev["SU"]),
@@ -998,10 +883,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "SR":
-            # Read a search bank - see
-            # aor_dv10.device.DV10Device.read_search_bank(). Response shape
-            # is inferred (mirrors SE's own write layout) - see that
-            # section's docstring in device.py for why.
+            # Read a search bank. Response shape is inferred, mirroring SE's
+            # own write layout.
             if arg is None or not (arg.isdigit() and len(arg) == 2):
                 yield self._error("format")
                 return
@@ -1041,10 +924,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "SG":
-            # Search-side scan group - see
-            # aor_dv10.device.DV10Device.write_search_scan_group()/
-            # read_search_scan_group(). Bare "SGgg" is a read (spec text
-            # explicitly says "Setting / Reading completed" for this one).
+            # Search-side scan group. Bare "SGgg" is a read - the spec says
+            # "Setting / Reading completed" for this one.
             if arg is None:
                 yield self._error("format")
                 return
@@ -1072,13 +953,9 @@ class SimulatorTransport(Transport):
             return
 
         if code == "MG":
-            # Memory-side scan group - see
-            # aor_dv10.device.DV10Device.write_memory_scan_group()/
-            # read_memory_scan_group(). Unlike SG, no AS sub-field, and
-            # the bare-group read direction is UNCONFIRMED (the spec's own
-            # result-code text for MG only says "Set completed" - see
-            # read_memory_scan_group()'s docstring) - modelled the same
-            # read-or-create-with-defaults way as MW for consistency.
+            # Memory-side scan group. Unlike SG, no AS sub-field, and the
+            # bare-group read direction is UNCONFIRMED (the spec only says "Set
+            # completed"); modelled read-or-create like MW for consistency.
             if arg is None:
                 yield self._error("format")
                 return
@@ -1103,23 +980,14 @@ class SimulatorTransport(Transport):
             return
 
         if code == "PW":
-            # Mark a pass frequency - see
-            # aor_dv10.device.DV10Device.mark_pass_frequency() for the 4
-            # documented shapes this mirrors: bare PW, PWffff.ffff, PWbb,
-            # PWbbffff.ffff (bb may be "%%" for "every search bank").
+            # Mark a pass frequency - 4 documented shapes: bare PW,
+            # PWffff.ffff, PWbb, PWbbffff.ffff (bb may be "%%" = every bank).
             #
-            # Disambiguated by EXACT LENGTH, not by peeking at one
-            # character: a bank token is always exactly 2 digits (or
-            # "%%"), a bare frequency is always exactly 9 chars
-            # ("ffff.ffff"), and a bank+frequency is always exactly
-            # 2+9=11 chars - a length-only check that first tried
-            # "peek at position 2" mis-parsed a bare 9-char frequency
-            # (e.g. "0146.5200") as a 2-digit bank token followed by a
-            # 7-char leftover, since a frequency's own first two digits
-            # are indistinguishable from a bank number by content alone.
-            # Caught via a live smoke test (raw "PW0146.52000" fed through
-            # DV10Device.mark_pass_frequency(frequency_hz=...) came back
-            # "?" instead of an ack) - fixed by matching on length instead.
+            # Disambiguated by EXACT LENGTH, never by peeking at a character:
+            # bank = 2 chars, frequency = 9, bank+frequency = 11. Peeking at
+            # position 2 mis-parsed a bare frequency ("0146.5200") as a bank
+            # plus leftover, a frequency's first two digits being
+            # indistinguishable from a bank number by content alone.
             arg_s = (arg or "").strip()
             if not arg_s:
                 ok = self._add_pass_freq(self.pass_freqs_vfo, self.state.get("RF", "0145.50000"))
@@ -1152,10 +1020,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "PR":
-            # List pass frequencies - see
-            # aor_dv10.device.DV10Device.list_pass_frequencies(). Same
-            # 50-line, 21/20-result-code-terminated shape this project
-            # already models for MA's bank form.
+            # List pass frequencies: same 50-line, 21/20-terminated shape as
+            # MA's bank form.
             arg_s = (arg or "").strip()
             if arg_s and not (arg_s.isdigit() and len(arg_s) == 2):
                 yield self._error("format")
@@ -1182,9 +1048,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "PD":
-            # Delete pass frequencies - see
-            # aor_dv10.device.DV10Device.delete_pass_frequencies() for the
-            # 3 documented shapes this mirrors: bare PD, PDbb/PD%%, PDbbnn.
+            # Delete pass frequencies - 3 documented shapes: bare PD,
+            # PDbb/PD%%, PDbbnn.
             arg_s = (arg or "").strip()
             if not arg_s:
                 self.pass_freqs_vfo.clear()
@@ -1215,11 +1080,9 @@ class SimulatorTransport(Transport):
             return
 
         if code == "OL":
-            # Reworked against the AR-DV1 wire spec: OLnn
-            # RFffff.fffff (combined slot+frequency write; reads also
-            # require the slot number, OLnn<CR> - never a bare OL<CR>) -
-            # see aor_dv10.device.DV10Device.get_offset_freq()/
-            # set_offset_freq().
+            # Per the AR-DV1 wire spec: "OLnn RFffff.fffff" (combined
+            # slot+frequency write); reads also require the slot number
+            # (OLnn<CR>), never a bare OL<CR>.
             if arg is None:
                 yield self._error("format")
                 return
@@ -1252,11 +1115,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "OF" and arg is not None:
-            # Corrected against the AR-DV1 wire spec: OFsnn - a leading
-            # +/- direction sign (omittable only when the slot is 00)
-            # alongside the slot
-            # number this project already modelled - see
-            # aor_dv10.device.DV10Device.set_offset_slot().
+            # Per the AR-DV1 wire spec: OFsnn - a leading +/- direction sign
+            # (omittable only when the slot is 00) plus the slot number.
             arg_up = arg.strip().upper()
             if arg_up[:1] in ("+", "-"):
                 sign, nn = arg_up[0], arg_up[1:]
@@ -1286,10 +1146,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "CN" and arg is not None:
-            # Corrected against the AR-DV1 wire spec: CNnn is a 1-based
-            # CTCSS-table index (01-52) or 99=search, not a literal Hz
-            # value - see
-            # aor_dv10.device.DV10Device.set_tone_squelch_freq().
+            # Per the AR-DV1 wire spec: CNnn is a 1-based CTCSS-table index
+            # (01-52) or 99=search, NOT a literal Hz value.
             arg_s = arg.strip()
             if arg_s.isdigit() and len(arg_s) == 2 and (arg_s == "99" or 1 <= int(arg_s) <= 52):
                 self.state["CN"] = arg_s
@@ -1299,9 +1157,8 @@ class SimulatorTransport(Transport):
             return
 
         if code == "BP" and arg is not None:
-            # Corrected against the AR-DV1 wire spec: BPn is a single
-            # digit 0-7, not a two-digit 00-15 value - see
-            # aor_dv10.device.DV10Device.set_beep_level().
+            # Per the AR-DV1 wire spec: BPn is a single digit 0-7, not a
+            # two-digit 00-15 value.
             arg_s = arg.strip()
             if arg_s.isdigit() and len(arg_s) == 1 and 0 <= int(arg_s) <= 7:
                 self.state["BP"] = arg_s
@@ -1323,22 +1180,17 @@ class SimulatorTransport(Transport):
 
         # write
         if not self.vfo_mode and code in _VFO_MODE_CODES:
-            # Confirmed on real DV10: rejected while browsing a memory
-            # channel. Modelled as "cannot set given current conditions"
-            # (result code 30), which is the closest fit in RESULT_CODES,
-            # though this specific mapping is this project's own inference
-            # rather than something seen on real hardware with RE on.
+            # Confirmed on real DV10: rejected while browsing a memory channel.
+            # Mapped to result code 30 as the closest fit in RESULT_CODES - that
+            # specific mapping is this project's inference, not observed.
             yield self._error("cannot_set")
             return
         if code not in self.state and code not in {"RF", "MD", "SQ", "AG"}:
             yield self._error("not_supported")
             return
         self.state[code] = arg
-        # Confirmed on real DV10: a successful write's ack body is EMPTY
-        # (not an echo of the code or the argument) - see the module-level
-        # note above. This applies uniformly, including to "RE" itself:
-        # setting self.state["RE"] just above means _respond("") already
-        # picks up the *new* RE state for this very ack, exactly matching
-        # the real "RE 1" -> "20" (prefix + empty body) transcript, with no
-        # special-casing needed.
+        # Confirmed on real DV10: a successful write's ack body is EMPTY, not
+        # an echo. This holds for "RE" itself: setting self.state["RE"] above
+        # means _respond("") picks up the NEW state for this very ack, matching
+        # the real "RE 1" -> "20" transcript with no special-casing.
         yield self._respond("")
