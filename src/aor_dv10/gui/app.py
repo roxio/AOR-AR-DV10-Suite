@@ -63,10 +63,8 @@ class MainWindow(QMainWindow):
         meter_box = QHBoxLayout()
         meter_box.addWidget(QLabel("S-METER"))
         self.smeter_bar = QProgressBar()
-        # LM's confirmed format is "vvvq": vvv = signal level as -vvv dB,
-        # q = squelch state digit - see aor_dv10.device.SMeterReading.
-        # -120..0 dB is a sane display floor/ceiling, not
-        # a hardware limit.
+        # LM's confirmed format is "vvvq": vvv = level as -vvv dB, q = squelch
+        # state digit. -120..0 dB is a display range, not a hardware limit.
         self.smeter_bar.setRange(-120, 0)
         meter_box.addWidget(self.smeter_bar)
         layout.addLayout(meter_box)
@@ -84,13 +82,10 @@ class MainWindow(QMainWindow):
         set_freq_btn.clicked.connect(self.on_set_frequency)
         grid.addWidget(set_freq_btn, 0, 2)
 
-        # Confirmed against real DV10 hardware: "raw VF A"
-        # succeeds and is very likely the software command to enter VFO
-        # mode - the precondition for the frequency/squelch/AGC/attenuator
-        # writes above to succeed at all instead of failing with "?".
-        # Surfaced here as a button rather than
-        # done automatically, since it hasn't been confirmed to be safe/a
-        # no-op to call repeatedly or from every starting state.
+        # Confirmed against real DV10 hardware: "raw VF A" succeeds and is very
+        # likely how you enter VFO mode - the precondition for the writes above
+        # to succeed instead of failing with "?". A button rather than automatic,
+        # since it is not confirmed safe to call repeatedly from any state.
         vfo_btn = QPushButton("Enter VFO A")
         vfo_btn.setToolTip(
             "Sends VF A - needed before Set (frequency/squelch/AGC/"
@@ -107,11 +102,9 @@ class MainWindow(QMainWindow):
         set_mode_btn.clicked.connect(self.on_set_mode)
         grid.addWidget(set_mode_btn, 1, 2)
 
-        # NOTE: AC (AGC) is actually a 4-state speed selector (Fast/Mid/
-        # Slow/RF-G), confirmed via the AR-DV3 spec - see
-        # aor_dv10.device.AGC_SPEEDS / get_agc_speed() / set_agc_speed().
-        # This checkbox is a legacy on/off simplification (on -> Mid,
-        # off -> Fast) kept for now; a proper 4-way selector is future work.
+        # AC (AGC) is really a 4-state speed selector (Fast/Mid/Slow/RF-G) per
+        # the AR-DV3 spec. This checkbox is a legacy on/off simplification
+        # (on -> Mid, off -> Fast); a proper 4-way selector is future work.
         self.agc_check = QCheckBox("AGC (legacy on/off)")
         self.agc_check.stateChanged.connect(self.on_toggle_agc)
         grid.addWidget(self.agc_check, 2, 0)
@@ -120,23 +113,17 @@ class MainWindow(QMainWindow):
         self.beep_check.stateChanged.connect(self.on_toggle_beep)
         grid.addWidget(self.beep_check, 2, 1)
 
-        # NOTE: AT is a 3-state selector (0=ATT OFF, 1=ATT ON, 2=10dB ATT) -
-        # the labels follow a real DV10's effect (1 engages the ~10dB signal
-        # attenuator), see aor_dv10.device.ATTENUATOR_STATES /
-        # get_attenuator_state() / set_attenuator_state(). This checkbox is
-        # a legacy on/off simplification (on -> ATT ON, off -> ATT OFF) that
-        # can't reach the 10dB (DV3-only) state; a proper 3-way selector is
-        # future work.
+        # AT is a 3-state selector (0=ATT OFF, 1=ATT ON, 2=10dB ATT); the
+        # labels follow a real DV10's effect (1 engages the ~10dB attenuator).
+        # This checkbox is a legacy on/off simplification that can't reach the
+        # DV3-only 10dB state; a proper 3-way selector is future work.
         self.att_check = QCheckBox("Attenuator (legacy on/off)")
         self.att_check.stateChanged.connect(self.on_toggle_att)
         grid.addWidget(self.att_check, 2, 2)
 
-        # Confirmed against real DV10 hardware: toggling this
-        # on ("raw RE 1") makes rejected commands come back with a decoded
-        # numeric result code instead of a bare "?" - see
-        # aor_dv10.protocol.codec.RESULT_CODES. Purely
-        # a diagnostic aid; DV10Device already decodes the numeric-code
-        # response either way once this is on.
+        # Confirmed against real DV10 hardware: toggling this on ("raw RE 1")
+        # makes rejected commands return a decoded numeric result code instead
+        # of a bare "?". Purely a diagnostic aid.
         self.re_check = QCheckBox("Result codes (diagnostic)")
         self.re_check.stateChanged.connect(self.on_toggle_re)
         grid.addWidget(self.re_check, 2, 3)

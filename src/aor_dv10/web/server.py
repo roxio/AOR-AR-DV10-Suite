@@ -77,18 +77,13 @@ _device: Optional[DV10Device] = None
 _lock = asyncio.Lock()
 
 # "mem" import state, shared by every browser tab against this one server
-# process - same file-format-only split as the CLI's "mem" verb family
-# (aor_dv10.cli.repl.Repl._dispatch_mem): never touches the live MX/MA
-# memory-channel wire commands, only replays a loaded channel's
-# frequency/mode/step through the already-confirmed f/m/step writes. See
-# aor_dv10.memory's module docstring.
+# process. File-format only, like the CLI's "mem" verbs: never touches the live
+# MX/MA wire commands, only replays a loaded channel through f/m/step writes.
 _memory_banks: list[MemoryBank] = []
 _memory_channels: list[MemoryChannel] = []
 
-# Client-side select-scan list, shared by
-# every browser tab, never persisted or written to the receiver. See
-# aor_dv10.selectscan and the CLI's own "select" verb
-# (aor_dv10.cli.repl.Repl._dispatch_select).
+# Client-side select-scan list, shared by every browser tab, never persisted
+# or written to the receiver. See aor_dv10.selectscan.
 _select_scan_list = SelectScanList()
 
 
@@ -111,15 +106,13 @@ async def api_status():
         try:
             return fn()
         except (DV10Error, ValueError, TypeError):
-            # Mirror device.status()'s _try: also swallow unexpected-format
-            # values (e.g. an MX record read as a frequency) so one bad
-            # field can't take down the whole /api/status response.
+            # Mirrors device.status()'s _try: swallow unexpected-format values
+            # so one bad field can't take down the whole /api/status response.
             return None
 
     def _current_offset_freq():
-        # OL now requires an explicit slot number (see
-        # DV10Device.get_offset_freq()'s docstring) - derive it
-        # from OF's currently-active slot rather than assuming a bare read.
+        # OL requires an explicit slot number, so derive it from OF's
+        # currently-active slot rather than assuming a bare read.
         raw_of = device.get_offset_slot()
         digits = "".join(ch for ch in raw_of if ch.isdigit())
         return device.get_offset_freq(int(digits) if digits else 0)
@@ -133,12 +126,9 @@ async def api_status():
         "smeter": s.smeter,
         "smeter_dbm": s.smeter_reading.dbm if s.smeter_reading else None,
         "squelch_open": s.smeter_reading.squelch_open if s.smeter_reading else None,
-        # LM's own 0-3 squelch-state digit (see device.SQUELCH_STATES) -
-        # squelch_open above collapses states 1-3 into one boolean, which
-        # hides state 3 ("detecting digital mode") behind the same
-        # generic "open" the web panel already showed for a plain
-        # noise/level/tone squelch opening. This lets the panel show
-        # digital-signal detection as its own distinct indicator instead.
+        # LM's raw 0-3 squelch-state digit. squelch_open above collapses 1-3
+        # into one boolean, hiding state 3 ("detecting digital mode"); this lets
+        # the panel show digital detection as its own indicator.
         "squelch_state": s.smeter_reading.squelch_state if s.smeter_reading else None,
         "agc_on": s.agc_on,
         "agc_speed": s.agc_speed,
@@ -151,11 +141,9 @@ async def api_status():
         "frequency_step_hz": _try(device.get_frequency_step_hz),
         "step_adjust_hz": _try(device.get_step_adjust_hz),
         "tone_squelch_enabled": _try(device.get_tone_squelch_enabled),
-        # Confirmed against real hardware: CI is a 3-value SQL TYPE
-        # selector (OFF/CTCSS/Reverse Tone), not a boolean - see
-        # aor_dv10.device.TONE_SQUELCH_TYPES and the "sqltype" verb
-        # below. tone_squelch_enabled above stays for the existing
-        # OFF/CTCSS toggle UI; this is the raw 0/1/2 value.
+        # Confirmed against real hardware: CI is a 3-value SQL TYPE selector
+        # (OFF/CTCSS/Reverse Tone), not a boolean. tone_squelch_enabled above
+        # stays for the OFF/CTCSS toggle UI; this is the raw 0/1/2 value.
         "squelch_tone_type": _try(device.get_squelch_tone_type),
         "tone_squelch_freq": _try(device.get_tone_squelch_freq),
         "dcs_enabled": _try(device.get_dcs_enabled),
@@ -181,20 +169,15 @@ async def api_status():
         "manual_gain": _try(device.get_manual_gain),
         "lcd_contrast": _try(device.get_lcd_contrast),
         "backlight_mode": _try(device.get_backlight_mode),
-        # Mode-aware IF bandwidth - see the "bw" verb above and
-        # DV10Device.get_if_bandwidth_hz()/get_if_bandwidth_options_hz().
-        # if_bandwidth_options_hz is {raw_digit: hz}; the panel only
-        # needs the Hz values for its <select>, but the digits are kept
-        # in case a future UI wants to show/send the raw value too.
+        # Mode-aware IF bandwidth. if_bandwidth_options_hz is {raw_digit: hz};
+        # the panel needs only the Hz values, but the digits are kept in case a
+        # future UI wants the raw value.
         "if_bandwidth_hz": _try(device.get_if_bandwidth_hz),
         "if_bandwidth_options_hz": _try(device.get_if_bandwidth_options_hz),
-        # Device identification, for the nameplate readout and for
-        # model-specific UI gating (e.g. SAH/SAL aren't functionally
-        # distinct on the DV10 - see aor_dv10.device.
-        # ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY). model()/
-        # device_family()/firmware_version() are all cached on the device
-        # object after their first read, so polling these every 1.5s
-        # doesn't mean a fresh WI/VR wire round-trip every time.
+        # Device identification, for the nameplate and model-specific UI gating
+        # (e.g. SAH/SAL are not distinct on the DV10). model()/device_family()/
+        # firmware_version() are cached after first read, so polling every 1.5s
+        # does not mean a fresh WI/VR round-trip each time.
         "model": _try(device.model),
         "device_family": _try(device.device_family),
         "firmware_version": _try(device.firmware_version),
@@ -725,10 +708,9 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_result_code_prefixing(on_off(args[0]))
         return "ok"
     if verb == "vfo":
-        # "vfo [A|B|Z] [mhz] [mode]". On a real DV10 the single atomic VF
-        # write only changes the VFO letter (embedded RF/MD fields are a
-        # silent no-op) - so an optional frequency/mode is applied with the
-        # standalone, confirmed RF and MD writes after selecting the VFO.
+        # "vfo [A|B|Z] [mhz] [mode]". On a real DV10 the atomic VF write only
+        # changes the VFO letter - embedded RF/MD fields are a silent no-op - so
+        # frequency/mode go through the standalone RF and MD writes after it.
         vfo = (args[0] if args else "A").strip().upper()
         if vfo not in ("A", "B", "Z"):
             raise ValueError(f'vfo must be "A", "B", or "Z"')
@@ -742,10 +724,8 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         if not args or args[0].lower() not in ("on", "off"):
             raise ValueError("usage: power on|off")
         resp = device.power_on() if args[0].lower() == "on" else device.power_off()
-        # Surface the device's actual reply (same "CODE value" idiom as
-        # the "raw" verb below) instead of a hardcoded "ok" that masked
-        # whatever really came back - see PROTOCOL.md, QP's response was
-        # never confirmed and this "ok" was hiding that gap.
+        # Surface the device's actual reply instead of a hardcoded "ok": QP's
+        # response was never confirmed and the "ok" was hiding that gap.
         return f"{resp.code} {resp.value or ''}".strip()
     if verb == "raw":
         code, value = args[0], (args[1] if len(args) > 1 else None)
@@ -774,10 +754,8 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_dcs_enabled(on_off(args[0]))
         return "ok"
     if verb == "sqltype":
-        # Confirmed against real hardware: CI is 0=OFF/1=CTCSS/
-        # 2=Reverse Tone, not a boolean - see aor_dv10.device.
-        # TONE_SQUELCH_TYPES. DCS is independent (DI, see "dcs" above),
-        # not one of this selector's values.
+        # Confirmed against real hardware: CI is 0=OFF/1=CTCSS/2=Reverse Tone,
+        # not a boolean. DCS is independent (DI), not one of these values.
         if args:
             device.set_squelch_tone_type(args[0])
         value = device.get_squelch_tone_type()
@@ -819,18 +797,15 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_voice_descrambler_enabled(on_off(args[0]))
         return "ok"
     if verb == "offset":
-        # OF takes an explicit direction sign
-        # too - "offset <slot> [+|-]" (default "+") - see
-        # DV10Device.set_offset_slot().
+        # OF takes an explicit direction sign: "offset <slot> [+|-]" (default "+").
         if args:
             direction = args[1] if len(args) > 1 else "+"
             device.set_offset_slot(int(args[0]), direction)
         return device.get_offset_slot()
     if verb == "offsetfreq":
-        # OL always needs an explicit slot number,
-        # for both reads and writes - "offsetfreq <slot> [freq_mhz]" - see
-        # DV10Device.get_offset_freq()/set_offset_freq(). With no args at
-        # all, falls back to whatever slot OF currently has active.
+        # OL always needs an explicit slot number, for reads and writes:
+        # "offsetfreq <slot> [freq_mhz]". With no args, falls back to whatever
+        # slot OF currently has active.
         if len(args) >= 2:
             device.set_offset_freq(int(args[0]), float(args[1]))
         if args:
@@ -841,9 +816,8 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
             slot = int(digits) if digits else 0
         return device.get_offset_freq(slot)
     if verb == "regchan":
-        # MM: register the current VFO/channel as "last channel memory" -
-        # see DV10Device.register_last_channel() for the
-        # AR-DV1-spec two-phase-response handling this relies on.
+        # MM: register the current VFO/channel as "last channel memory". Relies
+        # on register_last_channel()'s two-phase-response handling.
         code = device.register_last_channel()
         return f"registration result code: {code}"
     if verb == "prio":
@@ -925,18 +899,11 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
             device.set_if_bandwidth(args[0])
         return device.get_if_bandwidth()
     if verb == "bw":
-        # Mode-aware IF bandwidth by Hz value - see
-        # DV10Device.set_if_bandwidth_hz()/get_if_bandwidth_options_hz().
-        # Distinct from "ifbw" above, which takes/returns the raw digit
-        # whose meaning depends on the current mode; this one lets the
-        # web panel (and CLI) offer an actual "15 kHz"/"8 kHz"/"2.6 kHz"
-        # picker instead of requiring the raw digit to be known already.
-        # Mirrors the CLI's "bw" formatting (see cli/repl.py) rather than
-        # a bare value, since this is the terminal a person is most
-        # likely to actually be typing "bw" into live - see the choices
-        # text for why an empty list can mean two different things
-        # (unrecognised mode vs. a digital mode auto-selecting the
-        # filter itself, not user-settable at all).
+        # Mode-aware IF bandwidth by Hz value. Distinct from "ifbw" above,
+        # which takes the raw digit whose meaning depends on the current mode;
+        # this one lets the UI offer a real "15 kHz"/"8 kHz" picker. An empty
+        # option list means either an unrecognised mode or a digital mode that
+        # picks the filter itself - see the choices text.
         if args:
             device.set_if_bandwidth_hz(int(args[0]))
         hz = device.get_if_bandwidth_hz()
@@ -977,10 +944,8 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         full = bool(args) and args[0].strip().lower() in ("full", "1")
         device.reset(full=full)
         return "reset sent (full)" if full else "reset sent (system)"
-    # -- proposal items 19-28: previously raw-console-only commands - see
-    # aor_dv10.cli.repl's own copy of this block and DV10Device's
-    # get_*/set_* docstrings for the shared "raw passthrough, format
-    # unconfirmed" caveats.
+    # -- previously raw-console-only commands. See DV10Device's get_*/set_*
+    # docstrings for the shared "raw passthrough, format unconfirmed" caveats.
     if verb == "an":
         if args:
             device.set_earphone_antenna(_on_off(args[0]))
@@ -1058,14 +1023,10 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         return _dispatch_plain_scope(device, args)
     if verb == "select":
         return _dispatch_plain_select(device, args)
-    # -- protocol tracing - see aor_dv10.protocol.codec's
-    # CommandChannel trace ring buffer: every raw TX/RX line is always
-    # recorded regardless of interface, so these are purely retroactive
-    # ("what actually happened") rather than a live toggle - a live sink
-    # would need per-connection broadcast plumbing this endpoint doesn't
-    # have yet. The CLI's "debug on" (aor_dv10.cli.repl) covers the
-    # watch-it-happen-live case; this covers "pull the last N lines" from
-    # the browser too, since both interfaces share one device/one trace.
+    # -- protocol tracing. CommandChannel always records every TX/RX line, so
+    # these endpoints are retroactive ("what actually happened"), not a live
+    # toggle - a live sink would need broadcast plumbing this doesn't have.
+    # The CLI's "debug on" covers watching it live; both share one trace.
     if verb == "debug":
         if not args:
             return "usage: debug last [N] | debug save <path>"
@@ -1592,9 +1553,8 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
         if rest[0].lower() == "start":
             device.sd_record_start()
             return "recording started"
-        # AR-DV1's documented remote stop (SD REC /) is not supported on the
-        # AR-DV10 - sending it wedges the radio; recording there stops with
-        # the front-panel ● key only. Deny instead of poking a bad command.
+        # AR-DV1's documented remote stop (SD REC /) WEDGES an AR-DV10 -
+        # recording stops with the front-panel key only. Deny rather than send.
         if device.device_family() == "DV10":
             raise ValueError(
                 "sd rec stop is not supported on the AR-DV10 - "
@@ -1871,10 +1831,9 @@ async def ws_endpoint(websocket: WebSocket) -> None:
                     reply = _dispatch_plain(device, line)
                 except (DV10Error, ValueError, IndexError) as exc:
                     reply = f"error: {exc}"
-            # _dispatch_plain() returns non-str for a few numeric getters
-            # (see its docstring) - websocket.send_text() requires an
-            # actual str, so stringify here rather than at every one of
-            # _dispatch_plain()'s many verb branches.
+            # _dispatch_plain() returns non-str for a few numeric getters and
+            # send_text() needs a str - stringify here rather than in every one
+            # of its verb branches.
             if reply is None:
                 reply = ""
             elif not isinstance(reply, str):

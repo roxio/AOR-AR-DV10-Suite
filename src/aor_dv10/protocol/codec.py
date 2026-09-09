@@ -33,16 +33,13 @@ from .commands import COMMANDS
 
 DEFAULT_TIMEOUT = 1.5
 
-# Result codes from the AR-DV3 command spec, controlled by the ``RE``
-# command (0=off/default, 1=on: prefix every response with one of these).
-# Confirmed against real AR-DV10 hardware in two rounds: first that
-# rejections come back as ``"<code>?"`` (e.g. ``"60?"`` for a bare ``AG``
-# read, ``"40?"`` for ``VF 1``), then - from a real crash caused by ``RE``
-# being left on from an earlier session - that *successful* responses are
-# ALSO prefixed, e.g. a plain ``RF`` read came back as ``"20RF0145.50000"``
-# (``20`` = OK, then the completely normal ``RF0145.50000`` response).
-# The "+1 continue" variants (11, 21, 31, ...) aren't independently
-# confirmed; decoded here by subtracting 1 down to the nearest base code.
+# Result codes from the AR-DV3 command spec, controlled by ``RE`` (0=off,
+# 1=on: prefix every response). Confirmed against real AR-DV10 hardware in two
+# rounds: rejections come back as ``"<code>?"`` (``"60?"`` for a bare ``AG``
+# read, ``"40?"`` for ``VF 1``), and - via a crash with ``RE`` left on from an
+# earlier session - SUCCESSFUL responses are prefixed too (a plain ``RF`` read
+# returned ``"20RF0145.50000"``). The "+1 continue" variants (11, 21, ...) are
+# unconfirmed; decoded by subtracting 1 down to the nearest base code.
 RESULT_CODES = {
     10: "PC_RESULT_SEND (unrelated message)",
     20: "PC_RESULT_OK",
@@ -56,15 +53,12 @@ RESULT_CODES = {
 # variants, 11/21) are success/informational.
 _RESULT_ERROR_CODES = {30, 31, 40, 41, 50, 51, 60, 61}
 
-# Every code we know about, error or not - used to recognise the numeric
-# prefix at the front of a response. Deliberately matched unconditionally
-# (not gated on some "is RE on?" flag this module would have to track):
-# every response this project has ever seen from the DV10 with RE *off*
-# starts with a letter (a command code echo, or text like "AOR AR-DV10"),
-# or is the bare "?" handled separately above - never with a digit. So a
-# response starting with exactly one of these two-digit codes is an
-# unambiguous signal that RE-style prefixing is active on *this* response,
-# regardless of whether this library happens to know that already.
+# Every known code, error or not - used to recognise a response's numeric
+# prefix. Matched unconditionally rather than gated on an "is RE on?" flag:
+# with RE off every response ever seen starts with a letter (a code echo, or
+# text like "AOR AR-DV10") or is the bare "?" handled above - never a digit.
+# So a leading two-digit code unambiguously means RE prefixing is active on
+# THIS response, whether or not this library already knew that.
 _KNOWN_RESULT_CODES = _RESULT_ERROR_CODES | {10, 11, 20, 21}
 
 _RESULT_CODE_PREFIX_RE = re.compile(r"^(\d{2})(.*)$", re.DOTALL)
@@ -120,9 +114,8 @@ class Response:
     code: str
     value: Optional[str]
     raw: str
-    # The numeric RE prefix stripped from this response, when present (see
-    # CommandChannel.send()) - None if RE-style prefixing wasn't detected
-    # on this particular response (typically because RE is off).
+    # The numeric RE prefix stripped from this response, or None when no
+    # prefixing was detected (typically because RE is off).
     result_code: Optional[int] = None
 
 
@@ -145,18 +138,12 @@ class CommandChannel:
         self.timeout = timeout
         self._lock = threading.RLock()  # RLock: send() calls itself once on resync/retry
         # -- protocol tracing ----------------------------------------------
-        # Every TX/RX line (byte-exact, via repr() - so a stray space, an
-        # unexpected CR/LF, or a non-ASCII byte from a misbehaving real
-        # unit is visible rather than silently stripped/decoded away) is
-        # ALWAYS recorded here, regardless of whether anything is watching
-        # live - so "what actually happened right before that weird
-        # error?" is answerable after the fact via trace_lines(), not just
-        # by remembering to turn tracing on beforehand. A bounded deque
-        # keeps memory flat during a long session. ``_trace_sink``, when
-        # set via set_trace_sink(), additionally gets each line live (the
-        # CLI's "debug on" echoes it to the console; the web panel forwards
-        # it to connected browser tabs) - see DV10Device.set_trace_sink()/
-        # trace_lines()/save_trace() for the public-facing wrappers.
+        # Every TX/RX line is ALWAYS recorded byte-exact (via repr(), so a stray
+        # space, an unexpected CR/LF or a non-ASCII byte stays visible), whether
+        # or not anything is watching - so "what happened right before that
+        # error?" is answerable after the fact, not only if tracing was turned
+        # on beforehand. A bounded deque keeps memory flat. ``_trace_sink``,
+        # when set, additionally gets each line live.
         self._trace: Deque[str] = deque(maxlen=2000)
         self._trace_sink: Optional[Callable[[str], None]] = None
 
@@ -263,10 +250,9 @@ class CommandChannel:
                         str(result_code), raw_text, hint=describe_result_code(result_code),
                         result_code=result_code,
                     )
-                # An informational/OK prefix (10/11/20/21): strip it and keep
-                # parsing the remainder exactly like a normal, unprefixed
-                # response - it may be empty (a plain write ack), "?" (unlikely
-                # but handled defensively), or a full CODE+value/message body.
+                # An informational/OK prefix (10/11/20/21): strip it and parse
+                # the remainder like an unprefixed response - it may be empty (a
+                # write ack), "?", or a full CODE+value body.
                 text = prefix_match.group(2)
                 if text == "?" or text.startswith("?"):
                     raise DV10ProtocolError("?", raw_text)

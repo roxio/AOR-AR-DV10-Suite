@@ -318,14 +318,12 @@ class Repl:
         self.console = console or Console()
         completer = WordCompleter(_VERBS + list(COMMANDS.keys()), ignore_case=True)
         self.session = PromptSession("DV10> ", completer=completer)
-        # "mem load"-ed backup CSV, if any - see the "mem" verb and
-        # aor_dv10.memory. File-format only, never touches the live
-        # MX/MA memory-channel wire commands.
+        # "mem load"-ed backup CSV, if any. File-format only, never touches the
+        # live MX/MA memory-channel wire commands.
         self.memory_banks: list = []
         self.memory_channels: list[MemoryChannel] = []
-        # Client-side select-scan list - session-only,
-        # never persisted or written to the receiver. See the "select"
-        # verb and aor_dv10.selectscan.
+        # Client-side select-scan list: session-only, never persisted or
+        # written to the receiver.
         self.select_scan_list = SelectScanList()
         # Open log file for "debug on <path>"/--debug <path>, if any - see
         # the "debug" verb and enable_debug()/disable_debug() below.
@@ -414,16 +412,11 @@ class Repl:
                 raise ValueError("usage: re on|off")
             self.device.set_result_code_prefixing(_on_off(args[0]))
         elif verb == "vfo":
-            # "vfo [A|B|Z] [mhz] [mode]". The VF command's *embedded*
-            # RF/ST/SH/MD fields (the atomic "VFt RF... MD..." form) are a
-            # silent no-op on real DV10 - confirmed by testing: "vfo A
-            # 145.500000 F0" only switches to VFO-A and leaves the
-            # frequency unchanged (matches the unconfirmed-inference warning
-            # in enter_vfo_mode()). So a frequency/mode here is applied with
-            # the STANDALONE, separately-confirmed RF and MD writes after
-            # first entering the chosen VFO - the same
-            # enter_vfo_mode()+set_frequency_hz() sequence the web server
-            # and CLI use for mem-tune/mem-goto.
+            # "vfo [A|B|Z] [mhz] [mode]". Confirmed by testing: VF's EMBEDDED
+            # RF/ST/SH/MD fields are a silent no-op on a real DV10 ("vfo A
+            # 145.500000 F0" only switches VFO). So frequency/mode go through
+            # the standalone, separately-confirmed RF and MD writes after
+            # entering the chosen VFO.
             vfo = (args[0] if args else "A").strip().upper()
             if vfo not in ("A", "B", "Z"):
                 raise ValueError(f'vfo must be "A", "B", or "Z"')
@@ -499,18 +492,15 @@ class Repl:
                 self.device.set_dcs_code(args[0])
             self.console.print(self.device.get_dcs_code())
         elif verb == "offset":
-            # OF takes an explicit direction sign too - "offset <slot
-            # 00-39> [+|-]" (default "+") - see
-            # DV10Device.set_offset_slot().
+            # OF takes an explicit direction sign: "offset <slot 00-39> [+|-]"
+            # (default "+").
             if args:
                 direction = args[1] if len(args) > 1 else "+"
                 self.device.set_offset_slot(int(args[0]), direction)
             self.console.print(self.device.get_offset_slot())
         elif verb == "offsetfreq":
-            # OL always needs an explicit slot
-            # number, for both reads and writes - "offsetfreq <slot 00-39>
-            # [freq_mhz]" - see DV10Device.get_offset_freq()/
-            # set_offset_freq(). With no args at all, falls back to
+            # OL always needs an explicit slot number, for reads and writes:
+            # "offsetfreq <slot 00-39> [freq_mhz]". With no args, falls back to
             # whatever slot OF currently has active.
             if len(args) >= 2:
                 self.device.set_offset_freq(int(args[0]), float(args[1]))
@@ -523,9 +513,8 @@ class Repl:
             self.console.print(self.device.get_offset_freq(slot))
         elif verb == "regchan":
             # MM: register the currently-tuned VFO/bank/channel as the
-            # receiver's "last channel memory" - see
-            # DV10Device.register_last_channel() for the
-            # AR-DV1-spec two-phase-response handling this relies on.
+            # receiver's "last channel memory". Relies on
+            # register_last_channel()'s two-phase-response handling.
             code = self.device.register_last_channel()
             self.console.print(f"registration result code: {code}")
         elif verb == "prio":
@@ -605,10 +594,8 @@ class Repl:
                 self.device.set_step_adjust_hz(int(float(args[0])))
             self.console.print(self.device.get_step_adjust_hz())
         elif verb == "backlight":
-            # LB (LCD backlight mode) - NOT to be confused with "klcolor"
-            # (KL, key backlight color) just below; see this section's
-            # comment near the HELP text above for why these two got
-            # separated out under different verb names.
+            # LB (LCD backlight mode) - NOT "klcolor" (KL, key backlight
+            # color) just below.
             if args:
                 self.device.set_backlight_mode(args[0])
             mode = self.device.get_backlight_mode()
@@ -630,10 +617,8 @@ class Repl:
             if options:
                 choices = ", ".join(str(v) for v in options)
             else:
-                # Empty options has two different causes - see
-                # get_if_bandwidth_options_hz()'s docstring - worth
-                # telling apart here rather than one generic "none known"
-                # for both.
+                # Empty options has two different causes, worth telling apart
+                # rather than one generic "none known".
                 digital = self.device.get_mode_info().digital_select
                 if digital and digital != "Digital off":
                     choices = f"none - auto-selected by the receiver while digital ({digital}) is active"
@@ -879,15 +864,10 @@ class Repl:
             self.device.delete_memory_bank(int(rest[0]))
             self.console.print("bank deleted")
         elif sub == "find":
-            # Task 14, item 39: "extend [mem find] to live-read data once
-            # #10 lands" - #10 (read_memory_bank()) landed in an earlier
-            # task, so this is that extension. Deliberately kept separate
-            # from "mem find" (which searches a loaded CSV's .name field)
-            # rather than merged into it, mirroring the project's existing
-            # mem/rmem split (see this method's own docstring) - the two
-            # commands read genuinely different data sources with
-            # different field layouts (MemoryChannelInfo.tag here vs.
-            # MemoryChannel.name there).
+            # Deliberately separate from "mem find" (which searches a loaded
+            # CSV's .name field), mirroring the project's mem/rmem split: the
+            # two read different data sources with different field layouts
+            # (MemoryChannelInfo.tag here vs. MemoryChannel.name there).
             if not rest:
                 raise ValueError("usage: rmem find <text> [bank]")
             needle = rest[0].strip().lower()
@@ -1246,10 +1226,8 @@ class Repl:
                 self.device.sd_record_start()
                 self.console.print("recording started")
             else:
-                # AR-DV1's documented remote stop (SD REC /) is not
-                # supported on the AR-DV10 - sending it wedges the radio
-                # (recording there stops with the front-panel ● key only).
-                # Deny instead of poking a command the device can't handle.
+                # AR-DV1's documented remote stop (SD REC /) WEDGES an
+                # AR-DV10 - recording stops with the front-panel key only.
                 if self.device.device_family() == "DV10":
                     raise ValueError(
                         "sd rec stop is not supported on the AR-DV10 - "
@@ -1540,8 +1518,7 @@ class Repl:
                 self.device.set_frequency_step_hz(match.step_hz)
             if match.mode and len(match.mode) == 3:
                 # CSV mode is "<receiving><digital-select><analog-select>";
-                # set_mode() wants "<digital-select><analog-select>" - see
-                # MemoryChannel.describe_mode() and DV10Device.set_mode().
+                # set_mode() wants "<digital-select><analog-select>".
                 self.device.set_mode(match.mode[1:3])
             self.console.print(
                 f"Tuned to {match.bank_channel} ({match.name.strip() or 'unnamed'}): "

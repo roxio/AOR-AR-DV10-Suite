@@ -131,10 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.export_commands:
-        # Deliberately before Console()/device connection: this is a pure
-        # data dump meant to be piped/redirected (e.g. into a .json file),
-        # so nothing else should touch stdout on this path, and no serial
-        # port or simulator needs to exist for it to work.
+        # Deliberately before Console()/device connection: a pure data dump
+        # meant to be piped into a file, so nothing else may touch stdout here
+        # and no port or simulator needs to exist.
         export_commands(args.export_commands, sys.stdout)
         return 0
 
@@ -177,9 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                 mdns_name=args.mdns_name,
             )
         except ImportError as exc:
-            # e.g. --mdns without the "zeroconf" package - start_in_thread()
-            # raises rather than printing (see its docstring), so the CLI
-            # decides how to present it, consistently with the case above.
+            # e.g. --mdns without "zeroconf": start_in_thread() raises rather
+            # than printing, leaving presentation to the CLI.
             console.print(f"[red]Could not start the web panel:[/red] {exc}")
             device.disconnect()
             return 1
@@ -200,10 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[dim]{msg}[/dim]")
     try:
         if args.run:
-            # Same error handling as the interactive REPL's run() loop
-            # (see Repl.run() in repl.py): a DV10Error/ValueError from one
-            # --run command shouldn't abort the rest of the batch with an
-            # unhandled traceback - print it and move on to the next one.
+            # Same handling as Repl.run(): one --run command's DV10Error/
+            # ValueError shouldn't abort the rest of the batch.
             for cmd in args.run:
                 console.print(f"[dim]DV10> {cmd}[/dim]")
                 try:
