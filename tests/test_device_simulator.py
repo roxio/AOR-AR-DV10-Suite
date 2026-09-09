@@ -99,10 +99,8 @@ def test_raw_escape_hatch_reaches_undocumented_helpers():
     dev = DV10Device.open_simulator()
     with dev:
         # Confirmed against real hardware: a successful write's ack body is
-        # EMPTY (not an echo of the argument, and not even a bare code
-        # echo - see aor_dv10.transport.simulator's module docstring), so
-        # resp.value is None here even though the
-        # write itself took effect (checked via the follow-up read).
+        # EMPTY - not an argument echo, not even a code echo - so resp.value is
+        # None even though the write took effect (see the follow-up read).
         resp = dev.raw("AT", "1")
         assert resp.value is None
         resp = dev.raw("AT")

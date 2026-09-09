@@ -27,9 +27,8 @@ def test_device_family_detects_dv10_from_default_simulator_model(dev):
 
 
 def test_device_family_checks_dv10_before_dv1_substring(dev):
-    # "DV1" is itself a substring of "DV10" - a real DV10's own "AOR
-    # AR-DV10" response must not be misidentified as a DV1 by checking
-    # the shorter substring first. See device_family()'s docstring.
+    # "DV1" is a substring of "DV10": a real "AOR AR-DV10" response must not be
+    # misidentified as a DV1 by checking the shorter substring first.
     assert "DV1" in dev.model().upper()
     assert dev.device_family() == "DV10"
 
@@ -52,10 +51,9 @@ def test_device_family_unrecognised_model_returns_empty_string(dev):
 
 
 def test_model_is_cached_after_first_read(dev):
-    # WI doesn't change mid-connection and this project now polls
-    # model()/device_family() every 1.5s from the web panel - see
-    # model()'s docstring. Mutating the simulator's backing state after
-    # the first read must NOT be reflected until a reconnect.
+    # WI can't change mid-connection and the web panel polls model() every
+    # 1.5s, so it is cached: mutating the simulator's state after the first
+    # read must NOT show up until a reconnect.
     first = dev.model()
     dev._transport.state["WI"] = "something completely different"  # noqa: SLF001
     assert dev.model() == first

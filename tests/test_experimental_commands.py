@@ -67,11 +67,9 @@ def test_device_raw_text_passthroughs_round_trip():
 def test_device_digital_data_output_is_write_only_and_unrelated_to_acquire():
     dev = make_device()
     dev.set_digital_data_output("HELLO")
-    # DK (acquire_digital_data) is a genuinely separate command per the
-    # command registry - there's no confirmed relationship between what
-    # DJ writes and what DK reads back, so this must NOT come back as
-    # "HELLO" (that would be fabricating a link this project doesn't
-    # have evidence for).
+    # DK is a separate command from DJ with no confirmed relationship between
+    # them, so this must NOT read back "HELLO" - that would fabricate a link
+    # there is no evidence for.
     assert dev.acquire_digital_data() == ""
 
 

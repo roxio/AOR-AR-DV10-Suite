@@ -58,12 +58,9 @@ def capture_tx(dev: DV10Device, action) -> str:
 
 
 def test_mx_ma_parse_fixture_full_record():
-    # Hand-built to the exact "MP/RF/ST/SH/MD/PT/TT" field order/widths
-    # documented for MA's response body (see
-    # _parse_memory_channel_response()'s docstring) - MP1 (pass channel
-    # on), 439.3 MHz, 12.5 kHz step, 3.12 kHz step-adjust (one of SH's own
-    # documented enum values), digital-off/FM mode, write-protected, and
-    # a tag containing a space.
+    # Hand-built to MA's documented "MP/RF/ST/SH/MD/PT/TT" field order and
+    # widths: pass on, 439.3 MHz, 12.5 kHz step, 3.12 kHz step-adjust (one of
+    # SH's enum values), digital-off/FM, write-protected, tag with a space.
     dev = make_device()
     text = "MP1 RF0439.30000 ST012.50 SH003.12 MD0F0 PT1 TT2m rptr"
     info = dev._parse_memory_channel_response(0, 1, text)
@@ -86,10 +83,8 @@ def test_mx_ma_parse_fixture_unregistered_placeholder():
 
 def test_mx_build_fixture_matches_documented_field_order():
     # "MXbbcc [MPp] [RFffff.fffff] [STggg.gg] [SHhhh.hh] [MDdan] [PTa]
-    # [TTttt]" - see write_memory_channel()'s docstring. Field order in
-    # the built string must match the spec's, even though the simulator/
-    # a real receiver would presumably accept a different order too -
-    # this pins what THIS PROJECT sends, not just what's accepted.
+    # [TTttt]". Pins the order THIS PROJECT sends, not merely what a receiver
+    # would accept.
     dev = make_device()
     tx = capture_tx(
         dev,
@@ -113,11 +108,9 @@ def test_mx_build_fixture_matches_documented_field_order():
 
 
 def test_mx_build_fixture_omits_untouched_value_fields_but_always_sends_mp_pt():
-    # The value-carrying optional fields (ST/SH/MD/TT) stay absent when not
-    # given. MP/PT do NOT: they are flags with no "unset" value, and a real
-    # receiver's own channel dump always spells them out ("MX0418 MP0 ...
-    # PT0 ..."), while every MX this project sent without them came back
-    # error 40 - see write_memory_channel()'s comment.
+    # Value-carrying optional fields (ST/SH/MD/TT) stay absent when not given.
+    # MP/PT do not: they are flags with no "unset" value, a real receiver's dump
+    # always spells them out, and every MX sent without them returned error 40.
     dev = make_device()
     tx = capture_tx(dev, lambda: dev.write_memory_channel(1, 5, frequency_hz=146_520_000))
     assert "MX0105 MP0 RF0146.52000 PT0" in tx
@@ -129,9 +122,8 @@ def test_mx_build_fixture_omits_untouched_value_fields_but_always_sends_mp_pt():
 
 
 def test_se_sr_parse_fixture_full_record():
-    # "SL/SU/ST/SH/MD/PT/TT" - SL/SU use the coarser "ffff.ffff" width
-    # (100Hz resolution), confirmed distinct from RF/OL's "ffff.fffff" -
-    # see _format_search_freq_mhz()'s docstring.
+    # "SL/SU/ST/SH/MD/PT/TT". SL/SU use the coarser "ffff.ffff" width (100Hz),
+    # confirmed distinct from RF/OL's "ffff.fffff".
     dev = make_device()
     text = "SL0144.0000 SU0148.0000 ST012.50 SH000.05 MDF0 PT0 TT2m band"
     info = dev._parse_search_bank_response(0, text)

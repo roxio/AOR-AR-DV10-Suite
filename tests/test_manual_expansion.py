@@ -41,12 +41,10 @@ def test_ctcss_and_dcs_roundtrip():
 
 # -- CI (tone squelch type): confirmed 3-value, not a boolean -----------
 #
-# Live-tested against a real DV10: the front panel's SQL TYPE menu
-# showing "REV.T" (Reverse Tone) read back as CI="2" (DI="0"); showing
-# "DCS" read back as CI="0" (DI="1") - confirming DCS is DI's own
-# independent flag, not one of CI's values. "1"=CTCSS is inferred by
-# elimination (SQL TYPE's remaining choice), not independently read back
-# from the front panel - see TONE_SQUELCH_TYPES's comment in device.py.
+# Live-tested on a real DV10: SQL TYPE showing "REV.T" read back CI="2"
+# (DI="0"); showing "DCS" read back CI="0" (DI="1") - so DCS is DI's own
+# independent flag, not a CI value. "1"=CTCSS is inferred by elimination,
+# not read back from the front panel.
 
 
 def test_squelch_tone_type_roundtrips_every_confirmed_value():
@@ -65,10 +63,9 @@ def test_squelch_tone_type_rejects_unknown_value():
 
 
 def test_squelch_tone_type_and_dcs_enabled_are_independent_fields():
-    # The real-hardware finding this whole table is built on: selecting
-    # DCS on the front panel's SQL TYPE menu flips DI, not CI - the two
-    # commands are independent wire fields, confirmed by reading both
-    # back at once (CI="0"/DI="1" while the panel showed "DCS").
+    # The real-hardware finding this table is built on: selecting DCS on the
+    # front panel flips DI, not CI - independent wire fields, confirmed by
+    # reading both at once (CI="0"/DI="1" while the panel showed "DCS").
     dev = DV10Device.open_simulator()
     with dev:
         dev.set_squelch_tone_type("2")  # Reverse Tone
@@ -102,10 +99,8 @@ def test_digital_selective_codes_roundtrip():
 
 
 def test_analog_descrambler_and_offset_and_priority_roundtrip():
-    # Offset (OF/OL), against the AR-DV1 wire spec: OF
-    # carries an explicit slot + direction sign, OL carries an unsigned
-    # frequency and always needs the slot number - see
-    # DV10Device.set_offset_slot()/get_offset_freq().
+    # Offset (OF/OL) per the AR-DV1 wire spec: OF carries an explicit slot +
+    # direction sign; OL carries an unsigned frequency and always needs the slot.
     dev = DV10Device.open_simulator()
     with dev:
         dev.set_voice_descrambler_enabled(True)
@@ -182,10 +177,8 @@ def test_misc_settings_and_actions():
         dev.move_next()
         dev.move_previous()
         dev.reset(full=False)
-        # get_vfo_info() was a placeholder stub returning the simulator's
-        # old fixed "VFOA" state string - replaced by read_vfo_info(), now
-        # that VI's real 3-line (A/B/Z) response shape is confirmed - see
-        # tests/test_vfo.py for the dedicated coverage.
+        # get_vfo_info() was a stub returning a fixed "VFOA" string, replaced
+        # by read_vfo_info() once VI's 3-line (A/B/Z) shape was confirmed.
         vfos = dev.read_vfo_info()
         assert len(vfos) == 3
         assert {v.vfo for v in vfos} == {"A", "B", "Z"}

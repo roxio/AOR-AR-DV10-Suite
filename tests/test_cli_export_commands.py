@@ -60,10 +60,8 @@ def test_export_commands_rejects_unknown_format():
 
 
 def test_cli_export_commands_flag_exits_zero_without_a_device(capsys, monkeypatch):
-    # No --simulator, no --port: if this tried to open a real serial
-    # connection it would fail loudly (no hardware in this test
-    # environment) - succeeding here proves the export path really does
-    # skip device connection entirely, as documented.
+    # No --simulator, no --port: a real serial connection would fail loudly
+    # here, so succeeding proves the export path skips device connection.
     rc = main(["--export-commands", "json"])
     assert rc == 0
     captured = capsys.readouterr()

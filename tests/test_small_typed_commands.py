@@ -62,11 +62,9 @@ def test_if_roundtrip(dev):
 
 
 def test_if_bandwidth_table_shapes():
-    # FM has 4 values (1-4; digit "0"/200 kHz was in the AR-DV10 manual's
-    # own table but confirmed absent on real hardware, see IF_BANDWIDTH_HZ's
-    # comment - FM only actually runs 6-100 kHz), AM/SAH/SAL/USB/LSB/CW all
-    # narrower still - per the spec's own per-mode lists, not a uniform
-    # digit range.
+    # FM has 4 values (1-4; the manual's "0"/200 kHz is confirmed absent on
+    # real hardware - FM runs 6-100 kHz), the analog modes narrower still, per
+    # the spec's per-mode lists rather than a uniform digit range.
     assert len(IF_BANDWIDTH_HZ["FM"]) == 4
     assert len(IF_BANDWIDTH_HZ["AM"]) == 4
     for narrow_mode in ("SAH", "SAL", "USB", "LSB", "CW"):
@@ -78,11 +76,8 @@ def test_if_bandwidth_table_shapes():
 
 # -- mode-aware IF bandwidth helpers (get/set by Hz, not raw digit) -----
 #
-# get_if_bandwidth_options_hz()/get_if_bandwidth_hz()/set_if_bandwidth_hz()
-# exist so a caller/UI (the web panel's Mode section, the "bw" CLI verb)
-# can work in Hz instead of needing to already know which raw IF digit
-# means what for whichever analog mode happens to be selected right now -
-# see their docstrings and the device.py IF (IF bandwidth) decode table.
+# These exist so a caller/UI can work in Hz instead of already knowing which
+# raw IF digit means what for whichever analog mode is currently selected.
 
 
 def test_if_bandwidth_options_hz_matches_current_analog_mode(dev):
@@ -115,10 +110,8 @@ def test_set_if_bandwidth_hz_follows_mode_switch(dev):
 
 
 def test_set_if_bandwidth_hz_rejects_value_not_offered_by_current_mode(dev):
-    # 3800 Hz is a valid AM choice but not an FM one (FM's narrowest is
-    # 6000 Hz) - must be rejected up front, with no wire write at all,
-    # rather than silently accepted the way a bare set_if_bandwidth(n)
-    # raw-digit write would be.
+    # 3800 Hz is valid for AM but not FM (narrowest 6000 Hz): rejected up
+    # front with no wire write, unlike a bare raw-digit set_if_bandwidth().
     before = dev.get_if_bandwidth()
     with pytest.raises(ValueError):
         dev.set_if_bandwidth_hz(3_800)
@@ -127,13 +120,10 @@ def test_set_if_bandwidth_hz_rejects_value_not_offered_by_current_mode(dev):
 
 # -- digital modes: IF is not user-settable at all (confirmed live) -----
 #
-# Per user report against real DV10 hardware: "bw 100000" and "bw 6000"
-# BOTH failed with result code 30 while a digital mode (Auto) was active,
-# even though 6000 is itself one of FM's own valid IF_BANDWIDTH_HZ values
-# - the receiver auto-selects the filter itself while digital reception
-# is selected, full stop, not "restricted to some digital-specific
-# subset". See get_if_bandwidth_options_hz()'s docstring for why this
-# returns {} rather than a guessed digital table.
+# On real DV10 hardware "bw 100000" and "bw 6000" BOTH failed with result code
+# 30 while a digital mode was active, even though 6000 is a valid FM value:
+# the receiver picks the filter itself under digital reception, full stop.
+# Hence {} rather than a guessed digital table.
 
 
 def test_if_bandwidth_options_empty_while_digital_mode_active(dev):
@@ -185,9 +175,8 @@ def test_dl_unlimited_special_value_roundtrips_literally(dev):
 
 
 def test_dl_is_independent_of_the_scan_group_dl_subfield(dev):
-    # The standalone DL command must not be confused with (or share
-    # storage with) the DL sub-field inside SG/MG scan-group composites
-    # (task 11) - writing one must not affect the other.
+    # The standalone DL command must not share storage with the DL sub-field
+    # inside SG/MG composites - writing one must not affect the other.
     dev.write_search_scan_group(0, delay_ds=77)
     dev.set_delay_time_ds(11)
     assert dev.get_delay_time_ds() == 11
@@ -224,7 +213,6 @@ def test_rn_returns_a_string(dev):
 
 
 def test_rn_has_no_write_method():
-    # CORRECTED: the summary table lists RN as R/W, but its own
-    # detailed section documents only a read. Implemented read-only:
-    # no set_serial_number() exists.
+    # The summary table lists RN as R/W but its own detailed section documents
+    # only a read, so this is read-only: no set_serial_number() exists.
     assert not hasattr(DV10Device, "set_serial_number")

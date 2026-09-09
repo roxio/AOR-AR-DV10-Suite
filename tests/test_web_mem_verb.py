@@ -119,10 +119,8 @@ def test_mem_export_round_trips_through_shared_state(tmp_path):
     out = _dispatch_plain(dev, f"mem export {out_path}")
     assert "Wrote" in out
     assert out_path.exists()
-    # what got written should itself parse back to the same channel we
-    # already confirmed via "mem find" above - a cheap end-to-end check
-    # rather than re-testing write_backup_csv()'s own formatting (that's
-    # test_memory.py's job).
+    # What got written should parse back to the channel confirmed via "mem
+    # find" above - an end-to-end check, not a re-test of CSV formatting.
     from aor_dv10.memory import parse_backup_csv
     _, channels = parse_backup_csv(out_path.read_text(encoding="utf-8"))
     ch = next(c for c in channels if c.bank == 0 and c.channel == 0)

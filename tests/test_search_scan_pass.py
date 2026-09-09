@@ -123,9 +123,8 @@ def test_memory_scan_group_never_gets_an_auto_store_field(dev):
 
 
 def test_bank_link_none_omits_leaving_previous_value_unchanged(dev):
-    # bank_link follows the SAME omit-convention as every other field in
-    # this composite write: None means "don't send BK at all", not
-    # "disable it" - see write_search_scan_group()'s docstring.
+    # bank_link follows the same omit-convention as every other field here:
+    # None means "don't send BK at all", not "disable it".
     dev.write_search_scan_group(0, bank_link=[1, 2])
     assert dev.read_search_scan_group(0).bank_link == (1, 2)
     dev.write_search_scan_group(0, delay_ds=30)  # bank_link left at its default (None) -> omitted
@@ -202,9 +201,8 @@ def test_list_pass_frequencies_always_returns_fifty_slots(dev):
 
 
 def test_list_pass_frequencies_multiline_response_with_re_on(dev):
-    # Same RE-forcing reliability concern as read_memory_bank() - force RE
-    # on beforehand and confirm the full 50-slot list still comes back
-    # (not just the first line).
+    # Same RE-forcing concern as read_memory_bank(): with RE already on, the
+    # full 50-slot list must still come back, not just the first line.
     dev.set_result_code_prefixing(True)
     for i in range(5):
         dev.mark_pass_frequency(frequency_hz=146_000_000 + i * 25_000)

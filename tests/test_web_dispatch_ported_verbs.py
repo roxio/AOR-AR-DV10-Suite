@@ -73,9 +73,8 @@ def test_web_ifbw_show_and_set():
 
 
 def test_web_bw_show_and_set_by_hz():
-    # "bw" is the mode-aware Hz-based counterpart to "ifbw"'s raw digit -
-    # see DV10Device.set_if_bandwidth_hz()/get_if_bandwidth_hz(). Reply
-    # text mirrors the CLI's "bw" formatting - see cli/repl.py.
+    # "bw" is the mode-aware Hz counterpart to "ifbw"'s raw digit; reply text
+    # mirrors the CLI's "bw" formatting.
     dev = make_device()
     _dispatch_plain(dev, "bw 100000")  # FM/IF1 = 100 kHz
     out = _dispatch_plain(dev, "bw")
@@ -307,10 +306,9 @@ def test_web_select_run_visits_each_entry():
 
 
 def test_web_select_list_is_shared_across_dispatch_calls():
-    # The whole point of the module-level _select_scan_list (vs. the CLI's
-    # per-Repl-instance one): two separate _dispatch_plain() calls - as
-    # from two different browser tabs hitting the same server process -
-    # must see the same list.
+    # The point of the module-level _select_scan_list (vs. the CLI's per-Repl
+    # one): two _dispatch_plain() calls, as from two browser tabs against one
+    # server process, must see the same list.
     dev = make_device()
     webserver._select_scan_list.clear()
     _dispatch_plain(dev, "select add 1 2")

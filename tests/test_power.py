@@ -51,9 +51,8 @@ def test_power_on_returns_confirmed_message_response(dev):
 
 
 def test_power_off_returns_a_response_object(dev):
-    # QP's real-hardware reply is unconfirmed (see PROTOCOL.md) - this
-    # only pins down that the simulator's modelled ack now actually
-    # reaches the caller instead of being discarded, whatever it is.
+    # QP's real-hardware reply is unconfirmed; this only pins that the
+    # modelled ack reaches the caller instead of being discarded.
     resp = dev.power_off()
     assert isinstance(resp, Response)
     assert resp.code == "QP"
@@ -71,9 +70,8 @@ def test_web_power_on_surfaces_the_real_reply_not_a_hardcoded_ok():
 def test_web_power_off_reply_reflects_the_actual_response():
     d = make_web_device()
     out = _dispatch_plain(d, "power off")
-    # Whatever QP's value is, the code echo must be present - this is
-    # the "real reply, not a fake ok" contract; not a claim about what
-    # QP's value should be (unconfirmed on real hardware).
+    # Whatever QP's value is, the code echo must be present: the "real reply,
+    # not a fake ok" contract, not a claim about the value itself.
     assert out.startswith("QP")
     assert out != "ok"
 

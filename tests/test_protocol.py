@@ -243,10 +243,8 @@ def test_command_channel_is_thread_safe_across_concurrent_callers():
             i += 1
 
     def read_static_value():
-        # VR is never written by anything in this test, so every read of
-        # it must come back "1.00" - any other value means this thread's
-        # read got a response that actually belonged to a concurrent RG
-        # write instead.
+        # Nothing writes VR here, so every read must return "1.00"; any other
+        # value means this thread got a concurrent RG write's response.
         for _ in range(25):
             try:
                 resp = chan.read("VR")

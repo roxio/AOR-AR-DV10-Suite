@@ -77,9 +77,8 @@ def test_gl_frequencies_are_ascending_and_118mhz_range(dev):
 
 
 def test_gl_level_raw_is_two_digits(dev):
-    # Per the AR-DV1 spec's own literal GL syntax ("Fffff.fffffLkkc") - see
-    # ScopeLine's docstring for why this is narrower than LM/FD's 3-digit
-    # convention, and unconfirmed against real hardware.
+    # Per the AR-DV1 spec's literal GL syntax ("Fffff.fffffLkkc") - narrower
+    # than LM/FD's 3-digit convention, and unconfirmed against real hardware.
     dev._transport.scope_mode = True  # noqa: SLF001
     lines = dev.read_scope_data_normal()
     assert all(len(line.level_raw) == 2 for line in lines)
@@ -94,10 +93,8 @@ def test_gl_squelch_open_property(dev):
 
 
 def test_gl_restores_re_state_after_read(dev):
-    # read_scope_data_normal() temporarily forces RE on for the duration of
-    # the read (same defensive pattern as sd_dir()) - it must restore
-    # whatever RE was before, even though the simulator's default RE state
-    # is off ("0"), same as every other RE-forcing method in this project.
+    # read_scope_data_normal() forces RE on for the read (like sd_dir()) and
+    # must restore whatever RE was before.
     dev._transport.scope_mode = True  # noqa: SLF001
     assert (dev._chan.read("RE").value or "0").strip() == "0"  # noqa: SLF001
     dev.read_scope_data_normal()

@@ -157,9 +157,8 @@ def test_squelch_states_table_matches_the_ar_dv1_spec():
     assert "noise" in SQUELCH_STATES[1] and "level" in SQUELCH_STATES[1]
     assert "tone" in SQUELCH_STATES[2] and "dcs" in SQUELCH_STATES[2].lower()
     assert "digital" in SQUELCH_STATES[3]
-    # the previous (wrong) table claimed state 3 was another squelch-open
-    # variant ("LevelSQ/NoiseSQ") rather than "detecting digital mode" -
-    # make sure that meaning is gone.
+    # The previous (wrong) table called state 3 another squelch-open variant
+    # rather than "detecting digital mode" - make sure that meaning is gone.
     assert "levelsq" not in SQUELCH_STATES[3].lower()
 
 
@@ -184,9 +183,8 @@ def test_mm_two_phase_response_is_fully_consumed():
         dev.set_result_code_prefixing(True)
         result = dev.register_last_channel()
         assert result == 20
-        # if the "20" completion line had been left unconsumed, THIS read
-        # would get it instead of BP's real value, and fail to parse as a
-        # valid beep level.
+        # An unconsumed "20" completion line would land here instead of BP's
+        # real value and fail to parse as a beep level.
         dev.set_beep_level(3)
         assert dev.get_beep_level() == "3"
 

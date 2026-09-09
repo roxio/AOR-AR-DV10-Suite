@@ -32,10 +32,8 @@ def test_step_adjust_hz_getter_returns_int_hz():
 
 
 def test_step_adjust_hz_roundtrip_spec_enum_values():
-    # A sample of the AR-DV1 spec's own fixed enum (0.05, 0.25, 0.5, 1,
-    # 2.5, 3.12, 3.75, 4.16, 4.5, 5.0, 6.25, 10.0, 12.5, 15.0, 25.0, 50.0,
-    # 250.0 kHz) - not exhaustive, just enough to prove the kHz<->Hz
-    # conversion is correct at both ends of the range and at an
+    # A sample of the AR-DV1 spec's fixed enum - not exhaustive, just enough to
+    # prove the kHz<->Hz conversion holds at both ends of the range and at an
     # awkward 2-decimal value (4.16).
     dev = make_device()
     for hz in (50, 1000, 4160, 6250, 250_000):

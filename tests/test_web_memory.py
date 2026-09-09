@@ -209,12 +209,9 @@ def test_memory_diff_reports_only_changed_channels(panel):
     p, dev = panel
     _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
 
-    # bank 00 channel 00 is a known-programmed slot in the fixture
-    # (145.5 MHz, "CH-001" per test_memory_import_and_search_real_export).
-    # Diff should be empty before anything live has been touched, since
-    # the simulator starts with no live memory programmed and the fixture
-    # import doesn't write the device - so bank 00's live side is all
-    # empty and should differ from the fixture's programmed channels.
+    # Bank 00 channel 00 is a known-programmed fixture slot (145.5 MHz,
+    # "CH-001"). The simulator starts with no live memory and importing the
+    # fixture doesn't write the device, so the live side differs from it.
     status, body = _get(f"{p.url}api/memory/diff/0")
     assert status == 200
     result = json.loads(body)
@@ -223,9 +220,8 @@ def test_memory_diff_reports_only_changed_channels(panel):
     assert result["differences"] > 0
     assert any(d["bank_channel"] == "00-00" for d in result["channels"])
 
-    # Now write the live device to MATCH the fixture's ch 00-00 exactly
-    # (145.5 MHz, mode "000", name "CH-001", per the fixture) and confirm
-    # that one channel drops out of the diff.
+    # Write the live device to match the fixture's ch 00-00 exactly and
+    # confirm that one channel drops out of the diff.
     dev.write_memory_channel(0, 0, frequency_hz=145_500_000, mode="000", tag="CH-001")
     status, body = _get(f"{p.url}api/memory/diff/0")
     result = json.loads(body)

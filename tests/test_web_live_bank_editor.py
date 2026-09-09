@@ -75,11 +75,9 @@ def panel():
 
     dev = DV10Device.open_simulator()
     dev.connect()
-    # A fresh port per test (rather than one fixed port reused across this
-    # file's dozen tests, the way test_web_memory.py's 3-test file does)
-    # avoids a real flake seen while writing this file: back-to-back
-    # bind/stop cycles on the exact same port can hit "address already in
-    # use" before the OS fully releases the previous test's socket.
+    # A fresh port per test avoids a real flake seen while writing this file:
+    # back-to-back bind/stop cycles on one port can hit "address already in
+    # use" before the OS releases the previous test's socket.
     port = next(_next_port)
     p = webserver.start_in_thread(dev, host="127.0.0.1", port=port, mdns=False)
     _wait_until_up(f"{p.url}api/status")
@@ -121,9 +119,8 @@ def test_live_bank_reflects_a_channel_written_directly_on_the_device(panel):
     assert ch["frequency_mhz"] == pytest.approx(146.52)
     assert ch["step_hz"] == 25_000
     assert ch["step_adjust_hz"] == 5_000
-    # MX stores MD in its 3-char "dan" wire shape, so a 2-char "F0"
-    # goes in as (and reads back as) "0F0" - the browser table strips
-    # the leading read-only "d" for its mode dropdown.
+    # MX stores MD in its 3-char "dan" shape, so "F0" goes in and reads back
+    # as "0F0"; the browser table strips the leading read-only "d".
     assert ch["mode"] == "0F0"
     assert ch["pass_channel"] is True
     assert ch["write_protect"] is False

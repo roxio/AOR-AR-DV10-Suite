@@ -27,10 +27,8 @@ def test_cli_vfo_atomic_frequency_and_mode():
     repl = make_repl()
     assert repl.dispatch("vfo B 446.00625 F0") is True
     assert repl.device.get_frequency_hz() == 446_006_250
-    # get_mode() returns MD's raw 3-char "dan" read shape, and VF's own
-    # embedded MD sub-field is written in that same shape (set_mode() pads
-    # the caller-facing 2-char "F0" to "0F0") - so "F0" here was never what
-    # the wire actually carries.
+    # get_mode() returns MD's raw 3-char "dan" shape, and VF's embedded MD is
+    # written in that same shape, so "F0" was never what the wire carries.
     assert repl.device.get_mode() == "0F0"
 
 
