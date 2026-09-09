@@ -3373,11 +3373,10 @@ const I18N = {
   },
 };
 
-// Mirrors aor_dv10.device.DIGITAL_MODES / ANALOG_MODES - kept here (rather
-// than trusting the server's English mode_description string) so the mode
-// readout can actually be localised. Analog names (FM/AM/...) and most
-// digital protocol names (D-STAR/YAESU/...) are proper nouns, identical in
-// both languages - only "Digital off" differs, via I18N.optDigitalOff.
+// Mirrors aor_dv10.device.DIGITAL_MODES / ANALOG_MODES, kept here rather than
+// trusting the server's English mode_description so the readout can be
+// localised. Mode names are proper nouns in both languages; only "Digital off"
+// differs, via I18N.optDigitalOff.
 const DIGITAL_MODE_NAMES = {
   "0": "Auto", "1": "D-STAR", "2": "YAESU", "3": "ALINCO", "4": "D-CR",
   "5": "P25", "6": "dPMR", "7": "DMR", "8": "TETRA-DM", "9": "TETRA-TC",
@@ -3511,10 +3510,9 @@ function connectWs() {
     addLine(ev.data, ev.data.startsWith('error:') ? 'err' : 'out');
     if (ev.data.startsWith('error:')) toast(ev.data, true);
     const route = pendingRoutes.length ? pendingRoutes.shift() : null;
-    // Proposal item 33: decode into the error-code log regardless of
-    // which panel's command triggered it - route.cmd (see send() below)
-    // is only used for the log entry's label, so a missing route/cmd
-    // (e.g. a message that arrived with nothing pending) still logs.
+    // Decode into the error-code log whichever panel triggered it: route.cmd
+    // only labels the entry, so a message arriving with nothing pending
+    // still logs.
     if (ev.data.startsWith('error:')) logErrorFromMessage(ev.data, route && route.cmd);
     if (route) {
       const target = (typeof route === 'string') ? route : route.out;
@@ -3562,17 +3560,12 @@ function setFrequency() {
 function stepFreq(deltaMhz) {
   if (lastFreqMhz === null) { toast(t('toastWaitingFreq'), true); return; }
   const next = Math.max(0, lastFreqMhz + deltaMhz);
-  // Optimistic update: lastFreqMhz used to be
-  // refreshed ONLY by renderStatus(), which only runs once per 1.5s
-  // pollStatus() cycle. Several knob turns (wheel notches or held arrow
-  // keys) inside that window all computed their delta from the SAME
-  // stale lastFreqMhz, so they all sent the identical target frequency
-  // instead of accumulating - the knob felt like it "caught up" only
-  // once per poll tick. Updating lastFreqMhz here immediately, before
-  // the round trip even starts, makes consecutive turns compound right
-  // away; renderStatus() still overwrites it with the confirmed value on
-  // the next poll, so a rejected/clamped write (or another client's
-  // change) self-corrects within one poll cycle either way.
+  // Optimistic update. lastFreqMhz used to refresh only in renderStatus(),
+  // once per 1.5s poll, so every knob turn inside that window computed its
+  // delta from the same stale value and sent an identical target instead of
+  // accumulating. Updating it here makes consecutive turns compound at once;
+  // renderStatus() still overwrites with the confirmed value next poll, so a
+  // rejected/clamped write self-corrects within one cycle.
   lastFreqMhz = next;
   send('f ' + next.toFixed(6));
 }
@@ -3626,11 +3619,10 @@ tuneKnob.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); turnKnob(-1); }
 });
 
-// -- tuning knob: mouse/touch drag (wheel + arrow keys are already wired
-// above) - vertical movement turns the dial, matching a physical knob
-// under a dragging finger/cursor more naturally than trying to track
-// angle around a small on-screen circle. A few pixels of movement per
-// "click" of rotation, same STEP_SIZES[stepIndex] the wheel/keys use. --
+// -- tuning knob: mouse/touch drag (wheel + arrow keys wired above). Vertical
+// movement turns the dial - closer to a physical knob under a dragging finger
+// than tracking angle around a small circle. A few pixels per "click" of
+// rotation, same STEP_SIZES[stepIndex] the wheel/keys use. ---------------
 (function initKnobDrag() {
   let dragging = false, lastY = 0, accum = 0;
   const PX_PER_STEP = 10;
@@ -3655,10 +3647,9 @@ tuneKnob.addEventListener('keydown', (e) => {
   tuneKnob.addEventListener('touchend', up);
 })();
 
-// -- generic rotary-encoder drag/wheel/keyboard binder, used for the two
-// small RF GAIN/SQL and AF GAIN knobs below - same interaction model as
-// the big tuning dial above, but bound to a value range + a real
-// "<verb> <value>" device command instead of frequency stepping. -------
+// -- generic rotary-encoder binder for the small RF GAIN/SQL and AF GAIN
+// knobs: same interaction model as the tuning dial, but bound to a value
+// range and a "<verb> <value>" command instead of frequency stepping. ---
 function bindMiniKnob(knobId, rangeId, verb, pad) {
   const knob = document.getElementById(knobId);
   const range = document.getElementById(rangeId);
@@ -3712,11 +3703,9 @@ function bindMiniKnob(knobId, rangeId, verb, pad) {
 bindMiniKnob('rfGainKnob', 'lqRange', 'lq', 2);
 bindMiniKnob('afGainKnob', 'avRange', 'vollimit', 2);
 
-// -- BAND quick-jump overlay (client-side presets, see the BAND
-// button's HTML comment - never a device command). Ranges reflect the practical
-// span a wideband digital receiver like the DV10 actually covers, not
-// just the amateur allocations - VHF/UHF/DMR/analog PMR entries are
-// included alongside the classic HF ham bands. -------------------------
+// -- BAND quick-jump overlay: client-side presets, never a device command.
+// Ranges cover what a wideband receiver like the DV10 actually reaches, so
+// VHF/UHF/DMR/PMR sit alongside the classic HF ham bands. ---------------
 const BAND_PRESETS = [
   { name: '160m', mhz: 1.900 }, { name: '80m', mhz: 3.650 },
   { name: '60m', mhz: 5.3565 }, { name: '40m', mhz: 7.100 },
@@ -3782,11 +3771,9 @@ document.getElementById('bandOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'bandOverlay') closeBandOverlay();
 });
 
-// -- Proposal item 34: quick mode+bandwidth+squelch profiles, reusing
-// the exact same overlay/grid DOM as the Band shortcuts above (just a
-// different chip renderer/click handler) rather than duplicating the
-// overlay markup. setBandOverlayHeader() swaps the title/hint text so
-// the overlay reads correctly regardless of which list opened it.
+// -- Quick mode+bandwidth+squelch profiles, reusing the Band overlay's DOM
+// with a different chip renderer rather than duplicating the markup.
+// setBandOverlayHeader() swaps the title/hint per opener.
 function setBandOverlayHeader(title, hint) {
   const titleEl = document.querySelector('.band-overlay-title');
   const hintEl = document.querySelector('.band-overlay-hint');
@@ -3826,13 +3813,10 @@ function applyModeProfile(i) {
 }
 
 // -- mode --------------------------------------------------------------
-// NOTE: order here is digital-then-analog, matching MD's read format and
-// this project's CLI/help convention - DV10Device.set_mode() takes that
-// same 2-character convention and pads it into the wire's actual
-// 3-character "dan" shape internally (a real AR-DV10 firmware quirk found
-// by testing - a plain 2-character write, in either order, is silently
-// accepted but never applied). Don't "fix" this by sending d/a directly
-// as a bare 2-character value here.
+// Order is digital-then-analog, matching MD's read format and the CLI
+// convention. set_mode() takes that 2-char form and pads it to the wire's
+// real 3-char "dan" shape: a bare 2-char write is silently accepted by real
+// hardware but never applied. Don't "fix" this by sending 2 chars directly.
 function setMode() {
   const d = document.getElementById('digitalMode').value;
   const a = document.getElementById('analogMode').value;
@@ -3863,19 +3847,13 @@ function initButtonMatrix(root) {
 }
 document.querySelectorAll('.btn-matrix[data-select]').forEach(initButtonMatrix);
 
-// "Digital off" (data-value F) was moved out of the DIGITAL matrix into
-// the ANALOG column 2026-09-01 at user request - it's still logically
-// one of digitalMode's values, just physically relocated, so it can't
-// rely on initButtonMatrix()'s normal "scan buttons inside this .btn-
-// matrix container" wiring above. Instead of wrapping matrixRefreshers
-// (initButtonMatrix()'s own click handlers call their closed-over
-// refresh() directly, not through matrixRefreshers, so a wrapper placed
-// there never actually runs on a normal matrix-button click - found via
-// the D-STAR/etc. buttons leaving this one stuck showing active),
-// listen for the select's own "change" event instead: every path that
-// changes digitalMode's value already dispatches it (initButtonMatrix's
-// click handler below, and this button's own click), so it's a reliable
-// single hook for staying in sync no matter which side changed it.
+// "Digital off" (data-value F) sits in the ANALOG column but is still one of
+// digitalMode's values, so it can't use initButtonMatrix()'s "scan buttons in
+// this container" wiring. Wrapping matrixRefreshers does NOT work either -
+// initButtonMatrix's click handlers call their closed-over refresh() directly,
+// so the wrapper never runs (found via this button staying stuck active). It
+// listens for the select's own "change" instead: every path that changes
+// digitalMode dispatches it, whichever side made the change.
 (function wireDigitalOffButton() {
   const btn = document.getElementById('digitalOffBtn');
   const select = document.getElementById('digitalMode');
@@ -3891,10 +3869,9 @@ document.querySelectorAll('.btn-matrix[data-select]').forEach(initButtonMatrix);
   syncActive();
 })();
 
-// -- generic "type a value, click Set" helper for the field-rows -----------
-// (DMR/P25/NXDN/D-CR codes, offset slot, priority interval, etc.) - these
-// are plain text fields rather than validated widgets because the exact
-// wire digit-width for several of them is still a documented best guess.
+// -- generic "type a value, click Set" helper for the field-rows (DMR/P25/
+// NXDN/D-CR codes, offset slot, priority interval). Plain text rather than
+// validated widgets: the exact wire digit-width for several is a best guess.
 function sendFieldValue(inputId, verb, pad) {
   const el = document.getElementById(inputId);
   let v = (el.value || '').trim();
@@ -3939,12 +3916,9 @@ function setPrioChannel() {
 }
 
 // -- memory channels ---------------------------------------------------------
-// REST, not the WS verb grammar - browsing/importing/exporting an
-// "AR-DV10 Connect" backup CSV is naturally file-shaped (see
-// aor_dv10.web.server's /api/memory/* endpoints and aor_dv10.memory's
-// module docstring). "Tune" replays a loaded channel's frequency/mode/step
-// through the ordinary f/m/step writes server-side - it is NOT a live
-// MX/MA memory-channel read, same split as the CLI's "mem goto".
+// REST, not the WS verb grammar: browsing/importing an "AR-DV10 Connect"
+// backup CSV is file-shaped. "Tune" replays a loaded channel through the
+// ordinary f/m/step writes - NOT a live MX/MA read, same split as "mem goto".
 let memHasDb = false;
 
 function memSetStatus(text) {
@@ -4044,13 +4018,10 @@ async function memExport() {
   }
 }
 
-// -- live bank bridge (proposal items 17/18): the CSV-backup world above
-// and the live MA/MX world (rmem panel) have been two separate islands -
-// these two functions are the bridge, going device -> CSV shape only
-// (never the reverse - see aor_dv10.memory.from_live_channel()'s
-// docstring for the exact field caveats this can't paper over: no
-// offset/step-adjust on the live side, and the mode code's shape isn't
-// confirmed to match between the two worlds).
+// -- live bank bridge between the CSV-backup world above and the live MA/MX
+// world (rmem panel). Device -> CSV shape only, never the reverse: the live
+// side has no offset/step-adjust, and the mode code's shape isn't confirmed
+// to match between the two.
 function memBankInputValue() {
   return (document.getElementById('memBankInput').value || '').trim();
 }
@@ -4111,10 +4082,9 @@ async function memDiffLive() {
 }
 
 // -- CTCSS tone / DCS code pickers ------------------------------------------
-// Mirrors aor_dv10.device.CTCSS_TONES_HZ / DCS_CODES - see that module's
-// docstrings for the same confidence caveat (values are what the receiver's
-// own front panel shows; whether the CI wire format matches these literal
-// strings is unconfirmed).
+// Mirrors aor_dv10.device.CTCSS_TONES_HZ / DCS_CODES. Values are what the
+// receiver's front panel shows; whether CI's wire format matches these
+// literal strings is unconfirmed.
 const CTCSS_TONES = [
   "60.0","67.0","69.3","71.9","74.4","77.0","79.7","82.5","85.4","88.5",
   "91.5","94.8","97.4","100.0","103.5","107.2","110.9","114.8","118.8",
@@ -4177,11 +4147,9 @@ function fmtFreq(hz) {
   return (hz / 1_000_000).toFixed(6);
 }
 
-// IF bandwidth picker: the option list itself is mode-dependent (server-
-// driven via /api/status's if_bandwidth_options_hz, see renderStatus()
-// below), not a fixed <option> set baked into the HTML like most other
-// selects here - see DV10Device.get_if_bandwidth_options_hz()'s docstring
-// for why (one shared IF register, meaning depends on the active mode).
+// IF bandwidth picker: the option list is mode-dependent and server-driven
+// via /api/status's if_bandwidth_options_hz, not a fixed <option> set like
+// the other selects - one shared IF register whose meaning depends on mode.
 function fmtBandwidthHz(hz) {
   if (hz >= 1000) {
     const khz = hz / 1000;
@@ -4190,13 +4158,10 @@ function fmtBandwidthHz(hz) {
   return hz + ' Hz';
 }
 
-// Was a <select id="ifBandwidthSelect">'s option-list/value/title
-// upkeep; that select was removed 2026-09-01 (redundant once the
-// Bandwidth status chip - #chipBw, see cycleBandwidthClick/Wheel below -
-// could cycle the same real if_bandwidth_options_hz/if_bandwidth_hz
-// fields directly). Kept the same "0 known choices" detection, just
-// retargeted at disabling the chip and explaining why, instead of a
-// <select>'s option list.
+// Formerly kept a <select id="ifBandwidthSelect"> up to date; that select was
+// removed once the #chipBw status chip could cycle the same
+// if_bandwidth_options_hz fields. Same "0 known choices" detection, now
+// retargeted at disabling the chip and explaining why.
 const BW_CHIP_DEFAULT_TITLE = 'Click to cycle forward, wraps to the start - scroll to step up/down (IF bandwidth)';
 function renderBandwidth(s) {
   const chip = document.getElementById('chipBw');
@@ -4206,12 +4171,10 @@ function renderBandwidth(s) {
     : [];
   chip.disabled = entries.length === 0;
   if (entries.length === 0) {
-    // MD's raw "dan" value - s.mode[1] is the selected DIGITAL mode code
-    // ("F" = digital off). Confirmed against real hardware: IF isn't
-    // user-settable at all while a digital mode is active (the receiver
-    // auto-selects the filter) - distinct from simply not knowing the
-    // choices for an unrecognised analog mode, worth explaining
-    // separately rather than leaving the greyed-out control unexplained.
+    // MD's raw "dan" value; s.mode[1] is the selected DIGITAL code ("F" = off).
+    // Confirmed against real hardware: IF is not user-settable at all while a
+    // digital mode is active. Distinct from not knowing an unrecognised analog
+    // mode's choices, and worth saying rather than greying out silently.
     const digitalSel = s.mode && s.mode.length >= 2 ? s.mode[1] : null;
     chip.title = (digitalSel && digitalSel !== 'F')
       ? t('hintBandwidthDigitalAuto')
@@ -4222,15 +4185,11 @@ function renderBandwidth(s) {
 }
 
 // -- AGC gating ---------------------------------------------------------
-// Per the AR-DV3 wire spec, the AC (AGC speed) register is only valid in
-// AM-class analog modes - AM/USB/LSB/CW (other modes return a result
-// code 30; see device.py's AGC_SPEEDS note, which flags an unconfirmed
-// real-DV10 test that succeeded in FM, so this gating is a UI-level
-// restriction in line with the documented rule rather than a hard device
-// guard - the "Set AGC" button stays off the wire here, but nothing
-// prevents a raw `agcspd`/`agc` from the CLI/console tab). Driven by the
-// live s.mode analog code (s.mode[2]) like renderBandwidth() above, not
-// the locally-picked analogMode matrix value - the receiver decides.
+// Per the AR-DV3 wire spec, AC (AGC speed) is only valid in AM-class analog
+// modes (AM/USB/LSB/CW); others return result code 30. A real-DV10 test that
+// succeeded in FM is unconfirmed, so this is a UI-level restriction, not a
+// hard guard - a raw `agcspd` from the console still goes through. Driven by
+// the live s.mode analog code, not the locally-picked matrix value.
 const AGC_COMPATIBLE_ANALOG_MODES = [1, 4, 5, 6]; // AM, USB, LSB, CW
 const AGC_CHIP_DEFAULT_TITLE = 'Click to cycle (AGC speed)';
 
@@ -4258,12 +4217,9 @@ function renderAgcGating(s) {
 }
 
 // -- ATT gating: the 10dB attenuator state (AT=2) is DV3-only -----------
-// AT is a 3-state selector whose labels follow a real DV10's effect
-// (0=ATT OFF, 1=ATT ON, 2=10dB ATT) - see ATTENUATOR_STATES in device.py
-// and PROTOCOL.md. The 10dB attenuator state is NOT available on the
-// DV10 or DV1 - it's a DV3-only feature. So the "10dB ATT" matrix button
-// (and its hidden <option value="2">) is greyed out by default and only
-// becomes active once device_family() reports a real DV3.
+// AT is a 3-state selector whose labels follow a real DV10's effect (0=OFF,
+// 1=ON, 2=10dB). The 10dB state does not exist on DV10 or DV1, so that button
+// is greyed out until device_family() reports a real DV3.
 function renderAttGating(s) {
   const isDV3 = s && s.device_family === "DV3";
   const gate = !isDV3;
@@ -4289,11 +4245,9 @@ function setDot(connected) {
 }
 
 // -- DV10 gating: VFO search (VS/VE) + recording timer (TR) ---------------
-// The "AR-DV10 and AR-DV1 command list summary" marks VS, VE and TR as
-// "No function" on the AR-DV10 - they exist on AR-DV1/DV3 only (and a
-// real DV10 returns error 60 / PC_RESULT_NONE for them). Everything inside
-// the panel's .dv10-none group is therefore disabled/greyed out when the
-// connected device is a DV10.
+// The AR-DV10/AR-DV1 command list summary marks VS, VE and TR "No function"
+// on the DV10 (a real one returns error 60), so everything in the panel's
+// .dv10-none group is greyed out for a DV10.
 function renderDV10Gating(s) {
   const isDV10 = s && s.device_family === "DV10";
   document.querySelectorAll('.dv10-none input, .dv10-none select, .dv10-none button').forEach((el) => {
@@ -4335,10 +4289,9 @@ function renderDV10Gating(s) {
 }
 
 // -- Spectrum Scope gating -----------------------------------------------
-// FD/GL (frequency/band scope) are only documented for AR-DV1/DV3 - they
-// don't appear at all in the AR-DV10/DV1 command summary (SD REC etc. do,
-// FD/GL don't), and a DV10 can't be put into scope mode. So grey the whole
-// panel out until device_family() reports a DV1 or DV3.
+// FD/GL are documented for AR-DV1/DV3 only, absent from the AR-DV10 command
+// summary, and a DV10 can't enter scope mode - so the panel stays greyed out
+// until device_family() reports a DV1 or DV3.
 function renderScopeGating(s) {
   const fam = s && s.device_family;
   const enabled = fam === "DV1" || fam === "DV3";
@@ -4353,13 +4306,10 @@ function renderScopeGating(s) {
 }
 
 // -- device identification / model gating -----------------------------
-// Server-driven: DV10Device.model()/device_family()/
-// analog_modes_without_distinction() (device.py) do the actual model
-// detection (via WI) and per-family gating decisions; this just reflects
-// whatever /api/status reports. SAH/SAL are the first (and, as of this
-// writing, only) gated pair - not functionally distinct on a real DV10 -
-// but the gating itself is generic (any analog-mode code the server
-// lists), so a future model/finding doesn't need new frontend logic.
+// Server-driven: device.py does the detection (via WI) and the per-family
+// decisions; this only reflects /api/status. SAH/SAL are the only gated pair
+// so far (not functionally distinct on a real DV10), but the gating is
+// generic over whatever codes the server lists.
 function renderModelGating(s) {
   if (s.model) {
     const plate = document.getElementById('namePlateText');
@@ -4394,10 +4344,9 @@ function isBusy(el) { return document.activeElement === el; }
 
 let lastStatus = null;
 
-// -- console display: real device state (not decorative) --------------
-// AGC speed / attenuator / SQL TYPE reuse the same i18n labels as their
-// own matrix buttons in the Levels/Advanced-Squelch panels below
-// (optAgcFast etc.) rather than duplicating the wording here.
+// -- console display: real device state (not decorative). AGC/attenuator/
+// SQL TYPE reuse their matrix buttons' i18n labels rather than duplicating
+// the wording.
 const AGC_SPEED_I18N = { "0": "optAgcFast", "1": "optAgcMid", "2": "optAgcSlow" };
 function agcSpeedLabel(v) { return v === "3" ? "RF-G" : t(AGC_SPEED_I18N[v] || v); }
 const ATT_STATE_I18N = { "0": "optAttOff", "1": "optAttOn", "2": "optAttAtt10" };
@@ -4407,13 +4356,10 @@ function sqlTypeLabel(v) { return t(SQL_TYPE_I18N[v] || v); }
 const SQL_MODE_I18N = { "0": "optSqAuto", "1": "optSqNoise", "2": "optSqLevel" };
 function sqlModeLabel(v) { return t(SQL_MODE_I18N[v] || v); }
 
-// Conventional (NOT device-confirmed) ham-radio S-unit scale, used only
-// for the S-meter's headline text label (S9 = -73dBm, 6dB/S-unit below,
-// linear dB-over-S9 above - the universal convention printed on most
-// radios). The fill bar itself still tracks the real dBm reading 1:1
-// across the full -120..0 range - this label just borrows the standard
-// convention rather than inventing a receiver-specific calibration that
-// was never confirmed against real hardware (see docs/PROTOCOL.md).
+// Conventional (NOT device-confirmed) ham-radio S-unit scale, used only for
+// the S-meter's text label: S9 = -73dBm, 6dB per S-unit below, linear dB over
+// S9 above. The fill bar still tracks the real dBm 1:1 across -120..0; this
+// borrows the standard convention rather than inventing a calibration.
 function dbmToConventionalSLabel(dbm) {
   if (dbm === null || dbm === undefined) return '--';
   const overS9 = dbm + 73;
@@ -4440,10 +4386,9 @@ function cycleAgc() {
   send('agcspd ' + String((parseInt(cur, 10) + 1) % 4));
 }
 function cycleSqlType() {
-  // OFF -> CTCSS -> Reverse Tone -> DCS -> OFF. DCS is a separate
-  // command (DI) from CI/TONE_SQUELCH_TYPES - confirmed independent
-  // against real hardware (see aor_dv10.device.TONE_SQUELCH_TYPES) - so
-  // "DCS" here means sending dcs on + sqltype 0, not a 4th CI value.
+  // OFF -> CTCSS -> Reverse Tone -> DCS -> OFF. DCS is a separate command
+  // (DI), confirmed independent of CI against real hardware, so "DCS" here
+  // means dcs on + sqltype 0, not a 4th CI value.
   const dcsOn = lastStatus && (lastStatus.dcs_enabled === '1' || lastStatus.dcs_enabled === 1);
   const ci = String(lastStatus && lastStatus.squelch_tone_type != null ? lastStatus.squelch_tone_type : '0');
   if (dcsOn) { send('dcs off'); send('sqltype 0'); }
@@ -4452,15 +4397,11 @@ function cycleSqlType() {
   else { send('sqltype 0'); send('dcs on'); }
 }
 
-// -- Bandwidth (IF) chip: click cycles forward through the real
-// if_bandwidth_options_hz list for the current mode and wraps back to
-// the first entry once past the end (a single always-forward toggle,
-// same idea as cycleAtt/cycleAgc/cycleSqlType above). The scroll wheel,
-// while the chip is hovered, instead steps one entry up or down per
-// notch and stops at the ends (no wrap) - a regular bidirectional
-// stepper, distinct on purpose from the click's wrap-to-start behavior.
-// A mode with 0 or 1 known choices (digital modes: the receiver
-// auto-selects the filter, see renderBandwidth()) is a no-op either way.
+// -- Bandwidth (IF) chip: click cycles forward through the current mode's
+// if_bandwidth_options_hz and wraps at the end, like cycleAtt/cycleAgc. The
+// wheel instead steps one entry per notch and stops at the ends - a
+// bidirectional stepper, deliberately distinct from the click's wrap. A mode
+// with 0 or 1 known choices is a no-op either way.
 function bandwidthEntries() {
   return lastStatus && lastStatus.if_bandwidth_options_hz
     ? Object.values(lastStatus.if_bandwidth_options_hz).sort((a, b) => a - b)
@@ -4536,12 +4477,9 @@ function renderConsole(s) {
   }
   const fillEl = document.getElementById('filterIndicatorFill');
   if (fillEl) {
-    // Rank within the current mode's own choices, narrowest=rank 1 up
-    // to widest=rank N, as a fraction of N - not a raw value/max_hz
-    // ratio. Per user request 2026-09-01, for FM's 4 choices: 100 kHz
-    // (widest, rank 4/4) = 100%, 30 kHz (rank 3/4) = 75%, 15 kHz (rank
-    // 2/4) = 50%, 6 kHz (narrowest, rank 1/4) = 25%. Same formula
-    // regardless of how many choices the current mode actually has.
+    // Rank within the current mode's own choices as a fraction of N
+    // (narrowest = 1/N, widest = N/N), not a raw value/max_hz ratio. For FM's
+    // 4 choices that gives 6/15/30/100 kHz -> 25/50/75/100%.
     const entries = s.if_bandwidth_options_hz ? Object.values(s.if_bandwidth_options_hz).sort((a, b) => a - b) : [];
     const idx = (entries.length && s.if_bandwidth_hz !== null && s.if_bandwidth_hz !== undefined)
       ? entries.indexOf(s.if_bandwidth_hz)
@@ -4705,23 +4643,18 @@ async function pollStatus() {
   renderStatus(s);
 }
 
-// -- panels: rmem/VFO+timer/SD/scope/select/misc. Each
-// handler just builds the same short verb string the CLI/raw console
-// would take and routes the response into that panel's own mini-out box
-// via sendOut()/send(cmd, {out: ...}) above. ------------------------------
+// -- panels: rmem/VFO+timer/SD/scope/select/misc. Each handler builds the
+// same verb string the CLI would take and routes the reply into that panel's
+// mini-out box via sendOut()/send(). ------------------------------------
 
 function sendOut(cmd, outId) {
   send(cmd, { out: outId });
 }
 
-// Promise-wrapped send() for callers that need to inspect a response
-// before deciding what to do next (see rmemWrite()'s write-protect guard,
-// proposal item 15) - everything else in this file fires-and-forgets via
-// send()/sendOut() and only ever reads the reply out of the mini-out box.
-// Shares the same pendingRoutes FIFO as send(), so ordering against any
-// other command sent on this connection is preserved as long as callers
-// await this before firing their next command (same assumption every
-// other sequential panel action here already relies on).
+// Promise-wrapped send() for callers that must inspect a response before
+// deciding what to do next (rmemWrite()'s write-protect guard); everything
+// else fires-and-forgets. Shares send()'s pendingRoutes FIFO, so ordering
+// holds as long as callers await this before firing the next command.
 function sendAwait(cmd, timeoutMs) {
   timeoutMs = timeoutMs || 5000;
   return new Promise((resolve, reject) => {
@@ -4747,14 +4680,10 @@ function outVal(id, fallback) {
 }
 
 // -- destructive-op confirmation -------------------------------------
-// A non-blocking "click again to confirm" pattern for irreversible
-// operations (MQ/SX/PD and friends) - deliberately NOT window.confirm():
-// a native dialog would be one more thing standing between a misclick
-// and a real delete, but this project also wants it easy to script/test
-// (a native dialog blocks Playwright without an explicit dialog
-// handler). First click arms the button and swaps its label for
-// btnConfirmAgain; a second click within the window runs the action;
-// letting the window lapse (or clicking elsewhere) disarms it again.
+// Non-blocking "click again to confirm" for irreversible operations (MQ/SX/
+// PD). Deliberately not window.confirm(): a native dialog blocks Playwright
+// without an explicit handler. First click arms and relabels the button, a
+// second within the window runs it, and letting it lapse disarms.
 const _confirmArmed = new WeakMap();
 function confirmDestructive(btn, action) {
   const armed = _confirmArmed.get(btn);
@@ -4796,20 +4725,15 @@ function rmemDelete() {
 function rmemSetPriority() {
   sendOut('priochan ' + outVal('rmemBankInput', '0') + ' ' + outVal('rmemChInput', '0'), 'rmemOut');
 }
-// Proposal item 44: MM - register whatever is currently tuned as the
-// receiver's own "last channel memory" (power-on default). Reuses the
-// existing "regchan" verb (CLI/web already had it - see
-// DV10Device.register_last_channel()); this just adds the button.
+// MM - register whatever is currently tuned as the receiver's "last channel
+// memory" (its power-on default), via the existing "regchan" verb.
 function rmemRegisterLastChannel() {
   sendOut('regchan', 'rmemOut');
 }
-// Write-protect guard (proposal item 15): write_memory_channel()/MX will
-// silently overwrite a channel that has its own per-record PT protect
-// field set, with no warning from the device itself. Reads the channel
-// first and, if it comes back protect=True, arms the same double-click
-// confirm used for destructive deletes instead of writing immediately -
-// an unprotected channel (the common case) still writes on the first
-// click, unchanged from before.
+// Write-protect guard: MX silently overwrites a channel with its per-record
+// PT protect set, the device giving no warning. So read first and, if
+// protect=True, arm the same double-click confirm used for deletes; an
+// unprotected channel still writes on the first click.
 async function rmemWrite(btn) {
   const bank = outVal('rmemBankInput', '0');
   const ch = outVal('rmemChInput', '0');
@@ -4872,19 +4796,15 @@ function rmemBankSet() {
 function rmemBankDelete() { sendOut('rmem bankdel ' + outVal('rmemBankInput', '0'), 'rmemOut'); }
 
 // -- Memory Bank Editor -----------------------------------------------------
-// Table-based live-memory editor built on /api/memory/live_bank/* (REST,
-// not the WS "rmem" text verb above - structured JSON is a much better
-// fit for a form with several optional fields per row than a positional
-// text command would be). Its own in-memory model (bankEditorRows) is
-// completely separate from the CSV-backup browser's memHasDb/
-// _memory_channels state to its left: this one is always a live read of
-// the RECEIVER (MA), never an imported file.
+// Table editor on /api/memory/live_bank/* - REST rather than the WS "rmem"
+// verb, structured JSON suiting a form with several optional fields per row.
+// bankEditorRows is separate from the CSV-backup browser's state: this is
+// always a live read of the RECEIVER (MA), never an imported file.
 let bankEditorRows = new Map(); // "bank-channel" -> row state object
 let bankEditorLoadAllAbort = false;
-// Populated from /api/status's analog_modes_without_distinction (see
-// renderModelGating() below) - the same SAH/SAL-on-DV10 gating the VFO/
-// squelch analog-mode controls already apply, now also reflected in every
-// mode <select> this table renders.
+// From /api/status's analog_modes_without_distinction: the same SAH/SAL-on-
+// DV10 gating the other analog-mode controls apply, reflected in this
+// table's mode selects too.
 let gatedAnalogModes = new Set();
 
 function _beKey(bank, channel) { return bank + '-' + channel; }
@@ -4909,12 +4829,10 @@ function _beUpsertBank(bank, json) {
   });
 }
 
-// Turns one row's current (possibly-edited) field values into the JSON
-// body write_memory_channel() wants - see _parse_live_channel_write_body()
-// in web/server.py for the matching server-side half. Booleans are always
-// sent explicitly (a checkbox has no "omitted" state the way a blank text
-// field does); freq/mode/step/tag are only sent when non-blank, same
-// "omitted = leave unchanged" semantics as the underlying device.py call.
+// Turns a row's current values into the JSON write_memory_channel() wants
+// (server-side half: _parse_live_channel_write_body()). Booleans always go
+// explicitly, a checkbox having no "omitted" state; freq/mode/step/tag only
+// when non-blank, matching "omitted = leave unchanged".
 function _beComputeBody(row) {
   const body = {};
   if (row.freq !== '') body.frequency_mhz = parseFloat(row.freq);
@@ -4997,17 +4915,13 @@ function bankEditorRenderTable() {
     : '';
 }
 
-// Built with document.createElement()/property assignment rather than
-// innerHTML template strings (unlike memRenderResults() above) - this
-// table's cells are live <input>/<checkbox> elements with per-row closures
-// (Save/Delete need to know which bank/channel they belong to, and a tag
-// containing a stray quote must never be able to break the markup the way
-// it could via an innerHTML-built value="..." attribute).
-// Mode dropdown - same option set and "<digital><analog>" 2-char MD
-// convention as the VFO panel's #vfoModeInput select (write_memory_channel()
-// in device.py documents accepting exactly this 2-char form, or the 3-char
-// "dan" shape a real DV10 read echoes back - see its docstring). Built once
-// per row rather than duplicated as static HTML in the table markup.
+// Built with createElement()/property assignment rather than innerHTML: the
+// cells are live inputs with per-row closures, and a tag containing a stray
+// quote must never be able to break markup the way a value="..." attribute
+// could.
+// Mode dropdown - same option set and 2-char "<digital><analog>" convention
+// as the VFO panel's #vfoModeInput. Built per row rather than duplicated as
+// static HTML.
 const BE_MODE_GROUPS = [
   ['Analog (digital off)', [['F0', 'FM'], ['F1', 'AM'], ['F2', 'SAH'], ['F3', 'SAL'], ['F4', 'USB'], ['F5', 'LSB'], ['F6', 'CW']]],
   ['Digital over FM', [['00', 'Auto / FM'], ['10', 'D-STAR'], ['20', 'YAESU'], ['30', 'ALINCO'], ['40', 'D-CR'], ['50', 'P25'], ['60', 'dPMR'], ['70', 'DMR'], ['80', 'TETRA-DM'], ['90', 'TETRA-TC']]],
@@ -5031,16 +4945,12 @@ function _beBuildModeSelect() {
   return select;
 }
 
-// A value just loaded from the receiver can be the 3-char "dan" shape (see
-// device.py's MD decode-table comment: d = currently-receiving digital
-// [read-only], a = selected digital, n = selected analog) - only the last
-// two characters ("an") match this dropdown's 2-char convention, so a
-// leading 3rd char is stripped for display only; row.mode itself is left
-// untouched until the person actually picks something (see the 'change'
-// handler below), so an unedited row still writes back the exact stored
-// value on Save, not a reinterpreted one. A code this list doesn't know
-// about is kept as its own option instead of being silently replaced, so
-// opening this table can never quietly change a mode nobody touched.
+// A freshly-loaded value can be the 3-char "dan" shape (d = currently
+// receiving, read-only; a = selected digital; n = selected analog), whose last
+// two chars match this dropdown's convention - so a leading 3rd char is
+// stripped for DISPLAY only. row.mode stays untouched until someone actually
+// picks something, so an unedited row writes back the exact stored value. An
+// unknown code is kept as its own option rather than silently replaced.
 function _beSelectModeValue(select, raw) {
   const m = String(raw || '').trim().toUpperCase();
   const twoChar = m.length === 3 ? m.slice(1) : m;
@@ -5053,11 +4963,9 @@ function _beSelectModeValue(select, raw) {
   select.value = twoChar;
 }
 
-// SAH/SAL are not functionally distinct on a real DV10 (see
-// renderModelGating() / ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY in
-// device.py) - disable the matching option(s) here too, same as the
-// standalone #analogMode select already does. The analog digit is always
-// the 2nd character of this dropdown's "<digital><analog>" values.
+// SAH/SAL are not functionally distinct on a real DV10, so disable them here
+// too, as #analogMode already does. The analog digit is always the 2nd
+// character of this dropdown's "<digital><analog>" values.
 function gateModeSelect(select) {
   Array.from(select.options).forEach((opt) => {
     if (opt.value.length === 2) opt.disabled = gatedAnalogModes.has(opt.value.charAt(1));
@@ -5141,10 +5049,9 @@ function bankEditorBuildRow(key, row) {
   return tr;
 }
 
-// Per-row Save (proposal: "save each line individually"). Mirrors
-// rmemWrite()'s write-protect confirm-arm pattern (item 15): a 409 from
-// the server arms this same button via confirmDestructive() instead of
-// writing immediately, so a second click on THIS row retries with force.
+// Per-row Save, mirroring rmemWrite()'s write-protect confirm-arm: a 409
+// arms this same button instead of writing, so a second click retries with
+// force.
 async function bankEditorSaveRow(key, btn, statusCell, tr) {
   const row = bankEditorRows.get(key);
   if (!row) return;
@@ -5246,12 +5153,9 @@ async function bankEditorSaveAllDirty() {
   out.textContent = t('beSaveSummary').replace('{ok}', ok).replace('{skipped}', skipped).replace('{failed}', failed);
 }
 
-// "Overwrite Bank" / "Overwrite All Loaded Banks" (proposal: "overwrite
-// the whole memory bank or several") - pushes every REGISTERED row
-// currently shown for a bank back to the receiver via the batch endpoint,
-// whether that row was actually edited or not (an unregistered slot has
-// nothing meaningful to push - use per-row Save to program one from
-// scratch instead).
+// "Overwrite Bank" / "Overwrite All Loaded Banks": pushes every REGISTERED
+// row shown for a bank back through the batch endpoint, edited or not. An
+// unregistered slot has nothing to push - use per-row Save to program one.
 async function _beOverwriteBank(bank) {
   const includeProtected = document.getElementById('bankEditorIncludeProtected').checked;
   const rowsForBank = Array.from(bankEditorRows.values()).filter((r) => r.bank === bank && r.registered);
@@ -5319,15 +5223,11 @@ async function bankEditorOverwriteAllLoaded() {
 }
 
 // -- search banks / scan groups / pass frequencies -------------------------
-// SE/SR/SS/SX/SL/SU, SG/MG/AS/BK, PW/PR/PD - the server's
-// _dispatch_plain_search/scan/pass() take the same positional string
-// grammar the CLI's own search/scan/pass verbs do (see web/server.py).
-// Several of these (search write, scan swrite/mwrite) accept a run of
-// OPTIONAL POSITIONAL fields - there's no keyword syntax on the wire, so
-// a later field can't be sent unless every field before it is filled too.
-// joinPositional() enforces that from the UI side rather than silently
-// sending a misaligned command: trailing blanks are fine to omit, but a
-// gap (blank field followed by a filled one) is rejected with a toast.
+// SE/SR/SS/SX/SL/SU, SG/MG/AS/BK, PW/PR/PD, using the same positional grammar
+// as the CLI's verbs. Several take a run of OPTIONAL POSITIONAL fields with no
+// keyword syntax on the wire, so a later field can't be sent unless every
+// earlier one is filled. joinPositional() enforces that rather than sending a
+// misaligned command: trailing blanks may be omitted, but a gap is rejected.
 function joinPositional(values) {
   let end = values.length;
   while (end > 0 && !values[end - 1]) end--;
@@ -5417,11 +5317,9 @@ function passMark() {
   else if (freq) { cmd += ' ' + freq; }
   sendOut(cmd, 'passOut');
 }
-// Proposal item 36: shortcut next to the tuning controls for the
-// all-blank case of passMark() above (bank blank, frequency blank =
-// mark the receiver's own current frequency into the VFO-search pass
-// list) - also mirrors the reply into the Pass Frequencies panel's own
-// output box so it's visible if that accordion happens to be open too.
+// Shortcut for passMark()'s all-blank case: mark the receiver's current
+// frequency into the VFO-search pass list. Also mirrors the reply into the
+// Pass Frequencies panel's output box in case that accordion is open.
 function quickPassMarkCurrent() {
   send('pass mark', { out: 'passOut', onData: (reply) => toast(reply, false) });
 }
@@ -5448,16 +5346,14 @@ function passDelete() {
 function passDeleteAllBanks() { sendOut('pass delete allbanks', 'passOut'); }
 
 // -- VFO + scheduled recording/alarm timer --------------------------------
-// VFO Info (VI) also updates the console display's VFO-B readout - see
-// the vfo-b block's HTML comment for why this is read-on-demand rather
-// than added to every ~1.5s status poll (a second multi-line device
-// read every cycle for a secondary display that's rarely the focus).
+// VFO Info (VI) also updates the console's VFO-B readout. Read on demand
+// rather than every ~1.5s poll: a second multi-line device read per cycle for
+// a secondary display that is rarely the focus.
 function vfoInfo() { send('vi', { out: 'vfoTimerOut', onData: applyVfoInfoRaw }); }
 
-// VI returns three lines: VFx RFffff.fffff ... (one per VFO A/B/Z). Keep
-// all three frequencies so the subordinate readout can show the two VFOs
-// that aren't active (B & Z when A is, etc.). Only filled on demand via
-// VFO Info (vi) - not part of the every-1.5s status poll.
+// VI returns three lines, one per VFO (A/B/Z). All three frequencies are kept
+// so the subordinate readout can show the two that aren't active. Filled on
+// demand only, not by the 1.5s poll.
 const vfoFreqCache = { A: null, B: null, Z: null };
 function applyVfoInfoRaw(text) {
   const t = text || '';
@@ -5498,10 +5394,9 @@ function reflectActiveVfoLabel(letter) {
   if (row && /^[ABZ]$/.test(l)) row.dataset.activeVfo = l;
   renderSubordinateVfos(l);
 }
-// Route the TUNE panel's VFO A/B/Z buttons: select the VFO on the wire and
-// keep the main display + subordinate readout in step (the radio doesn't
-// report which VFO is currently active, so we track it here, and VI is
-// fetched on demand to keep the other two VFOs' numbers fresh).
+// TUNE panel's VFO A/B/Z buttons: select the VFO on the wire and keep both
+// readouts in step. The radio never reports which VFO is active, so it is
+// tracked here, with VI fetched on demand for the other two.
 function selectVfo(letter) {
   const l = String(letter || '').toUpperCase();
   if (!/^[ABZ]$/.test(l)) return;
@@ -5534,13 +5429,11 @@ function vfoSettingsSet() {
 function timerShow() { sendOut('timer', 'vfoTimerOut'); }
 function timerOff() { sendOut('timer off', 'vfoTimerOut'); }
 // Build a TR wire time token from a friendly input string.
-//   weekly: accepts "hh:mm" or "hhmm" -> returns "hhmm".
-//   once:   needs a date too, so accepts "MMDDhhmm" (8 digits) or
-//           "<MMDD> <hh:mm>"/"<MMDD>hhmm". A bare clock-only value for
-//           "once" has no date to attach, so it returns '' (the caller
-//           shows a message) rather than silently picking today - the
-//           radio's own clock may differ and guessing a date would
-//           schedule a recording on the wrong day.
+//   weekly: "hh:mm" or "hhmm" -> "hhmm".
+//   once:   needs a date, so "MMDDhhmm" or "<MMDD> <hh:mm>". A clock-only
+//           value returns '' (the caller explains) rather than assuming
+//           today: the radio's own clock may differ, and guessing would
+//           schedule the recording on the wrong day.
 function normalizeTimerTime(repeat, value) {
   const digits = (value || '').replace(/[^0-9]/g, '');
   if (repeat !== 'weekly') {
@@ -5596,10 +5489,9 @@ function sdRestore() {
   sendOut('sd restore ' + name, 'sdOut');
 }
 
-// -- spectrum scope ---------------------------------------------------------
-// No known way to trigger scope mode over the wire,
-// so these only return real data if the receiver is already showing the
-// bandscope on its own screen - same caveat as the CLI's "scope" verb.
+// -- spectrum scope. No known way to trigger scope mode over the wire, so
+// these only return real data if the receiver is already showing the
+// bandscope on its own screen. ------------------------------------------
 function scopeFast() { sendOut('scope fast', 'scopeOut'); }
 function scopeNormal() { sendOut('scope normal', 'scopeOut'); }
 
@@ -5612,28 +5504,23 @@ function selectRemove() {
 }
 function selectList() { sendOut('select list', 'selectOut'); }
 function selectClear() { sendOut('select clear', 'selectOut'); }
-// Set while a "select run" is in flight - selectScheduleTick() (proposal
-// item 38) checks this before firing again, so an overrunning scan
-// doesn't pile up a second "select run" behind it on the same
-// single-connection WebSocket.
+// Set while a "select run" is in flight; selectScheduleTick() checks it so an
+// overrunning scan doesn't queue a second run behind it on the one WebSocket.
 let selectRunInFlight = false;
 function selectRun() {
-  // "run" blocks the server's WebSocket handler for the whole scan (one
-  // tune + sleep per entry, synchronously) - same as the CLI. Leaving
-  // cycles blank means "forever", which will hang this connection until
-  // stopped from elsewhere; the dwell default (2s) keeps a mistaken click
-  // survivable to wait out or reload past.
+  // "run" blocks the server's WebSocket handler for the whole scan, one tune
+  // + sleep per entry, as the CLI does. Blank cycles means "forever", hanging
+  // this connection until stopped elsewhere; the 2s dwell default keeps a
+  // mistaken click survivable.
   const cycles = outVal('selCyclesInput', '') || 'none';
   const dwell = outVal('selDwellInput', '2.0');
   selectRunInFlight = true;
   send('select run ' + cycles + ' ' + dwell, { out: 'selectOut', onData: () => { selectRunInFlight = false; } });
 }
 
-// Proposal item 38: repeat selectRun() on a timer using the same
-// cycles/dwell fields, instead of only running on a manual click.
-// Refuses to arm with a blank cycle count - "forever" would hang this
-// tab's one WebSocket connection on the very first scheduled fire and
-// never get a chance to repeat again anyway.
+// Repeat selectRun() on a timer using the same cycles/dwell fields. Refuses
+// to arm with a blank cycle count: "forever" would hang this tab's WebSocket
+// on the first fire and never repeat anyway.
 let selectScheduleTimer = null;
 function selectScheduleToggle(on) {
   if (selectScheduleTimer) { clearInterval(selectScheduleTimer); selectScheduleTimer = null; }
@@ -5654,11 +5541,9 @@ function selectScheduleTick() {
   selectRun();
 }
 
-// -- live protocol trace (polled tail of GET /api/debug/trace) -------------
-// See the HTML comment above #debugLiveToggle for why this polls instead
-// of pushing over the WebSocket. debugLiveLastLine is the overlap point:
-// each poll re-fetches the last N ring-buffer lines and only appends
-// whatever comes after the last line already shown.
+// -- live protocol trace (polled tail of GET /api/debug/trace). Each poll
+// re-fetches the last N ring-buffer lines; debugLiveLastLine is the overlap
+// point, so only what follows the last line shown gets appended. ---------
 let debugLiveTimer = null;
 let debugLiveLastLine = null;
 function debugLiveToggle(on) {
@@ -5723,11 +5608,9 @@ function dv13Send(inputId, code) {
   sendOut(v ? ('raw ' + code + ' ' + v) : 'raw ' + code, 'dv13Out');
 }
 
-// -- proposal items 19-28: previously raw-console-only commands ---------
-// Same "blank = plain read, non-blank = write then re-read" shape as
-// miscSetGet() above, just aimed at its own output box - kept separate
-// since these are EXPERIMENTAL/unconfirmed passthroughs, not the
-// higher-confidence "Additional Settings" group.
+// -- previously raw-console-only commands. Same "blank = read, non-blank =
+// write then re-read" shape as miscSetGet(), but kept separate: these are
+// EXPERIMENTAL/unconfirmed passthroughs. -------------------------------
 function expSetGet(inputId, verb) {
   const v = outVal(inputId, '');
   sendOut(v ? (verb + ' ' + v) : verb, 'expOut');
@@ -5741,10 +5624,8 @@ function expWrite(inputId, verb) {
   sendOut(verb + ' ' + v, 'expOut');
 }
 
-// -- proposal items 31-33: visualizations from already-polled data --------
-// All three are purely client-side (in-memory only, reset on page
-// reload) - no new device commands, no persistence, just a friendlier
-// view of data this panel already has.
+// -- visualizations from already-polled data: purely client-side, in-memory,
+// reset on reload. No new device commands, no persistence. ---------------
 
 // 31. S-meter sparkline - rolling window over pollStatus()'s ~1.5s cycle.
 const SMETER_HISTORY_MAX = 40; // ~60s at the ~1.5s poll interval
@@ -5802,15 +5683,11 @@ function pushSquelchHistory(s) {
   el.scrollTop = el.scrollHeight;
 }
 
-// 33. Recent error codes, decoded from the "error: ..." strings the
-// WebSocket already sends (see ws_endpoint() in web/server.py) into a
-// short localized description - RESULT_CODES per aor_dv10.protocol.codec.
-// Only the 4 real error codes (RE off means most rejections just come
-// back as a bare "?" with no numeric code at all - that's not a bug
-// here, it's the device not saying more). Descriptions live in I18N
-// (errCode30/31/40/41/50/51/60/61) like every other UI string, not a
-// separate hardcoded table - otherwise an English-language session would
-// see Polish text leak into this one log.
+// Recent error codes, decoded from the "error: ..." strings the WebSocket
+// already sends. Only the 4 real codes: with RE off most rejections come back
+// as a bare "?" with no number at all - the device not saying more, not a bug
+// here. Descriptions live in I18N like every other string, so an
+// English-language session doesn't see Polish leak into this log.
 const ERROR_LOG_MAX = 20;
 function logErrorFromMessage(msg, cmd) {
   const m = msg.match(/error code '([^']+)'/);
@@ -5820,10 +5697,8 @@ function logErrorFromMessage(msg, cmd) {
   const desc = (key && key in I18N.en) ? t(key) : t('errCodeUnknown');
   const time = new Date().toLocaleTimeString();
 
-  // Proposal item 39: this is also the one place every decoded rejection
-  // passes through, so it doubles as the source for "last result code"
-  // and the session's running problem counter (see the Connection &
-  // Device Status panel / renderConnStats() below).
+  // Every decoded rejection passes through here, so this doubles as the
+  // source for "last result code" and the session's problem counter.
   transportErrorCount++;
   lastResultDesc = { time, text: desc };
   renderConnStats();
@@ -5841,16 +5716,13 @@ function clearErrorLog() {
   if (el) el.textContent = '';
 }
 
-// -- proposal items 39/40/41/42: Connection & Device Status panel ---------
-// Purely client-side, session-scoped observations (reset on reload) plus a
-// read-only summary of gating logic that already exists elsewhere in this
-// file (renderDV10Gating/renderScopeGating) - this panel doesn't invent any
-// new gating rules, it just surfaces the existing ones in one place.
+// -- Connection & Device Status panel: client-side, session-scoped
+// observations (reset on reload) plus a read-only summary of gating that
+// already exists elsewhere. Invents no new rules. ------------------------
 
-// 39. Transport error counter + last-result description + next-poll
-// countdown. logErrorFromMessage() (above) already increments
-// transportErrorCount/lastResultDesc on every decoded rejection;
-// pollStatus() does the same in its catch{} for outright fetch failures.
+// Transport error counter, last-result description and next-poll countdown.
+// logErrorFromMessage() increments the counters on each decoded rejection;
+// pollStatus()'s catch{} does the same for outright fetch failures.
 let transportErrorCount = 0;
 let lastResultDesc = null; // {time, text}
 let lastPollAt = null;
@@ -5890,10 +5762,9 @@ function renderGatingSummary(s) {
   list.textContent = disabledNow.length ? disabledNow.map(x => '• ' + x).join('\n') : t('gateNoneDisabled');
 }
 
-// 42. Connectivity test - a raw "WI" (device ID) round trip via the same
-// sendAwait() helper rmemWrite()'s write-protect guard already uses, timed
-// client-side. Not a device "ping" command (none exists) - just the
-// cheapest existing read-only query, reused for latency feedback.
+// Connectivity test: a raw "WI" (device ID) round trip via sendAwait(), timed
+// client-side. Not a "ping" command - none exists - just the cheapest
+// read-only query, reused for latency feedback.
 async function connPing() {
   if (!wsReady) { toast(t('toastNotConnected'), true); return; }
   const out = document.getElementById('connPingOut');
