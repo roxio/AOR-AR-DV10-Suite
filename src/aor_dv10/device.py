@@ -36,23 +36,18 @@ from .transport.simulator import SimulatorTransport
 # (read-only info), a = selected digital mode, n = selected analog mode -
 # e.g. "0F0" = receiving Auto, digital off, analog FM.
 #
-# MD's WRITE value is confirmed against real hardware to be the SAME
-# 3-character "dan" shape as the read value, not a shorter reversed form.
-# A 2-character write in either order is silently accepted (no error) but
-# does not actually change the analog/digital selection - this is what
-# made an earlier round of testing look like a working fix: a reversed
-# 2-char write ("1F" for analog=1/digital=F) stopped producing the format
-# error a naively-ordered 2-char write ("F1") got, but neither one was
-# checked against a read-back at the time, and neither actually applies
-# the requested mode. Confirmed via a live repro: "raw MD 1F1" (3 chars)
-# read back as "0F1" (analog now AM) and visibly changed the receiver,
-# while the equivalent 2-char writes this project had been sending never
-# did. DV10Device.set_mode() takes the same user-facing "<digital><analog>"
-# 2-char convention as before for callers, and internally pads it into the
-# 3-char wire shape - see its docstring. The leading "d" position (read-only
-# on the read side) accepted an arbitrary DIGITAL_MODES-valid digit in
-# testing; "0" (Auto) is sent as a safe, always-valid placeholder, but its
-# exact accepted range hasn't been exhaustively tested.
+# MD's WRITE value is confirmed against real hardware to be the SAME 3-char
+# "dan" shape, not a shorter reversed form. A 2-char write in either order
+# is silently accepted (no error) but does NOT change the analog/digital
+# selection - which is what made an earlier round of testing look like a
+# working fix. Live repro: "raw MD 1F1" (3 chars) read back as "0F1"
+# (analog now AM) and visibly changed the receiver, while the equivalent
+# 2-char writes this project had been sending never did. set_mode() keeps
+# the user-facing 2-char "<digital><analog>" convention for callers and
+# pads it into the 3-char wire shape internally; do not "fix" this back to
+# a bare 2-character write. The read-only leading "d" position accepted an
+# arbitrary DIGITAL_MODES-valid digit in testing; "0" (Auto) is sent as a
+# safe placeholder, but its exact accepted range hasn't been tested.
 DIGITAL_MODES = {
     "0": "Auto",
     "1": "D-STAR",
@@ -80,17 +75,15 @@ ANALOG_MODES = {
 # -- per-model analog-mode gating -------------------------------------------
 #
 # Per user report against real DV10 hardware: SAH ("2") and SAL ("3") - the
-# two narrow/synchronous-AM variants that already share one IF_BANDWIDTH_HZ
-# row above - are NOT functionally distinct on the AR-DV10: the receiver
-# accepts and echoes back either code without error (this is UI-level
-# guidance, not a protocol-level restriction - set_mode()/_mode_write_value()
-# deliberately still accept both), but selecting one over the other makes
-# no audible/measurable difference on that model. The AR-DV3 spec this
-# project's tables are sourced from documents them as two separate codes in
-# the first place, so this is presumed - not yet confirmed either way - to
-# NOT apply to other AR-DV1-family receivers; hence gating by detected
-# device family (DV10Device.device_family()) rather than disabling this
-# unconditionally for every model.
+# two narrow/synchronous-AM variants sharing one IF_BANDWIDTH_HZ row - are
+# NOT functionally distinct on the AR-DV10. The receiver accepts and echoes
+# either code without error, so this is UI-level guidance, not a
+# protocol-level restriction (set_mode()/_mode_write_value() deliberately
+# still accept both), but selecting one over the other makes no
+# audible/measurable difference on that model. The AR-DV3 spec documents
+# them as two separate codes, so this is presumed - not confirmed either
+# way - NOT to apply to other AR-DV1-family receivers; hence gating by
+# detected device family rather than disabling it for every model.
 ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY = {
     "DV10": {"2", "3"},  # SAH, SAL
 }
@@ -98,10 +91,10 @@ ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY = {
 
 def _validate_mode_pair(mode: str) -> str:
     """Validate a "<digital><analog>" 2-char mode code and return it
-    UNCHANGED (natural order, still 2 characters) - see
-    write_memory_channel()'s docstring for why this must NOT be assumed
-    to need the same 3-character "dan" wire shape _mode_write_value()
-    (used by standalone set_mode()) was confirmed to need."""
+    UNCHANGED (natural order, still 2 characters). Must NOT be assumed to
+    need the 3-character "dan" wire shape _mode_write_value() (used by
+    standalone set_mode()) was confirmed to need - see
+    write_memory_channel()."""
     mode = mode.strip().upper()
     if len(mode) != 2:
         raise ValueError(
@@ -125,13 +118,11 @@ def _validate_mode_pair(mode: str) -> str:
 def _mode_write_value(mode: str) -> str:
     """Validate a "<digital><analog>" 2-char mode code and return the
     3-character value standalone MD actually wants on the wire: the same
-    "dan" shape MD reads back, with "0" (Auto) as a safe placeholder for
-    the read-only leading "d" position - see the DIGITAL_MODES comment
-    block above for the real-hardware finding behind this. Used by
-    set_mode() only; write_memory_channel()'s own embedded MD sub-field
-    uses the separate, still-unconfirmed _validate_mode_pair() below -
-    see write_memory_channel()'s docstring for why the two aren't
-    (yet known to be) the same shape."""
+    "dan" shape MD reads back, with "0" (Auto) as a safe placeholder for the
+    read-only leading "d" position - see the DIGITAL_MODES comment block for
+    the real-hardware finding behind this. Used by set_mode() only;
+    write_memory_channel()'s own embedded MD sub-field uses the separate,
+    still-unconfirmed _validate_mode_pair()."""
     mode = mode.strip().upper()
     if len(mode) != 2:
         raise ValueError(
@@ -154,18 +145,15 @@ def _mode_write_value(mode: str) -> str:
 
 # -- AT (attenuator) decode table ---------------------------------------------
 #
-# ATTENUATOR_STATES decode table.
-#
-# The AR-DV3 spec documents AT as a 3-state selector (0=AMP ON,
-# 1=AMP OFF & ATT OFF, 2=10dB ATT), but a real DV10 doesn't behave that
-# way: per user report, the value that switches the ~10dB SIGNAL
-# ATTENUATOR ON is 1, and 0 (which the DV3 spec calls "AMP ON") is just
-# the no-attenuation baseline. So the labels below reflect the *effect on
-# the actual receiver* (the web panel and CLI "attst" share these), and
-# the wire values are left unchanged - this is a label/correctness fix,
-# not a remapping of which value is sent (see set_attenuator()/set_
-# attenuator_state()). The 10dB ATT state (2) is a DV3-only extra; the
-# DV10/DV1 only reach states 0 and 1 (the web panel greys 2 out unless a
+# The AR-DV3 spec documents AT as a 3-state selector (0=AMP ON, 1=AMP OFF &
+# ATT OFF, 2=10dB ATT), but a real DV10 doesn't behave that way: per user
+# report the value that switches the ~10dB SIGNAL ATTENUATOR ON is 1, and 0
+# ("AMP ON" per the DV3 spec) is just the no-attenuation baseline. The
+# labels below reflect the effect on the *actual receiver* (the web panel
+# and CLI "attst" share these); the wire values are unchanged - a
+# label/correctness fix, not a remapping of what is sent (see
+# set_attenuator()/set_attenuator_state()). State 2 (10dB ATT) is a DV3-only
+# extra; DV10/DV1 only reach 0 and 1 (the web panel greys 2 out unless a
 # DV3 is detected).
 ATTENUATOR_STATES = {
     "0": "ATT OFF",
@@ -177,9 +165,8 @@ ATTENUATOR_STATES = {
 #
 # Confirmed via the AR-DV3 spec: a 4-state speed selector, not on/off. The
 # DV3 spec also says it's only valid in AM mode (other modes -> result code
-# 30), but a real DV10 test succeeded while apparently in FM mode - so
-# either that restriction doesn't apply to DV10, or the mode at test time
-# differed from what MD reported. Unconfirmed either way.
+# 30), but a real DV10 test succeeded while apparently in FM - unconfirmed
+# either way.
 AGC_SPEEDS = {
     "0": "Fast",
     "1": "Mid",
@@ -189,10 +176,10 @@ AGC_SPEEDS = {
 
 # -- KL (key backlight color) decode table --------------------------------
 #
-# Note n=3's spec-literal label is "MAGENDA", not "MAGENTA" - confirmed as
-# a genuine spec typo (not a pdftotext artifact) via both the rendered PDF
-# image and pdftotext's raw text layer, the same two-method cross-check
-# used for the "SYSYEM" backup-kind typo below - kept literal here rather
+# n=3's spec-literal label is "MAGENDA", not "MAGENTA" - confirmed a genuine
+# spec typo (not a pdftotext artifact) via both the rendered PDF image and
+# pdftotext's raw text layer, the same cross-check used for the "SYSYEM"
+# backup-kind typo below - kept literal here rather
 # than corrected, same rationale as SD_BACKUP_KIND_ALL.
 KEY_BACKLIGHT_COLORS = {
     "0": "OFF",
@@ -207,30 +194,28 @@ KEY_BACKLIGHT_COLORS = {
 
 # -- IF (IF bandwidth) decode table ----------------------------------------
 #
-# Keyed by the spec's own named demodulation types
-# (FM/AM/SAH/SAL/USB/LSB/CW) rather than this project's usual 2-char
-# MD-style mode codes - the spec's IF section doesn't document a mapping
-# between the two, and SAH/SAL share one row of values, as do USB/LSB, so
-# there's no clean 1:1 mapping to build in the first place. Values in Hz.
+# Keyed by the spec's own named demodulation types (FM/AM/SAH/SAL/USB/LSB/
+# CW) rather than 2-char MD-style mode codes: the spec's IF section
+# documents no mapping between the two, and SAH/SAL share one row of values
+# as do USB/LSB, so there is no clean 1:1 mapping to build. Values in Hz.
 #
-# FM's row was originally 5 entries (0-4), digit "0" = 200 kHz, straight
-# from the AR-DV10 operating manual's own table - never independently
-# checked against real hardware until now. Per user report against real
-# hardware (2026-09-01): FM only actually runs 6-100 kHz, no 200 kHz
-# choice - "0"/200_000 removed below. Not yet confirmed which of two
-# explanations is true (device simply has one fewer choice than the
-# manual claims and raw digits 1-4 keep their existing meaning - assumed
-# here - vs. the whole raw-digit numbering shifted); AM/SAH/SAL/USB/LSB/
-# CW's rows are still only manual-derived and unconfirmed either way.
+# FM's row was originally 5 entries (0-4) with digit "0" = 200 kHz, straight
+# from the AR-DV10 operating manual's own table, never independently checked
+# against real hardware. Per user report against real hardware (2026-09-01):
+# FM only runs 6-100 kHz, no 200 kHz choice - "0"/200_000 removed below. Not
+# confirmed which explanation is true (the device simply has one fewer
+# choice and raw digits 1-4 keep their meaning - assumed here - vs. the
+# whole raw-digit numbering shifting); the other rows are still only
+# manual-derived and unconfirmed either way.
 #
-# Only applies while NO digital mode is selected (MD's "a"/digital_select
-# field is "Digital off"/"F"). Per user report against real hardware, IF
-# is NOT user-settable at all while a digital mode is active (Auto or any
-# specific protocol): "bw 100000" and "bw 6000" both got result code 30
-# (PC_RESULT_CAN_NOT_SET_ERR, "cannot set given current conditions") even
-# though 6000 is itself one of this table's own FM values. Per the AR-DV10
-# operating manual, the receiver auto-selects the digital filter width
-# from a fixed set (6/15/30 kHz) depending on what it's decoding, rather
+# Only applies while NO digital mode is selected (MD's digital_select is
+# "Digital off"/"F"). Per user report against real hardware, IF is NOT
+# user-settable at all while a digital mode is active: "bw 100000" and
+# "bw 6000" both got result code 30 (PC_RESULT_CAN_NOT_SET_ERR, "cannot set
+# given current conditions") even though 6000 is one of this table's own FM
+# values. Per the AR-DV10 operating manual the receiver auto-selects the
+# digital filter width from a fixed set (6/15/30 kHz) depending on what it
+# is decoding, rather
 # than taking a manual IF write - see get_if_bandwidth_options_hz().
 IF_BANDWIDTH_HZ = {
     "FM": {"1": 100_000, "2": 30_000, "3": 15_000, "4": 6_000},
@@ -256,23 +241,17 @@ SQUELCH_MODES = {
 
 # -- CI (tone squelch type) decode table -------------------------------------
 #
-# The manual's SQL TYPE menu (10.5) offers OFF/CTCSS/DCS/Reverse Tone as
-# one 4-way choice, but the command summary lists CI ("Tone squelch
-# ON/OFF") and DI ("DCS ON/OFF") as two separate commands - this project
-# originally guessed both were plain 0/1 booleans (CTCSS and DCS being
-# mutually exclusive via the front panel, but independently toggled on
-# the wire). Confirmed against real DV10 hardware that CI is NOT a
-# boolean: with the front panel's SQL TYPE showing "REV.T" (Reverse
-# Tone), CI read "2" (DI "0"); with SQL TYPE showing "DCS", CI read "0"
-# (DI "1"). So CI is (at least) a 3-value selector, and DCS is confirmed
-# to be DI's own independent boolean rather than one of CI's values -
-# when DCS is active, CI simply reads back its "off" value while DI
-# carries the DCS-active flag instead.
+# The manual's SQL TYPE menu (10.5) offers OFF/CTCSS/DCS/Reverse Tone as one
+# 4-way choice, but the command summary lists CI ("Tone squelch ON/OFF") and
+# DI ("DCS ON/OFF") as two separate commands. Confirmed against real DV10
+# hardware that CI is NOT a boolean: with the front panel's SQL TYPE showing
+# "REV.T" (Reverse Tone) CI read "2" (DI "0"); showing "DCS", CI read "0"
+# (DI "1"). So CI is (at least) a 3-value selector, and DCS is DI's own
+# independent boolean rather than one of CI's values.
 #
-# "1"=CTCSS is inferred by elimination (SQL TYPE's remaining choice) -
-# unlike "2"=Reverse Tone and DI=1=DCS, it was not independently read
-# back from the front panel showing "CTCSS", so treat it as a strong
-# guess rather than a confirmed value until someone checks.
+# "1"=CTCSS is inferred by elimination (SQL TYPE's remaining choice) - it
+# was not independently read back, so treat it as a strong guess rather
+# than a confirmed value until someone checks.
 TONE_SQUELCH_TYPES = {
     "0": "OFF",
     "1": "CTCSS",  # inferred by elimination - not independently confirmed
@@ -286,13 +265,11 @@ SQUELCH_STATES = {
     2: "open (tone/DCS/reverse squelch)",
     3: "detecting digital mode",
 }
-"""Corrected against the AR-DV1 wire-protocol spec's own LM
-entry (LMkkkc: "c: Squelch status - 0: Squelch closes, 1: Noise squelch or
-level squelch opens, 2: Tone, DCS or reverse squelch opens, 3: Detecting
-digital mode"). The previous mapping here (1=generic "open", 2=CTCSS/DCR/
-VoiceSQ, 3=LevelSQ/NoiseSQ) was an unconfirmed manual-sourced guess that
-got states 1-3 wrong in both which squelch types they group and what state
-3 even means (it's "detecting digital mode", not another squelch-open
+"""Per the AR-DV1 wire-protocol spec's own LM entry (LMkkkc: "c: Squelch
+status - 0: Squelch closes, 1: Noise squelch or level squelch opens,
+2: Tone, DCS or reverse squelch opens, 3: Detecting digital mode"). The
+previous mapping here was an unconfirmed manual-sourced guess that got
+states 1-3 wrong in both which squelch types they group and what state 3
 variant)."""
 
 
@@ -300,18 +277,15 @@ variant)."""
 #
 # Everything in this block is sourced from the official AR-DV10 *operating*
 # manual's front-panel menu descriptions, not a CI serial-protocol manual
-# (AOR doesn't appear to publish one beyond the bare mnemonic/description
-# list in aor_dv10.protocol.commands.COMMANDS). That gives us confident
-# VALUE RANGES and MEANINGS, but only inferred WIRE ENCODINGS - each method
-# using these says which parts are which. Treat anything marked
-# "unconfirmed" the way AC/AT/SQ were treated before being confirmed: a
-# documented best guess, ready to be corrected by one real-hardware
-# "raw CODE VALUE" test.
+# (AOR publishes none beyond the bare mnemonic list in
+# aor_dv10.protocol.commands.COMMANDS). That gives confident VALUE RANGES
+# and MEANINGS but only inferred WIRE ENCODINGS - each method says which is
+# which. Treat anything marked "unconfirmed" as a documented best guess,
+# correctable by one real-hardware "raw CODE VALUE" test.
 
 BACKLIGHT_MODES = {"0": "Off (default)", "1": "Continuous", "2": "Auto"}
 """LB (LCD backlight) choices per the manual (11.2 item 4): OFF/CONT/AUTO.
-Digit encoding is an unconfirmed guess - the front panel shows text, not
-digits, for this one."""
+Digit encoding is an unconfirmed guess - the front panel shows text."""
 
 CTCSS_TONES_HZ = [
     "60.0", "67.0", "69.3", "71.9", "74.4", "77.0", "79.7", "82.5", "85.4", "88.5",
@@ -322,20 +296,18 @@ CTCSS_TONES_HZ = [
     "225.7", "229.1", "233.6", "241.8", "250.3", "254.1",
 ]
 """The CTCSS tone table as printed in the operating manual (10.5.1) - the
-*values* are confirmed (that's what the receiver's own menu shows and what
-it will be tuned to). Confirmed against the AR-DV1 wire spec that CN's own
-wire value is NOT this literal decimal string but a 1-based index into
-this exact table (CTCSS_TONES_HZ[0] <-> CN01, ..., CTCSS_TONES_HZ[51] <->
-CN52) - see set_tone_squelch_freq()/_decode_cn()."""
+*values* are confirmed (that's what the receiver's menu shows). Confirmed
+against the AR-DV1 wire spec that CN's own wire value is NOT this literal
+decimal string but a 1-based index into this exact table (CN01 <-> [0] ...
+CN52 <-> [51]) - see set_tone_squelch_freq()/_decode_cn()."""
 
 
 def _decode_cn(raw: str) -> str:
     """Raw CN value -> the human-readable tone string used by
-    get_tone_squelch_freq()/the CLI/the web GUI's <select>. Handles the
-    plain "nn" shape (the receive mode's current CN value) as well as the
-    "99nn" shape the spec says CN reads back as *while a search is active*
-    (99 = still searching, followed by the last-detected index, 00 if none
-    yet)."""
+    get_tone_squelch_freq()/the CLI/the web GUI. Handles the plain "nn"
+    shape as well as the "99nn" shape the spec says CN reads back while a
+    search is active (99 = still searching, then the last-detected index,
+    00 if none yet)."""
     raw = raw.strip()
     if len(raw) == 4 and raw.startswith("99"):
         raw = raw[2:]  # mid-search read: report the detected tone so far (00 if none yet)
@@ -391,31 +363,23 @@ class ModeInfo:
 
 
 def _parse_composite_fields(text: str, *, tag_field: str | None = None) -> dict:
-    """Split a space-separated, "<2-letter code><value> <2-letter code>
-    <value> ..." composite response - the shape this project has now
-    confirmed for MX/MA (live memory channels), OL (offset frequency), and
-    several other AR-DV1 commands not yet implemented (VF/VI, TR, SE, MW,
-    MG...) - into a ``{code: value}`` dict. Tokens that don't look like
-    "2 letters + something" are ignored rather than raising, since a
-    couple of these commands mix in bare flags/placeholders (e.g. MA's
-    "- - -" for an unregistered channel) that this helper isn't meant to
-    interpret - see aor_dv10.device.DV10Device.read_memory_channel() for
-    where that gets handled instead.
+    """Split a space-separated "<2-letter code><value> ..." composite
+    response - the shape now confirmed for MX/MA (live memory channels), OL
+    (offset frequency) and several other AR-DV1 commands not yet implemented
+    (VF/VI, TR, SE, MW, MG...) - into a ``{code: value}`` dict. Tokens that
+    don't look like "2 letters + something" are ignored rather than raising,
+    since a couple of these commands mix in bare flags/placeholders (e.g.
+    MA's "- - -" for an unregistered channel) - see
+    DV10Device.read_memory_channel() for where those are handled instead.
 
-    ``tag_field``: pass a 2-letter code, e.g. "TT", to treat
-    THAT field as "the rest of the line" rather than one whitespace-
-    delimited token - every composite response this project has
-    implemented with a tag/name sub-field documents it as the LAST field,
-    so this is safe in practice even though AOR's spec has no documented
-    escaping convention for a value that itself contains a space. Without
-    this, a tag like "2M BAND" silently truncates to "2M" at the first
-    space - confirmed via a live smoke test round-tripping it through
-    write_search_bank()/read_search_bank() (SE/SR); the same truncation
-    equally affects MX/MW's tag handling (already shipped since task 10),
-    just not previously noticed. Once the tag field is found, parsing
-    stops - anything after it is treated as part of the tag, not further
-    fields, since none of this project's documented formats put anything
-    after TT anyway."""
+    ``tag_field``: a 2-letter code, e.g. "TT", to treat as "the rest of the
+    line" rather than one whitespace-delimited token. Every composite
+    response implemented here documents its tag/name sub-field LAST, so this
+    is safe in practice even though AOR's spec has no escaping convention
+    for a value containing a space. Without it a tag like "2M BAND" silently
+    truncates to "2M" - confirmed via a live SE/SR round-trip smoke test;
+    the same truncation affects MX/MW's tag handling. Parsing stops once the
+    tag field is found."""
     fields: dict = {}
     for match in re.finditer(r"\S+", text):
         token = match.group()
@@ -433,16 +397,13 @@ class MemoryChannelInfo:
     """Decoded MX/MA live memory-channel record - see
     DV10Device.read_memory_channel()/write_memory_channel().
 
-    Confirmed against the AR-DV1 wire spec to be a DIFFERENT
-    field set from aor_dv10.memory.MemoryChannel (the AR-DV10 Connect
-    *backup CSV* format parsed/written by that module): this one has a
-    step_adjust_hz field the CSV format doesn't, and no offset field
-    (the CSV format has one) - don't assume the two are interchangeable,
-    see aor_dv10.memory's module docstring for the CSV side of that
-    caveat. ``registered`` is False for an unprogrammed slot (the AR-DV1
-    spec's own "MAbbcc - - -" shape) - every other field is then
-    None/False/"" and should be ignored, same convention as
-    aor_dv10.memory.MemoryChannel.is_empty."""
+    Confirmed against the AR-DV1 wire spec to be a DIFFERENT field set from
+    aor_dv10.memory.MemoryChannel (the AR-DV10 Connect *backup CSV* format):
+    this one has a step_adjust_hz field the CSV format doesn't, and no
+    offset field (which the CSV format has) - don't assume the two are
+    interchangeable. ``registered`` is False for an unprogrammed slot (the
+    spec's own "MAbbcc - - -" shape); every other field is then
+    None/False/"" and should be ignored."""
 
     bank: int
     channel: int
@@ -470,37 +431,31 @@ class MemoryBankInfo:
 
 
 def _format_search_freq_mhz(hz: int) -> str:
-    """"ffff.ffff" (4 integer + 4 decimal digits, decimal MHz) - the
-    coarser resolution the AR-DV1 spec uses for search-bank limits (SE's
-    own SL/SU sub-fields, and the standalone SL/SU commands) and for pass
-    frequencies (PW/PR), confirmed distinct from RF/OL's "ffff.fffff" (5
-    decimal digits => 10Hz resolution, vs. this 100Hz) by cross-checking
-    both the composite SE row and the standalone SL/SU entries in the
-    AR-DV1 spec, which show the same narrower width independently - not a
-    documentation typo. See write_search_bank()."""
+    """"ffff.ffff" (4 integer + 4 decimal digits, decimal MHz => 100Hz) -
+    the coarser resolution the AR-DV1 spec uses for search-bank limits (SE's
+    SL/SU sub-fields and the standalone SL/SU) and for pass frequencies
+    (PW/PR). Confirmed distinct from RF/OL's "ffff.fffff" (10Hz) by
+    cross-checking the composite SE row and the standalone SL/SU entries,
+    which show the same narrower width independently - not a documentation
+    typo. See write_search_bank()."""
     return f"{hz / 1_000_000:09.4f}"
 
 
 def _format_rf_freq_mhz(hz: int) -> str:
-    """"ffff.fffff" (4 integer + 5 decimal digits, decimal MHz => 10Hz
-    resolution) - the SAME width standalone RF/OL use, confirmed (not
-    inferred) from the AR-DV1 spec's own VF/VI table rows
-    ("VFt RFffff.fffff STggg.gg SHhhh.hh MDdan"), which is genuinely wider
-    than the search-bank family's "ffff.ffff" - see
-    _format_search_freq_mhz()'s docstring for that comparison. Kept as its
-    own helper (duplicating set_frequency_hz()'s inline
-    ``f"{mhz:010.5f}"``) so VF/VI's embedded RF field and the standalone
-    RF command share one formatter rather than three independent inline
-    format strings drifting apart."""
+    """"ffff.fffff" (4 integer + 5 decimal digits, decimal MHz => 10Hz) -
+    the SAME width standalone RF/OL use, confirmed (not inferred) from the
+    AR-DV1 spec's own VF/VI table rows, and genuinely wider than the
+    search-bank family's "ffff.ffff" (see _format_search_freq_mhz()). Kept
+    as one helper so VF/VI's embedded RF field and the standalone RF command
+    can't drift apart."""
     return f"{hz / 1_000_000:010.5f}"
 
 
 def _format_bank_link(banks: Optional[List[int]]) -> str:
     """Render a bank-link list as the AR-DV1 spec's own "bbb..." token for
-    BK (and the BK sub-field embedded in SG/MG): each bank as 2 digits,
-    concatenated with no separator. ``None`` or an empty list writes "99",
-    the spec's own documented shorthand for "all bank links disabled" -
-    callers don't need to spell that out themselves."""
+    BK (and the BK sub-field embedded in SG/MG): each bank as 2 digits, no
+    separator. ``None`` or an empty list writes "99", the spec's own
+    shorthand for "all bank links disabled"."""
     if not banks:
         return "99"
     return "".join(f"{int(b):02d}" for b in banks)
@@ -522,12 +477,11 @@ def _parse_bank_link(raw: str) -> List[int]:
 @dataclass
 class SearchBankInfo:
     """Decoded SE (write)/SR (read) search-bank record: a program-search
-    scan range with its own step, step-adjust, mode, write-protect and
-    name tag - distinct from a live memory bank (MemoryBankInfo above)
-    even though several sub-field letters (ST/SH/MD/PT/TT) are shared.
-    ``registered`` is False for a bank that has never been written -
-    every other field is then None/False/"" and should be ignored, same
-    convention as MemoryChannelInfo.registered. See
+    scan range with its own step, step-adjust, mode, write-protect and name
+    tag - distinct from a live memory bank (MemoryBankInfo above) even
+    though several sub-field letters (ST/SH/MD/PT/TT) are shared.
+    ``registered`` is False for a bank that has never been written; every
+    other field is then meaningless. See
     DV10Device.write_search_bank()/read_search_bank()."""
 
     bank: int
@@ -575,10 +529,9 @@ class PassFrequencyEntry:
 class VfoInfo:
     """One VFO's (A/B/Z) current receive settings, as read back by VI or
     written atomically by VF - see DV10Device.read_vfo_info()/
-    enter_vfo_mode(). ``step_hz``/``step_adjust_hz`` share VF/VI's own
-    "ST"/"SH" sub-fields, same kHz-decimal wire format as the embedded
-    ST/SH in MX/SE (see write_search_bank()'s docstring) - NOT the same
-    format as the standalone, separately-unconfirmed ST/SH commands."""
+    enter_vfo_mode(). ``step_hz``/``step_adjust_hz`` use VF/VI's own "ST"/
+    "SH" sub-fields, the same kHz-decimal wire format as the embedded ST/SH
+    in MX/SE - NOT the standalone, separately-unconfirmed ST/SH commands."""
 
     vfo: str  # "A", "B", or "Z"
     frequency_hz: Optional[int] = None
@@ -589,12 +542,11 @@ class VfoInfo:
 
 @dataclass
 class VfoSearchSettings:
-    """VE: the (single, receiver-wide - not per-VFO despite the name)
-    VFO-search delay/free-time/auto-store configuration used when VS
-    starts a VFO search - see DV10Device.read_vfo_search_settings()/
+    """VE: the single, receiver-wide (not per-VFO, despite the name)
+    VFO-search delay/free-time/auto-store configuration used when VS starts
+    a VFO search - see DV10Device.read_vfo_search_settings()/
     write_vfo_search_settings(). Same field shape as ScanGroupInfo's
-    search-side (SG) fields, but VE has no group number - it's a single
-    global setting, not a numbered list of groups."""
+    search-side (SG) fields, but VE has no group number."""
 
     delay_ds: Optional[int] = None  # tenths of a second, spec range 01-99, default 20
     free_time_s: Optional[int] = None  # seconds, spec range 00-60, default 00
@@ -647,15 +599,12 @@ class Status:
 # "tuning/level parameter" family, not individually retested) to reject
 # writes with "?" unless the receiver is in VFO mode rather than browsing a
 # memory channel.
-# Deliberately NOT including AG here - its bare-read failure turned out to
-# be a separate, now-resolved thing (confirmed via RE 1: result code 60,
-# "command does not exist" - this firmware just doesn't support a bare AG
-# read, unrelated to VFO mode). Also NOT including MD or VF: MD's
-# VFO-mode requirement was never independently confirmed and is now just
-# an open question rather than a presumption; VF is confirmed to itself be
-# the (likely) way *into* VFO mode ("raw VF A" succeeded - see
-# enter_vfo_mode() below), so gating it on already being in VFO mode would
-# be backwards.
+# Deliberately excludes AG (its bare-read failure was a separate, resolved
+# thing: RE 1 gave result code 60, "command does not exist" - this firmware
+# has no bare AG read), MD (its VFO-mode requirement was never independently
+# confirmed - an open question, not a presumption) and VF (confirmed to be
+# the way *into* VFO mode: "raw VF A" succeeded, see enter_vfo_mode(), so
+# gating it on already being in VFO mode would be backwards).
 _VFO_MODE_WRITE_CODES = {"RF", "AC", "SQ", "AT", "RG", "ST", "SH"}
 
 _VFO_MODE_HINT = (
@@ -666,12 +615,10 @@ _VFO_MODE_HINT = (
 
 @dataclass
 class SdCardFile:
-    """One entry from SD DIR's per-file directory listing. The AR-DV1
-    spec documents two different per-file line
-    shapes depending on extension - WAV files get a recorded duration,
-    everything else gets a byte size - so both fields are kept Optional
-    rather than picking one representation and converting; see
-    DV10Device.sd_dir()'s docstring."""
+    """One entry from SD DIR's per-file directory listing. The AR-DV1 spec
+    documents two per-file line shapes by extension - WAV files get a
+    recorded duration, everything else a byte size - so both fields stay
+    Optional rather than picking one; see DV10Device.sd_dir()."""
 
     name: str
     extension: str
@@ -699,14 +646,11 @@ SD_CARD_STATUS = {
     "4": "SD card not found, can't be used, or another error",
 }
 
-# SD MMW's five documented backup-kind tokens. Note SD_BACKUP_KIND_ALL's
-# literal value: the AR-DV1 spec's own wire token is spelled "SYSYEM", not
-# "SYSTEM" - confirmed as a real spec typo (not an OCR/extraction artifact)
-# by cross-checking both the rendered PDF page image and pdftotext's raw
-# text layer independently, both agreeing on the same misspelling.
-# Implemented literally, on the theory (unconfirmed) that firmware
-# typically matches its own manual's documented token exactly, typo and
-# all.
+# SD MMW's five documented backup-kind tokens. SD_BACKUP_KIND_ALL's wire
+# token is spelled "SYSYEM", not "SYSTEM" - confirmed a real spec typo (not
+# an OCR/extraction artifact) by cross-checking the rendered PDF page image
+# and pdftotext's raw text layer independently. Implemented literally, on
+# the (unconfirmed) theory that firmware matches its own manual's token.
 SD_BACKUP_KIND_SEARCH_BANK = "SRCHBK"
 SD_BACKUP_KIND_SEARCH_GROUP = "SRCHGRP"
 SD_BACKUP_KIND_MEMORY_CHANNEL = "MEMCH"
@@ -733,15 +677,13 @@ _SD_ERROR_HINTS = {
 
 
 def _check_sd_error(text: str) -> None:
-    """Raises DV10ProtocolError if ``text`` (an SD command's response
-    value, already stripped of its code echo) is one of the AR-DV1 spec's
-    documented SD-card error tokens. Unlike this project's usual numeric
-    RE result-code errors, these arrive as plain text *inside* an
-    otherwise-normal response body, not as a "<code>?" rejection - so they
-    have to be checked for explicitly rather than falling out of
+    """Raises DV10ProtocolError if ``text`` (an SD command's response value,
+    code echo already stripped) is one of the AR-DV1 spec's documented
+    SD-card error tokens. These arrive as plain text *inside* an
+    otherwise-normal response body, not as a "<code>?" rejection, so they
+    have to be checked explicitly rather than falling out of
     CommandChannel.send()'s own error handling. ``err.code`` carries the
-    token itself (e.g. "CARDBUSY"), not a numeric string, so callers can
-    distinguish these programmatically without matching on hint text."""
+    token itself (e.g. "CARDBUSY"), not a numeric string."""
     token = (text or "").strip().upper()
     hint = _SD_ERROR_HINTS.get(token)
     if hint is not None:
@@ -750,13 +692,11 @@ def _check_sd_error(text: str) -> None:
 
 def _sd_value(resp: Response, prefix: str) -> str:
     """Strips an echoed ``prefix`` (e.g. "SD REC") from an SD command's
-    response value if present - CommandChannel.send() already strips it
-    once automatically for the *first* line of a response, but
-    continuation lines from read_pending() (used by sd_dir()'s multi-line
-    read) don't get that treatment, so this is applied defensively every
-    time, mirroring list_pass_frequencies()'s own double-strip pattern -
-    then raises via _check_sd_error() if what's left is a documented SD
-    error token, otherwise returns the cleaned text."""
+    response value. CommandChannel.send() strips it once for the FIRST line
+    of a response, but read_pending() continuation lines (sd_dir()'s
+    multi-line read) don't get that, so it is applied defensively every
+    time; then raises via _check_sd_error() if what's left is a documented
+    SD error token, otherwise returns the cleaned text."""
     text = (resp.value or "").strip()
     if text.upper().startswith(prefix.upper()):
         text = text[len(prefix):].strip()
@@ -768,18 +708,16 @@ def _sd_value(resp: Response, prefix: str) -> str:
 class ScopeLine:
     """One decoded line of "GL" (frequency-scope, normal-speed) data.
 
-    frequency_hz: centre frequency of this scan point, in Hz (decoded from
-        the spec's "fffff.fffff" MHz field).
-    level_raw: the raw 2-digit "kk" level token, as printed on the wire.
-        NOTE: the AR-DV1 spec's own GL syntax line reads "Fffff.fffffLkkc"
-        - i.e. a 2-digit level field - which is narrower than the 3-digit
-        convention used by LM's S-meter reading and by FD's own level
-        chunks ("ddd"). This has NOT been confirmed against real hardware;
-        it is implemented exactly as literally written in the spec, but is
-        flagged here as an unconfirmed discrepancy worth a hardware check.
-    squelch_state: the trailing single-digit "c" token, as printed on the
-        wire (0/1; its precise meaning is not fully pinned down from the
-        spec text alone).
+    frequency_hz: centre frequency of this scan point, in Hz (from the
+        spec's "fffff.fffff" MHz field).
+    level_raw: the raw 2-digit "kk" level token as printed on the wire.
+        NOTE: the AR-DV1 spec's own GL syntax ("Fffff.fffffLkkc") gives a
+        2-digit level field, narrower than the 3-digit convention LM's
+        S-meter reading and FD's own level chunks use. Implemented exactly
+        as written, but UNCONFIRMED against real hardware and flagged here
+        as a discrepancy worth a hardware check.
+    squelch_state: the trailing single-digit "c" token (0/1; its precise
+        meaning is not fully pinned down from the spec text alone).
     """
 
     frequency_hz: int
@@ -802,22 +740,17 @@ class DV10Device:
         self._chan = CommandChannel(transport, timeout=timeout)
         self._connected = False
         # Local best-effort tracking for set_mode()'s IF-bandwidth-restore
-        # workaround - see set_mode()'s docstring for why this is plain
-        # instance state rather than a live MD read every call.
+        # workaround - see set_mode()'s docstring.
         self._digital_active = False
         self._pre_digital_if_bandwidth: Optional[str] = None
-        # Lazily populated by model() on first call, cleared on
-        # disconnect() - WI doesn't change mid-connection, and this
-        # project now polls model()/device_family() on every
-        # /api/status refresh (every 1.5s - see the web panel's
-        # device_family-based SAH/SAL gating), so an uncached read
-        # would mean one extra wire round-trip a poll for a value
-        # that can't have changed.
+        # Lazily populated by model() on first call, cleared on disconnect().
+        # WI can't change mid-connection, and model()/device_family() is now
+        # polled on every /api/status refresh (1.5s - see the web panel's
+        # device_family-based SAH/SAL gating), so an uncached read would cost
+        # a wire round-trip per poll.
         self._model_cache: Optional[str] = None
-        # Same reasoning as _model_cache, for firmware_version()/VR - the
-        # web nameplate now polls it every /api/status refresh too (it
-        # was previously CLI-only, via "id"), and firmware can't change
-        # mid-connection either.
+        # Same reasoning as _model_cache, for firmware_version()/VR - the web
+        # nameplate polls it every /api/status refresh too.
         self._firmware_cache: Optional[str] = None
 
     # -- lifecycle -------------------------------------------------------
@@ -891,16 +824,13 @@ class DV10Device:
 
     def device_family(self) -> str:
         """Best-effort normalized model family - ``"DV10"``, ``"DV1"``,
-        ``"DV3"``, or ``""`` if model()'s raw WI response wasn't
-        recognised - for UI-level feature gating (see
-        ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY above and, for the
-        DV3-only 10dB attenuator, the ATT gating in the web panel), not
-        protocol-level branching; nothing in this project sends different
-        wire commands based on this. Checks DV10 before DV1 deliberately:
-        "DV1" is itself a substring of "DV10", so checking in the other
-        order would misidentify every real DV10 (which echoes
-        "AOR AR-DV10") as a DV1. DV3's echo ("AOR AR-DV3") doesn't
-        collide with either."""
+        ``"DV3"``, or ``""`` if WI's raw response wasn't recognised - for
+        UI-level feature gating only (see
+        ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY and the web panel's
+        DV3-only 10dB attenuator gating); nothing here branches on it at the
+        wire level. Checks DV10 before DV1 deliberately: "DV1" is itself a
+        substring of "DV10", so the other order would misidentify every real
+        DV10 (which echoes "AOR AR-DV10")."""
         raw = self.model().upper()
         if "DV10" in raw:
             return "DV10"
@@ -911,12 +841,11 @@ class DV10Device:
         return ""
 
     def analog_modes_without_distinction(self) -> set:
-        """ANALOG_MODES codes that are accepted but not functionally
-        distinct from each other on the CURRENTLY CONNECTED device's
-        family - see ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY. Empty if
-        the family is unknown/unrecognised or has no such gating, so a
-        caller that never checks this at all just sees every documented
-        analog mode offered normally, same as before this existed."""
+        """ANALOG_MODES codes accepted but not functionally distinct from
+        each other on the CURRENTLY CONNECTED device's family - see
+        ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY. Empty for an unknown
+        family or one with no such gating, so a caller that never checks
+        this just sees every documented analog mode offered."""
         return set(ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY.get(self.device_family(), ()))
 
     def serial_number(self) -> str:
@@ -932,14 +861,9 @@ class DV10Device:
         return round(float(raw) * 1_000_000)
 
     def set_frequency_hz(self, hz: int) -> None:
-        # Confirmed against real hardware: this raises DV10ProtocolError("?", ...)
-        # unless the receiver is currently in VFO mode (not browsing a memory
-        # channel). No software command to force VFO mode is confirmed yet;
-        # VF (per the AR-DV3 spec) takes a VFO-letter argument (A/B/Z)
-        # rather than the 0/1 that failed in earlier testing - worth
-        # retrying as "raw VF A".
-        # For now the caller/user has to switch to VFO mode on the front
-        # panel first.
+        # Confirmed against real hardware: this raises DV10ProtocolError("?",
+        # ...) unless the receiver is in VFO mode (not browsing a memory
+        # channel). enter_vfo_mode() ("raw VF A") is the confirmed way in.
         mhz = hz / 1_000_000
         self._write_with_hint("RF", f"{mhz:010.5f}")
 
@@ -969,50 +893,34 @@ class DV10Device:
         """Select the digital and analog mode, e.g. ``set_mode("F0")`` for
         FM with digital off.
 
-        ``mode`` is a 2-character raw code, ``"<digital><analog>"``, using
-        the DIGITAL_MODES/ANALOG_MODES tables above - the same field order
-        MD *reads* back in, and the same order used in this project's CLI
-        help text and tests. Both characters are validated up front so a
-        typo raises a clear ``ValueError`` instead of a cryptic device-side
-        format error.
+        ``mode`` is a 2-character ``"<digital><analog>"`` code from the
+        DIGITAL_MODES/ANALOG_MODES tables - the same field order MD reads
+        back in - validated up front so a typo raises ValueError instead of
+        a device-side format error.
 
         Confirmed against real hardware: the wire wants a 3-character value
-        in the SAME shape MD reads back ("dan"), not the 2-character
-        reversed form this method sent before - see the DIGITAL_MODES
-        comment block above for the live repro. This method still takes
-        the natural 2-character "<digital><analog>" convention from
-        callers and pads it into the real wire shape internally; do not
-        "fix" this back to a bare 2-character write.
+        in the SAME "dan" shape MD reads back, not the 2-character reversed
+        form this method sent before (see the DIGITAL_MODES comment for the
+        live repro). Callers keep the 2-char convention and this pads it
+        internally; do not "fix" this back to a bare 2-character write.
 
         Not routed through ``_write_with_hint()``: whether MD writes share
         the VFO-mode precondition other tuning/level writes have was never
-        independently confirmed, so an unhinted "?" here is more honest
-        than asserting a hint that isn't actually known to apply.
+        confirmed, so an unhinted "?" is more honest than a hint that may
+        not apply.
 
-        IF-bandwidth workaround: a real repro showed the AR-DV10's IF
-        (bandwidth) selector is ONE raw register shared by every
-        demodulation type, not one independent value per mode - e.g.
-        widen FM to 100 kHz (IF1), switch to a digital mode and back to
-        digital-off, and FM comes back reading IF3 (15 kHz, the narrow
-        value digital reception was using) instead of the IF1 that was
-        set before switching. This method
-        can't stop the firmware from sharing that register, but it undoes
-        the damage for any caller going through it: it snapshots the IF
-        bandwidth the moment digital is switched ON from digital-off, and
-        writes that snapshot back the moment digital is switched back OFF.
-        Tracked as plain instance state (``_digital_active``/
-        ``_pre_digital_if_bandwidth``), not a live MD read on every call,
-        so it only sees mode changes made through this same DV10Device
-        instance - a change from another session, the front panel, or a
-        raw "MD"/"IF" command bypasses it, the same caveat as every other
-        best-effort local-state trick in this file. Both the snapshot
-        read and the restore write are best-effort: either one failing
-        (``DV10Error``) is swallowed rather than turning a mode change
-        into a bandwidth-restore failure.
+        IF-bandwidth workaround: a real repro showed the DV10's IF selector
+        is ONE register shared by every demodulation type - widen FM to
+        100 kHz (IF1), switch to a digital mode and back to digital-off, and
+        FM comes back reading IF3 (15 kHz). This snapshots the IF bandwidth
+        when digital is switched ON and writes it back when digital is
+        switched OFF. Tracked as plain instance state, so a change made from
+        another session, the front panel or a raw MD/IF command bypasses it.
+        Both the snapshot read and the restore write are best-effort - a
+        DV10Error in either is swallowed rather than failing the mode change.
         """
-        # Wire shape confirmed to be the same 3-char "dan" MD reads back,
-        # not a 2-char reversed form - see the docstring above and the
-        # DIGITAL_MODES comment block.
+        # Wire shape is the 3-char "dan" MD reads back, not a 2-char
+        # reversed form - see the docstring and the DIGITAL_MODES comment.
         wire = _mode_write_value(mode)
         cleaned = mode.strip().upper()
         digital_target = cleaned[0]
@@ -1044,37 +952,26 @@ class DV10Device:
         mode: Optional[str] = None,
     ) -> None:
         """Select a VFO by letter (A/B/Z) - confirmed on real DV10 hardware:
-        "raw VF A" succeeds (bare "VF" ack). This is very likely the
-        software command that was missing for switching out of
-        memory-channel mode before calling set_frequency_hz() and friends,
-        replacing the earlier need to do it manually on the front panel -
-        though that specific scenario (calling this *from* memory-channel
-        mode) hasn't itself been independently confirmed yet, only that the
-        command is accepted. A digit argument (the old "VF 0"/"VF 1" guess)
-        is confirmed to fail with a format error.
+        "raw VF A" succeeds (bare "VF" ack). This is very likely the missing
+        software way out of memory-channel mode before set_frequency_hz() and
+        friends, replacing the manual front-panel switch - though calling it
+        *from* memory-channel mode hasn't itself been confirmed, only that
+        the command is accepted. A digit argument (the old "VF 0"/"VF 1"
+        guess) is confirmed to fail with a format error.
 
-        Extended with VF's full documented atomic form - ``VFt
-        RFffff.fffff STggg.gg SHhhh.hh MDdan`` - so a caller can select a
-        VFO AND set its frequency/step/
-        step-adjust/mode in one write instead of the previous "enter_vfo_
-        mode() then separately set_frequency_hz()/set_mode()/..." sequence
-        (still exactly what write_search_bank() and friends already do for
-        their own composite commands). Calling this with ONLY ``vfo`` -
-        the original, real-hardware-confirmed usage - sends the exact same
-        bare "VFt" this method always has; none of the new keyword-only
-        parameters change that path unless actually passed.
+        Also supports VF's full documented atomic form - ``VFt RFffff.fffff
+        STggg.gg SHhhh.hh MDdan`` - so one write can select a VFO and set its
+        frequency/step/step-adjust/mode. Passing only ``vfo`` sends the exact
+        same bare "VFt" this method always has.
 
         ``mode`` is sent as a 2-character "<digital><analog>" value via
-        ``_validate_mode_pair()`` (still just "da", not the 3-character
-        "dan" shape standalone MD was confirmed to need - see
-        _mode_write_value()), by the same analogy as write_search_bank()'s
-        embedded MD and write_memory_channel()'s MX: VF is a composite
-        command distinct from standalone MD, with no stated reason yet to
-        assume standalone MD's confirmed wire shape carries over here too.
-        Inference by analogy, not confirmed against real hardware - and
-        now a real candidate for the same kind of silent-no-op bug
-        standalone MD had, worth testing the same way if this embedded
-        field is ever seen not to take effect."""
+        ``_validate_mode_pair()`` (not the 3-character "dan" standalone MD
+        was confirmed to need), by the same analogy as write_search_bank()'s
+        embedded MD: VF is a composite command distinct from standalone MD.
+        Inference by analogy, NOT confirmed against real hardware - a real
+        candidate for the same silent-no-op bug standalone MD had, worth
+        testing the same way if this embedded field is ever seen not to take
+        effect."""
         value = vfo.strip().upper()
         if value not in ("A", "B", "Z"):
             raise ValueError(f'vfo must be "A", "B", or "Z" - got {vfo!r}')
@@ -1093,17 +990,17 @@ class DV10Device:
 
     def execute_vfo_search(self) -> None:
         """Raw VS: activate VFO search (bare command, no value) - uses
-        whatever range/settings VFO-A/VFO-B currently have and the VE
-        settings below. Confirmed write-only per the spec (no read
-        direction is documented for VS at all, unlike VF)."""
+        whatever range/settings VFO-A/VFO-B currently have plus the VE
+        settings below. Confirmed write-only per the spec (no read direction
+        is documented for VS at all, unlike VF)."""
         self._chan.send("VS")
 
     def read_vfo_search_settings(self) -> VfoSearchSettings:
         """Raw VE (bare read): the current VFO-search delay/free-time/
-        auto-store configuration - see VfoSearchSettings. Despite living
-        in the same "5-9 VFO" spec section as VF/VS, VE is a single
-        receiver-wide setting, not per-VFO and not per numbered group like
-        SG/MG - there's no group argument here."""
+        auto-store configuration - see VfoSearchSettings. Despite sharing
+        the spec's "5-9 VFO" section with VF/VS, VE is a single
+        receiver-wide setting, not per-VFO or per numbered group like
+        SG/MG - hence no group argument."""
         resp = self._chan.read("VE")
         fields = _parse_composite_fields((resp.value or "").strip())
         delay_raw = fields.get("DL")
@@ -1123,10 +1020,8 @@ class DV10Device:
     ) -> None:
         """Raw VE (write): ``VE DLmm FRpp ASn`` - configure the VFO-search
         delay/free-time/auto-store settings used by execute_vfo_search()
-        (VS). Same None-means-omit convention as every other composite
-        write in this project - see write_search_scan_group()'s docstring
-        if the "omit vs. explicitly clear" distinction matters for a given
-        field (not applicable to VE's fields, none of which are lists)."""
+        (VS). Same None-means-omit convention as every other composite write
+        in this project."""
         parts = []
         if delay_ds is not None:
             parts.append(f"DL{int(delay_ds):02d}")
@@ -1139,21 +1034,19 @@ class DV10Device:
     # -- levels --------------------------------------------------------
 
     def get_squelch_mode(self) -> str:
-        """Raw SQ value (squelch *mode* selector: 0=Auto, 1=Noise,
-        2=Level) - see SQUELCH_MODES above. This is NOT a squelch level
-        despite the command summary calling SQ "squelch level"; the actual
-        threshold is get_squelch_level() (LQ) or get_noise_squelch_level()
-        (NQ)."""
+        """Raw SQ value (squelch *mode* selector: 0=Auto, 1=Noise, 2=Level)
+        - see SQUELCH_MODES. NOT a squelch level despite the command summary
+        calling SQ "squelch level"; the threshold is get_squelch_level() (LQ)
+        or get_noise_squelch_level() (NQ)."""
         return self._chan.read("SQ").value or ""
 
     def set_squelch_mode(self, mode: str) -> None:
         # Same VFO-mode precondition as set_frequency_hz() - see there.
         self._write_with_hint("SQ", str(mode))
 
-    # Legacy aliases, kept for existing callers (CLI/GUI). These actually
-    # read/write SQ, the squelch *mode* selector - see get_squelch_mode()
-    # above for the corrected understanding. Prefer get_squelch_level() /
-    # set_squelch_level() (LQ) if you want the actual threshold.
+    # Legacy aliases kept for existing CLI/GUI callers. These read/write SQ,
+    # the squelch *mode* selector - prefer get_squelch_level()/
+    # set_squelch_level() (LQ) for the actual threshold.
     get_squelch = get_squelch_mode
     set_squelch = set_squelch_mode
 
@@ -1174,19 +1067,16 @@ class DV10Device:
         self._chan.write("NQ", str(level))
 
     def get_volume(self) -> str:
-        # Confirmed against real hardware: this unit's firmware doesn't
-        # support AG at all remotely - both the bare read AND writes below
-        # fail with result code 60 (command does not exist), not just the
-        # read as first thought. Left as a normal read/write pair (not
-        # specially short-circuited) since that's unconfirmed to
-        # generalise to every DV10/firmware revision.
-        #
+        # Confirmed against real hardware: this firmware doesn't support AG
+        # at all remotely - the bare read AND writes both fail with result
+        # code 60 (command does not exist), not just the read as first
+        # thought. Left as a normal read/write pair since that isn't
+        # confirmed to generalise to every DV10 firmware revision.
         # The operating manual makes clear the physical volume knob is an
-        # analog control with no software equivalent - AG's total
-        # non-function on real hardware is therefore expected rather than a
-        # firmware bug. AV (see get_volume_limit()) is the actual
-        # remotely-controllable "volume": a 00-15 ceiling the knob can't
-        # exceed, not the level itself.
+        # analog control with no software equivalent, so AG's non-function
+        # is expected rather than a firmware bug. AV (get_volume_limit()) is
+        # the actual remotely-controllable "volume": a 00-15 ceiling the
+        # knob can't exceed, not the level itself.
         return self._chan.read("AG").value or ""
 
     def set_volume(self, level: str) -> None:
@@ -1232,19 +1122,15 @@ class DV10Device:
         self._write_with_hint("AC", "1" if on else "0")
 
     def get_beep_level(self) -> str:
-        """Raw BP value. Corrected against the AR-DV1 wire-protocol spec's
-        own BP entry (``BPn``, n: 0-7, default 2, 0=Minimum/OFF,
-        7=Maximum) - a SINGLE digit, not the two-digit "00-15, default 05"
-        this project previously assumed from the AR-DV10 operating
-        manual's MENU-CONFIG listing ("BEEP (00-15)"). Both are real AOR
-        documents for closely related receivers, and which one this
-        actual unit's firmware follows is still unconfirmed against real
-        hardware. Since a wrong single-digit guess is simply rejected
-        with "?" rather than silently misbehaving, the wire-spec-sourced
-        encoding is used here; get_beep_level()/set_beep_level() still
-        just pass the raw string/int through, so this only changes what
-        goes out on the wire (single digit) and what range is considered
-        valid (0-7), not the calling convention."""
+        """Raw BP value. Per the AR-DV1 wire spec's own BP entry (``BPn``,
+        n: 0-7, default 2, 0=Minimum/OFF, 7=Maximum) - a SINGLE digit, not
+        the two-digit "00-15, default 05" this project assumed from the
+        AR-DV10 operating manual's MENU-CONFIG listing ("BEEP (00-15)").
+        Both are real AOR documents for closely related receivers and which
+        one this firmware follows is unconfirmed against real hardware; the
+        wire-spec encoding is used since a wrong single digit is simply
+        rejected with "?" rather than silently misbehaving. Getter/setter
+        still pass the raw string/int through."""
         return self._chan.read("BP").value or ""
 
     def set_beep_level(self, level: int) -> None:
@@ -1271,77 +1157,63 @@ class DV10Device:
 
     def set_attenuator(self, on: bool) -> None:
         # Legacy boolean wrapper over the 3-state AT selector: on->"1"
-        # (SIGNAL ATTENUATOR engaged), off->"0" (no attenuation). Does not
-        # reach the 2/10dB state (a DV3-only stronger step) - use
-        # set_attenuator_state() for that.
+        # (signal attenuator engaged), off->"0". Can't reach state 2 (the
+        # DV3-only 10dB step) - use set_attenuator_state() for that.
         self._write_with_hint("AT", "1" if on else "0")
 
     # -- tuning step -------------------------------------------------------
 
     def get_frequency_step_hz(self) -> int | None:
-        """SH: the tuning-step size used when turning the dial knob or
-        pressing the fast-tune arrows. The manual (5.8) lists preset
-        choices from 10Hz to 500kHz across the front panel's menu.
+        """ST: the tuning-step size used when turning the dial knob or
+        pressing the fast-tune arrows; the manual (5.8) lists presets from
+        10Hz to 500kHz.
 
-        Confirmed against real hardware: a bare integer Hz write (the
-        previous encoding here) is rejected with result code 40 (format
-        error). The wire format is ``STggg.gg``, the same kHz-decimal
-        shape as SH and as this project's own MX/SE/VI-embedded ST
-        sub-field (see write_search_bank()'s docstring) - this standalone
-        command was simply implemented against the wrong guess before
-        real-hardware testing caught it. 10Hz is the finest step this
-        format can express (0.01 kHz); 500kHz fits well within its
-        three-integer-digit range. Returns the step size in Hz, or None
-        if ST came back empty/unparseable."""
+        Confirmed against real hardware: a bare integer Hz write (this
+        method's previous encoding) is rejected with result code 40 (format
+        error). The wire format is ``STggg.gg``, the same kHz-decimal shape
+        as SH and as the MX/SE/VI-embedded ST sub-field. 10Hz is the finest
+        step this format can express (0.01 kHz); 500kHz fits its
+        three-integer-digit range. Returns Hz, or None if ST came back
+        empty/unparseable."""
         raw = self._chan.read("ST").value
         return round(float(raw) * 1000) if raw else None
 
     def set_frequency_step_hz(self, hz: int) -> None:
         # Same kHz-decimal wire format as the embedded ST sub-field in
         # MX/SE/VI writes, and the same VFO-mode precondition as
-        # set_frequency_hz() - see get_frequency_step_hz()'s docstring
-        # for the real-hardware finding that corrected this from a bare
-        # integer Hz write.
+        # set_frequency_hz() - see get_frequency_step_hz().
         self._write_with_hint("ST", f"{float(hz) / 1000:06.2f}")
 
     def get_step_adjust_hz(self) -> int | None:
-        """SH: a fine sub-step offset (0Hz up to half the ST step), per
-        the manual's 5.9 "STEP-ADJUST".
+        """SH: a fine sub-step offset (0Hz up to half the ST step), per the
+        manual's 5.9 "STEP-ADJUST".
 
-        Corrected against the AR-DV1 wire-protocol spec's own SH entry:
-        the wire format is ``SHnnn.nn``, a kHz-decimal value from a fixed
-        enum (0.05, 0.25, 0.5, 1, 2.5, 3.12, 3.75, 4.16, 4.5, 5.0, 6.25,
-        10.0, 12.5, 15.0, 25.0, 50.0, 250.0 kHz; default 000.00) - the
-        SAME format this project's own MX/SE/VI-embedded SH sub-field was
-        already implemented against (see
-        read_memory_channel()/read_search_bank()/read_vfo_info()). This
-        standalone command previously sent/parsed a bare integer Hz value
-        instead, which is almost certainly wrong - not validated against
-        that specific enum here, same "let the device reject an invalid
-        value" philosophy used elsewhere in this module. Returns the
-        step-adjust value in Hz (matching the embedded field's own
-        step_adjust_hz), or None if SH came back empty/unparseable."""
+        Corrected against the AR-DV1 wire spec's own SH entry: the wire
+        format is ``SHnnn.nn``, a kHz-decimal value from a fixed enum (0.05,
+        0.25, 0.5, 1, 2.5, 3.12, 3.75, 4.16, 4.5, 5.0, 6.25, 10.0, 12.5,
+        15.0, 25.0, 50.0, 250.0 kHz; default 000.00) - the SAME format the
+        MX/SE/VI-embedded SH sub-field already used. This standalone command
+        previously sent/parsed a bare integer Hz, which is almost certainly
+        wrong. The enum is not validated here (same "let the device reject
+        it" philosophy used elsewhere). Returns Hz, or None if SH came back
+        empty/unparseable."""
         raw = self._chan.read("SH").value
         return round(float(raw) * 1000) if raw else None
 
     def set_step_adjust_hz(self, hz: int) -> None:
         # Same kHz-decimal wire format as the embedded SH sub-field in
-        # MX/SE/VI writes - see write_memory_channel()/
-        # write_search_bank()/write_vfo_search_settings() - not the bare
-        # integer Hz this method sent previously; see
-        # get_step_adjust_hz()'s docstring for the full account.
+        # MX/SE/VI writes, not the bare integer Hz this sent previously -
+        # see get_step_adjust_hz().
         self._write_with_hint("SH", f"{float(hz) / 1000:06.2f}")
 
     # -- advanced squelch: tone (CTCSS/reverse-tone) and DCS ----------------
 
     def get_tone_squelch_enabled(self) -> str:
-        """Raw CI value as a simplified boolean-shaped string ("0"/"1"/
-        "2") - kept for existing callers (the CLI/web "tone on|off"
-        verb), but CI is NOT actually a boolean: see TONE_SQUELCH_TYPES
-        and get_squelch_tone_type() for the confirmed 3-value finding.
-        This method's own on/off semantics only cover OFF ("0") vs
-        CTCSS ("1", inferred); to select Reverse Tone use
-        set_squelch_tone_type("2") instead of this method."""
+        """Raw CI value as a boolean-shaped string ("0"/"1"/"2"), kept for
+        existing callers (the CLI/web "tone on|off" verb) - but CI is NOT a
+        boolean: see TONE_SQUELCH_TYPES/get_squelch_tone_type(). This covers
+        only OFF ("0") vs CTCSS ("1", inferred); use
+        set_squelch_tone_type("2") for Reverse Tone."""
         return self._chan.read("CI").value or ""
 
     def set_tone_squelch_enabled(self, on: bool) -> None:
@@ -1351,13 +1223,11 @@ class DV10Device:
         self._write_with_hint("CI", "1" if on else "0")
 
     def get_squelch_tone_type(self) -> str:
-        """Raw CI value, decoded via TONE_SQUELCH_TYPES - the SQL TYPE
-        menu's tone-squelch side (OFF/CTCSS/Reverse Tone). DCS is a
-        separate, independent toggle confirmed via DI - see
-        get_dcs_enabled() - NOT one of CI's own values: selecting DCS on
-        the front panel leaves CI reading "0" (its OFF value) while DI
-        flips to "1" instead. See TONE_SQUELCH_TYPES's comment for what's
-        confirmed vs. inferred here."""
+        """Raw CI value, decoded via TONE_SQUELCH_TYPES - the SQL TYPE menu's
+        tone-squelch side (OFF/CTCSS/Reverse Tone). DCS is a separate,
+        confirmed-independent toggle (DI, see get_dcs_enabled()), NOT one of
+        CI's values: selecting DCS leaves CI reading "0" while DI flips to
+        "1". See TONE_SQUELCH_TYPES for what is confirmed vs. inferred."""
         return (self._chan.read("CI").value or "").strip()
 
     def set_squelch_tone_type(self, value: str) -> None:
@@ -1374,20 +1244,17 @@ class DV10Device:
         self._write_with_hint("CI", value)
 
     def get_tone_squelch_freq(self) -> str:
-        """The CTCSS tone frequency squelch is set to open on (e.g.
-        "100.0"), or "SRCH" for auto-detect/search, or "" if CN couldn't be
-        parsed - decoded from CN's raw wire value via _decode_cn().
+        """The CTCSS tone frequency squelch opens on (e.g. "100.0"), "SRCH"
+        for auto-detect/search, or "" if CN couldn't be parsed - decoded from
+        CN's raw wire value via _decode_cn().
 
-        Corrected against the AR-DV1 wire-protocol spec's own CN entry:
-        ``CNnn``, nn = 00 (response-only, "no tone") / 01-52 (a 1-based
-        INDEX into the CTCSS_TONES_HZ table) / 99 (search), default 99.
-        This project's original guess - sending/reading the literal
-        decimal Hz value shown on the front panel, the same style as RF -
-        was wrong: CN is index-based, not a literal frequency, and a real
-        device would have rejected every write this project ever sent it.
-        The public API here
-        is kept as the human-readable Hz string / "SRCH" for backward
-        compatibility with existing CLI/web callers; only the wire
+        Per the AR-DV1 spec's own CN entry: ``CNnn``, nn = 00 (response-only,
+        "no tone") / 01-52 (a 1-based INDEX into CTCSS_TONES_HZ) / 99
+        (search), default 99. This project's original guess - sending the
+        literal decimal Hz value shown on the front panel, RF-style - was
+        wrong, and a real device would have rejected every write it sent.
+        The public API stays the human-readable Hz string / "SRCH"; only the
+        wire
         encoding underneath changed."""
         return _decode_cn(self._chan.read("CN").value or "")
 
@@ -1415,30 +1282,25 @@ class DV10Device:
         self._write_with_hint("CN", f"{index:02d}")
 
     def get_dcs_enabled(self) -> str:
-        """Raw DI value ("DCS ON/OFF") - confirmed against real DV10
-        hardware to be independent of CI/TONE_SQUELCH_TYPES: with the
-        front panel's SQL TYPE menu showing "DCS", DI read "1" (CI read
-        "0", its OFF value) - see TONE_SQUELCH_TYPES's comment block for
-        the full finding."""
+        """Raw DI value ("DCS ON/OFF") - confirmed against real DV10 hardware
+        to be independent of CI/TONE_SQUELCH_TYPES: with the front panel's
+        SQL TYPE showing "DCS", DI read "1" and CI read "0" (its OFF value)."""
         return self._chan.read("DI").value or ""
 
     def set_dcs_enabled(self, on: bool) -> None:
         self._write_with_hint("DI", "1" if on else "0")
 
     def get_dcs_code(self) -> str:
-        """The DCS code squelch is set to open on (e.g. "023"), or "SRCH"
-        for an active auto-detect search, or "" if no code is (yet)
-        detected - decoded from DS's raw wire value.
+        """The DCS code squelch opens on (e.g. "023"), "SRCH" for an active
+        auto-detect search, or "" if no code is (yet) detected - decoded
+        from DS's raw wire value.
 
-        Confirmed against the AR-DV1 wire-protocol spec's own DS entry:
-        ``DSnnn``, nnn = 000 (response-only, "no code") / 017-754 (a
-        LITERAL DCS code, matching DCS_CODES directly - unlike CN, this
-        one was never index-based) / 999 (search), default 999. So the
-        previous code here (sending/reading the literal 3-digit code) was
-        already correctly shaped; the one real bug was set_dcs_code()
-        accepting a literal "SRCH"/"OFF" *string* and sending it verbatim
-        as if it were a code, rather than translating "SRCH" to the wire
-        value 999 - see set_dcs_code()."""
+        Per the AR-DV1 spec's own DS entry: ``DSnnn``, nnn = 000
+        (response-only, "no code") / 017-754 (a LITERAL DCS code matching
+        DCS_CODES - unlike CN, never index-based) / 999 (search), default
+        999. The shape here was already right; the one real bug was
+        set_dcs_code() sending a literal "SRCH"/"OFF" string verbatim
+        instead of translating "SRCH" to 999."""
         raw = (self._chan.read("DS").value or "").strip()
         if raw == "999":
             return "SRCH"
@@ -1562,16 +1424,13 @@ class DV10Device:
     def set_offset_slot(self, slot: int, direction: str = "+") -> None:
         """Select which offset slot (00-39) is active, and its direction.
 
-        Corrected against the AR-DV1 wire-protocol spec's own OF entry:
-        ``OFsnn`` - nn (00-39) is the slot number as this project already
-        modelled, but ``s`` (a leading "+"/"-" DIRECTION sign) is a
-        SEPARATE field this project's original implementation was missing
-        entirely, not something folded into OL's frequency as previously
-        assumed. The sign may be omitted only when slot is 00 (offset
-        reception off); this method omits it automatically in that case
-        and otherwise requires an explicit "+" or "-". See
-        get_offset_freq()/set_offset_freq() for the matching OL
-        correction."""
+        Per the AR-DV1 spec's own OF entry: ``OFsnn`` - nn (00-39) is the
+        slot, and ``s`` is a leading "+"/"-" DIRECTION sign this project's
+        original implementation was missing entirely (it is NOT folded into
+        OL's frequency). The sign may be omitted only when slot is 00 (offset
+        reception off); this method omits it automatically then, and
+        otherwise requires an explicit "+" or "-". See set_offset_freq() for
+        the matching OL correction."""
         slot = int(slot)
         if slot == 0:
             self._write_with_hint("OF", "00")
@@ -1583,31 +1442,22 @@ class DV10Device:
 
     def get_offset_freq(self, slot: int) -> str:
         """The offset frequency (unsigned decimal MHz string, e.g.
-        "0000.60000") stored in the given slot (00-39) - direction comes
-        from OF, not from this value. The wire response is shaped
-        ``"OLnn RFffff.fffff"``; both the ``OLnn`` echo (stripped by the
-        protocol layer) and the ``RF`` sub-field prefix (stripped here)
-        are removed before returning.
+        "0000.60000") stored in the given slot (00-39) - direction comes from
+        OF, not from this value. The wire response is ``"OLnn RFffff.fffff"``;
+        both the ``OLnn`` echo (stripped by the protocol layer) and the
+        ``RF`` sub-field prefix (stripped here) are removed.
 
-        Corrected against the AR-DV1 wire-protocol spec's own OL entry:
-        unlike every other read in this project, OL's READ also requires
-        the slot number (``OLnn<CR>``, not a bare ``OL<CR>``) - there's
-        no such thing as reading "the current" offset frequency without
-        saying which slot. This project's original get_offset_freq()/
-        set_offset_freq() (bare read, signed-float write) modelled OL as
-        a single global signed value, which was wrong on
-        both counts: it's per-slot (paired with OF's slot selector) and its
-        own frequency field is unsigned (OF's sign field carries direction
-        instead). Also note (per the spec's own remark on this section):
-        OL is the one exception to "each VFO/bank/channel has its own
-        settings" - it's a single receiver-wide table, not scoped per
-        VFO/bank/channel like OF and the other RECEIVER OPTIONS commands
-        are. See set_offset_freq()."""
+        Per the AR-DV1 spec's own OL entry: unlike every other read here,
+        OL's READ also requires the slot number (``OLnn<CR>``, not a bare
+        ``OL<CR>``) - there is no "current" offset frequency. This project
+        originally modelled OL as a single global signed value, wrong on both
+        counts: it is per-slot (paired with OF's selector) and its frequency
+        field is unsigned (OF carries direction). Also, per the spec's own
+        remark, OL is the one exception to "each VFO/bank/channel has its own
+        settings" - a single receiver-wide table."""
         raw = (self._chan.read(f"OL{int(slot):02d}").value or "").strip()
-        # The channel layer only strips the "OLnn" echo, leaving
-        # " RFffff.fffff" (note the leading space before "RF", and "RF"
-        # itself) - peel both off so callers get a plain decimal string,
-        # consistent with every other frequency-shaped getter here.
+        # The channel layer strips only the "OLnn" echo, leaving
+        # " RFffff.fffff" - peel "RF" off too so callers get a plain decimal.
         if raw.upper().startswith("RF"):
             raw = raw[2:]
         return raw
@@ -1615,14 +1465,11 @@ class DV10Device:
     def set_offset_freq(self, slot: int, mhz: float) -> None:
         """Program the offset frequency stored in ``slot`` (00-39).
 
-        Per the AR-DV1 spec: slot 00 is fixed at 0Hz (can't be
-        reprogrammed - offset reception off); slots 01-19 are
-        user-programmable; slots 20-39 are factory presets and the spec
-        says they "cannot be changed" - a write there is expected to be
-        rejected by the device, not silently accepted. ``mhz`` must be
-        non-negative: direction is OF's separate sign field, not part of
-        this value - see get_offset_freq()'s docstring for the full
-        correction."""
+        Per the AR-DV1 spec: slot 00 is fixed at 0Hz (offset reception off,
+        not reprogrammable); 01-19 are user-programmable; 20-39 are factory
+        presets the spec says "cannot be changed" - a write there is expected
+        to be rejected, not silently accepted. ``mhz`` must be non-negative:
+        direction is OF's separate sign field - see get_offset_freq()."""
         slot = int(slot)
         mhz = float(mhz)
         if mhz < 0:
@@ -1630,21 +1477,17 @@ class DV10Device:
                 "OL's frequency field is unsigned - use set_offset_slot(slot, direction) "
                 "for the sign, not a negative mhz here"
             )
-        # Zero-padded to 4 integer digits, matching the spec's own
-        # "ffff.fffff" width (and RF's own established literal-decimal
-        # style elsewhere in this project) - e.g. 0.6 -> "0000.60000".
+        # Zero-padded to the spec's own "ffff.fffff" width (RF's established
+        # literal-decimal style) - e.g. 0.6 -> "0000.60000".
         self._write_with_hint("OL", f"{slot:02d} RF{mhz:010.5f}")
 
     # -- live memory channels (MX/MA/MR) and bank management (MW/MB/MQ) ------
     #
-    # Implemented against the AR-DV1 wire-protocol spec's own "5-11 MEMORY
-    # CHANNEL" section - the first real documented field layout this
-    # project has had for these, hence implementing them now rather than
-    # leaving them raw-only.
-    # Distinct from aor_dv10.memory's backup-CSV MemoryBank/MemoryChannel:
-    # these talk to the *live* receiver over MX/MA/MR/MW/MB/MQ, not to an
-    # exported .csv file - see MemoryChannelInfo's docstring for the field
-    # differences between the two.
+    # Implemented against the AR-DV1 wire spec's own "5-11 MEMORY CHANNEL"
+    # section - the first real documented field layout this project has had
+    # for these. Distinct from aor_dv10.memory's backup-CSV MemoryBank/
+    # MemoryChannel: these talk to the *live* receiver, not an exported .csv
+    # - see MemoryChannelInfo for the field differences.
 
     def _parse_memory_channel_response(
         self, bank: int, channel: int, text: str
@@ -1688,50 +1531,38 @@ class DV10Device:
         """Raw MX: program memory channel (bank, channel) - ``MXbbcc [MPp]
         [RFffff.fffff] [STggg.gg] [SHhhh.hh] [MDdan] [PTa] [TTttt]``.
 
-        Per the AR-DV1 spec, every field after ``bbcc`` may be omitted:
-        RF/ST/SH/MD then keep whatever "previous settings" the receiver
-        currently has (exactly what that means without a live channel
-        selected is unconfirmed), and MP/PT default to 0 (release/off).
-        This method sends an explicit sub-field for everything it's given
-        a value for and omits exactly the ones left at their Python
-        default (None/False) here - it does not try to read back or
-        replicate "previous settings" itself. ``mode`` uses the same
-        "<digital><analog>" convention as set_mode() (e.g. "F0"); ``tag``
-        is truncated to 12 characters, matching TT's documented width.
-        DESTRUCTIVE in the sense that it overwrites whatever was in that
-        slot.
+        Per the AR-DV1 spec every field after ``bbcc`` may be omitted:
+        RF/ST/SH/MD then keep whatever "previous settings" the receiver has
+        (what that means with no live channel selected is unconfirmed) and
+        MP/PT default to 0. This method sends a sub-field for everything it
+        is given and omits the ones left at their Python default; it does not
+        read back or replicate "previous settings" itself. ``mode`` uses the
+        same "<digital><analog>" convention as set_mode(); ``tag`` is
+        truncated to TT's documented 12 characters. DESTRUCTIVE: overwrites
+        whatever was in that slot.
 
-        **Real-DV10 finding (revised)**: MX's embedded MD sub-field wants
-        the SAME 3-character "dan" wire shape standalone MD does - the
-        command shape above literally spells it ``MDdan``, real captured
-        channel dumps carry ``MD000``/``MD0F0`` (see
-        tests/test_memory_channels.py's hardware fixtures), and a live
-        ``m F1``/``m F0`` round-trip reads back ``0F1``/``0F0``. Sending
-        the bare 2-char "<digital><analog>" form this method used to pass
-        through verbatim is confirmed against real hardware to fail with
-        error 40 (PC_RESULT_FORMAT_ERR): it is one character short of the
-        shape MX parses.
-
-        So a 2-char ``mode`` is now padded through the same
-        _mode_write_value() set_mode() already uses (validating both
-        digits and prefixing "0" for the read-only leading "d"
-        position), and a 3-char value - e.g. the stored dan a read just
-        echoed back - is still sent verbatim, which is what makes an
+        **Real-DV10 finding (revised)**: MX's embedded MD sub-field wants the
+        SAME 3-character "dan" shape standalone MD does - the syntax spells
+        it ``MDdan``, real captured channel dumps carry ``MD000``/``MD0F0``
+        (tests/test_memory_channels.py's hardware fixtures), and a live
+        ``m F1``/``m F0`` round-trip reads back ``0F1``/``0F0``. The bare
+        2-char form this method used to pass through verbatim is confirmed
+        against real hardware to fail with error 40 (PC_RESULT_FORMAT_ERR):
+        one character short. So a 2-char ``mode`` is padded via
+        _mode_write_value() and a 3-char value is sent verbatim, keeping an
         unedited round-trip byte-identical.
 
-        An earlier note here claimed a padded "0F0" also failed on a live
-        MX write; that test wrote MD alone to an UNREGISTERED slot with no
-        RF field (``raw MR`` on it answers 30, "channel not registered"),
-        so it was measuring the empty-slot rejection, not the pad."""
+        An earlier note here claimed a padded "0F0" also failed on a live MX
+        write; that test wrote MD alone to an UNREGISTERED slot with no RF
+        field (``raw MR`` on it answers 30, "channel not registered"), so it
+        measured the empty-slot rejection, not the pad."""
         # MP and PT are ALWAYS emitted, never omitted-when-false. The spec
         # calls them optional (defaulting to 0), but a real AR-DV10's own
         # canonical channel dump always carries them -
         #   "MX0418 MP0 RF0439.10000 ST012.50 SH000.00 MD000 PT0 TTSR2BT..."
-        # (see tests/test_memory_channels.py's captured hardware fixture) -
-        # and every live MX write this project sent WITHOUT them came back
-        # error 40 (PC_RESULT_FORMAT_ERR), whatever the MD value was. Sending
-        # the explicit 0 is semantically identical per the spec and matches
-        # byte-for-byte what the receiver itself produces.
+        # (tests/test_memory_channels.py's captured hardware fixture) - and
+        # every live MX write sent WITHOUT them came back error 40
+        # (PC_RESULT_FORMAT_ERR), whatever the MD value was.
         parts = ["MP1" if pass_channel else "MP0"]
         if frequency_hz is not None:
             parts.append(f"RF{float(frequency_hz) / 1_000_000:010.5f}")
@@ -1740,14 +1571,10 @@ class DV10Device:
         if step_adjust_hz is not None:
             parts.append(f"SH{float(step_adjust_hz) / 1000:06.2f}")
         if mode is not None:
-            # MX's MD sub-field is "MDdan" - 3 characters, same shape
-            # standalone MD reads back and writes. See the docstring:
-            #   2 chars  (natural, e.g. "F0") -> pad to the wire shape the
-            #                                    same way set_mode() does
-            #   3 chars  (dan value, e.g. "0F0"/"000") -> already the wire
-            #                                    shape, send verbatim so an
-            #                                    unedited round-trip is
-            #                                    byte-identical
+            # MX's MD sub-field is "MDdan" - 3 chars. A 2-char value
+            # (natural, e.g. "F0") is padded the same way set_mode() does; a
+            # 3-char dan value (e.g. "0F0"/"000") is already the wire shape
+            # and goes verbatim, so an unedited round-trip is byte-identical.
             # A bare 2-char MD is confirmed on real hardware to fail with
             # error 40 - it is one character short.
             m = str(mode).strip().upper()
@@ -1779,37 +1606,25 @@ class DV10Device:
 
     def read_memory_bank(self, bank: int, timeout: float = 5.0) -> List[MemoryChannelInfo]:
         """Raw MA (bank form): read every channel record in ``bank`` in one
-        go - up to 50 records (see manual: 40 banks x 50 channels).
+        go - up to 50 records (manual: 40 banks x 50 channels).
 
         Confirmed against the AR-DV1 spec that "MAbb" (unlike the
-        single-channel "MAbbcc" form) is a MULTI-LINE response: its own
-        result codes include 21 ("Reading (to be continued)") alongside
-        20 ("Read completed") - the same "more lines follow" shape this
-        project already handles for MM (see CommandChannel.read_pending()
-        and register_last_channel()). This sends "MAbb" once and keeps
-        calling read_pending() until a line
-        comes back with result_code 20, bounded by ``timeout`` seconds
-        *per line* (there's no confirmed-real-hardware timing to budget a
-        single total deadline against for up to 50 lines).
+        single-channel "MAbbcc" form) is a MULTI-LINE response: its result
+        codes include 21 ("Reading, to be continued") alongside 20 ("Read
+        completed"), the same shape already handled for MM. This sends
+        "MAbb" once and keeps calling read_pending() until a line comes back
+        with result_code 20, bounded by ``timeout`` seconds *per line*.
 
-        UNCONFIRMED: exactly how continuation lines identify which
-        channel they're for isn't shown in an example transcript anywhere
-        in the spec - this assumes each line repeats its own channel
-        number the same way the first line's does; if a real unit's
-        continuation lines turn out to omit that, this will need a
-        revisit.
+        UNCONFIRMED: how continuation lines identify which channel they are
+        for is shown in no spec transcript - this assumes each line repeats
+        its own channel number.
 
-        The 21-vs-20 continuation code is only visible with RE (see
-        set_result_code_prefixing()) on - with RE off there's no way to
-        tell "more lines coming" from "that was the last/only line", so
-        this method temporarily turns RE on for the duration of the read
-        (restoring whatever it was before, even on error) rather than
-        silently returning a truncated result when a caller happens to
-        have RE off. NOT safe against another thread sending commands on
-        this same device concurrently during the read - see
-        CommandChannel's own docstring on sharing one channel across
-        threads; that lock protects each individual send()/read_pending()
-        call, not this whole multi-line sequence."""
+        The 21-vs-20 distinction is only visible with RE on (see
+        set_result_code_prefixing()), so this temporarily turns RE on for the
+        read and restores it, even on error, rather than silently returning a
+        truncated result. NOT safe against another thread sending commands on
+        this device concurrently: CommandChannel's lock protects each
+        send()/read_pending() call, not this whole sequence."""
         bank = int(bank)
         bank_str = f"{bank:02d}"
         prev_re = (self._chan.read("RE").value or "0").strip()
@@ -1833,36 +1648,25 @@ class DV10Device:
 
         channels: List[MemoryChannelInfo] = []
         for resp in responses:
-            # Use .raw, not .value, and strip the numeric result-code
-            # prefix ourselves: CommandChannel.send() (which produced the
-            # first line, "responses[0]") additionally strips whatever
-            # code it was TOLD it sent - "MA" + bank_str, e.g. "MA00" -
-            # from the front of .value, on the assumption a response
-            # echoes back exactly the code it was sent. That assumption
-            # holds for every single-response command, but not for this
-            # multi-line one: each line actually echoes "MA" + the FULL
-            # 4-digit bbcc, one digit pair longer than the 2-digit
-            # bank_str that was actually sent. Real-hardware-confirmed
-            # bug found while building the CSV live-export/diff bridge
-            # (proposal items 17/18): the mismatch silently mangled the
-            # first line only (every OTHER line comes from
-            # read_pending(), which never does any code-echo stripping,
-            # so those were always fine) - channel 0 of every bank was
-            # therefore *always* reported unregistered/empty regardless
-            # of its real content. .raw is captured before either
-            # function's code-stripping logic runs, so it's uniform
-            # across both - just strip the leading result-code digits
-            # (recorded separately as resp.result_code) instead.
+            # Use .raw, not .value, and strip the numeric result-code prefix
+            # here: CommandChannel.send() (which produced responses[0]) also
+            # strips whatever code it was TOLD it sent - "MA" + bank_str,
+            # e.g. "MA00" - assuming a response echoes the code it was sent.
+            # That holds for every single-response command but not for this
+            # multi-line one, whose lines echo "MA" + the FULL 4-digit bbcc.
+            # Real-hardware-confirmed bug (found building the CSV live-export
+            # /diff bridge): the mismatch mangled the first line only (later
+            # lines come from read_pending(), which never strips a code echo),
+            # so channel 0 of every bank was always reported unregistered.
+            # .raw predates both strippers, so it is uniform across lines.
             text = (resp.raw or "").strip()
             if resp.result_code is not None:
                 prefix = str(resp.result_code)
                 if text.startswith(prefix):
                     text = text[len(prefix):]
             up = text.upper()
-            # The bank form's continuation lines may be prefixed with
-            # "MA" (as the simulator models it) OR with "MX" (real DV10 -
-            # see the "0 registered of 0 slots" report: real linies come
-            # back as "MXbbcc MPx RF..."). Accept both.
+            # Continuation lines may be prefixed "MA" (as the simulator
+            # models it) or "MX" (real DV10: "MXbbcc MPx RF..."). Accept both.
             if up.startswith(("MA", "MX")):
                 text, up = text[2:], up[2:]
             if up.startswith(bank_str):
@@ -1872,13 +1676,11 @@ class DV10Device:
             if not (channel_str.isdigit() and len(channel_str) == 2):
                 continue  # not a channel line we recognise - skip rather than crash
             channels.append(self._parse_memory_channel_response(bank, int(channel_str), rest))
-        # Real hardware may only return the lines for the channels that are
-        # actually programmed, rather than a full 50-line dump. That makes
-        # "(N registered of N slots)" misleading, and the web panel reports
-        # "0 registered of 0 slots" for a bank that does have channels when
-        # the response lines aren't even recognised. Normalise to the bank's
-        # documented capacity (50 slots) so callers always see the real slot
-        # count and the register-flag on the rest.
+        # Real hardware may return lines only for the channels that are
+        # actually programmed rather than a full 50-line dump, which made
+        # "(N registered of N slots)" misleading (the web panel reported
+        # "0 registered of 0 slots" for a bank that does have channels).
+        # Normalise to the bank's documented capacity (50 slots).
         slots = [MemoryChannelInfo(bank=bank, channel=i, registered=False) for i in range(50)]
         for c in channels:
             if 0 <= c.channel < 50:
@@ -1921,16 +1723,11 @@ class DV10Device:
     def get_memory_bank_info(self, bank: int) -> MemoryBankInfo:
         """Raw MW read form: query bank ``bank``'s metadata.
 
-        UNCONFIRMED: the AR-DV1 spec's own MW entry doesn't show a
-        "To read:" line the way most other RW commands here do, so
-        whether a bare "MWbb<CR>" really returns the bank's metadata
-        (rather than being rejected, or meaning something else) hasn't
-        been directly verified in this project's PDF read-through.
-        Modelled the same way every other RW command in this codebase is
-        (bare code = read), on the assumption that's the more likely
-        explanation (a missing doc line) than a genuinely read-incapable
-        RW command - confirm against real hardware before relying on
-        this."""
+        UNCONFIRMED: the AR-DV1 spec's MW entry has no "To read:" line, so
+        whether a bare "MWbb<CR>" really returns the bank's metadata isn't
+        verified. Modelled like every other RW command here (bare code =
+        read), on the assumption of a missing doc line - confirm against
+        real hardware before relying on it."""
         bank = int(bank)
         bank_str = f"{bank:02d}"
         resp = self._chan.read(f"MW{bank_str}")
@@ -1964,23 +1761,18 @@ class DV10Device:
     # -- search banks (SE/SR/SS/SX) and session-only limits (SL/SU) ----------
     #
     # Implemented against the AR-DV1 wire spec's "5-10 SEARCH" section. A
-    # search bank is its own program-search scan-range record - distinct
-    # from a live memory bank (MW above) even though several sub-field
-    # letters are shared between them.
+    # search bank is a program-search scan-range record, distinct from a live
+    # memory bank (MW above) despite sharing several sub-field letters.
     #
-    # NOTE on the spec PDF itself: the "SE" table's own "To read:"/Response
-    # cell is corrupted in the source document - it's a verbatim copy of the
-    # unrelated "SD DIR" (SD-card file listing) table from a few pages
-    # earlier (field names like "file name"/"file size" that have nothing
-    # to do with a search bank). Confirmed by direct re-read of the PDF
-    # rather than trusted from an earlier summary - this is a copy-paste
-    # artifact in AOR's own document, not a real SE response shape, and is
-    # ignored here. What SE's read side actually looks like is instead
-    # inferred from the separate "SR" (read search bank) entry, which
-    # itself doesn't show a response layout either (only the "SRbb" request
-    # and result codes) - read_search_bank() below assumes SR mirrors SE's
-    # own write field layout, the same way MA mirrors MX's. UNCONFIRMED,
-    # worth a real-hardware check.
+    # NOTE on the spec PDF: the "SE" table's own "To read:"/Response cell is
+    # corrupted - a verbatim copy of the unrelated "SD DIR" table from a few
+    # pages earlier (confirmed by direct re-read of the PDF, so a copy-paste
+    # artifact in AOR's document, not a real SE response shape) and is
+    # ignored here. SE's read side is inferred instead from the separate
+    # "SR" entry, which itself shows no response layout (only the "SRbb"
+    # request and result codes) - read_search_bank() assumes SR mirrors SE's
+    # own write field layout, the way MA mirrors MX's. UNCONFIRMED, worth a
+    # real-hardware check.
 
     def _parse_search_bank_response(self, bank: int, text: str) -> "SearchBankInfo":
         fields = _parse_composite_fields(text.strip(), tag_field="TT")
@@ -2016,32 +1808,22 @@ class DV10Device:
     ) -> None:
         """Raw SE: create/configure search bank ``bank`` - ``SEbb
         [SLffff.ffff] [SUffff.ffff] [STggg.gg] [SHhhh.hh] [MDdan] [PTa]
-        [TTttt]``. Per the spec, ST/SH/MD keep their previous value when
-        omitted, PT resets to OFF, and TT resets to blank - the same
-        omit-semantics shape as write_memory_channel() (MX). SL/SU have no
-        documented "previous value" fallback of their own; this method
-        just omits them like everything else when left None, it doesn't
-        invent a default for a bank that doesn't exist yet.
+        [TTttt]``. Per the spec ST/SH/MD keep their previous value when
+        omitted, PT resets to OFF and TT to blank - the same omit-semantics
+        as write_memory_channel() (MX). SL/SU have no documented "previous
+        value" fallback; they are simply omitted when left None.
 
         ``mode`` is sent as a 2-character "<digital><analog>" value via
-        ``_validate_mode_pair()`` (still just "da", not the 3-character
-        "dan" shape standalone MD was confirmed to need - see
-        _mode_write_value()) - by analogy with write_memory_channel()'s
-        MX/MD finding (see that method's "safety-critical distinction"
-        docstring section): SE's embedded MD sub-field is, like MX's, a
-        different command from standalone MD with no stated reason yet
-        to assume the same confirmed wire-shape finding carries over.
-        This is inference by analogy, not a spec statement or a
-        real-hardware test - flagged unconfirmed exactly like the MX
-        case it's modelled on, and a real candidate for the same kind of
-        silent-no-op bug standalone MD had, until someone can check a
-        real unit.
+        ``_validate_mode_pair()`` (not the 3-char "dan" standalone MD was
+        confirmed to need), by analogy with MX's embedded MD: SE's MD
+        sub-field is a different command from standalone MD. Inference by
+        analogy, not a spec statement or a hardware test - a real candidate
+        for the same silent no-op bug standalone MD had.
 
-        Frequencies here use the AR-DV1 spec's own SL/SU field width -
-        ``ffff.ffff`` (4 decimal digits => 100Hz resolution) - which is
-        coarser than RF/OL's ``ffff.fffff`` (5 decimal digits => 10Hz).
-        See _format_search_freq_mhz()'s docstring for how this was
-        confirmed to be a genuine width difference, not a typo."""
+        Frequencies use the AR-DV1 spec's own SL/SU width ``ffff.ffff``
+        (100 Hz), coarser than RF/OL's ``ffff.fffff`` (10 Hz) - see
+        _format_search_freq_mhz() for how that was confirmed to be a genuine
+        width difference, not a typo."""
         parts = []
         if lower_limit_hz is not None:
             parts.append(f"SL{_format_search_freq_mhz(lower_limit_hz)}")
@@ -2075,17 +1857,12 @@ class DV10Device:
         """Raw SR: query search bank ``bank``'s stored record.
 
         Unlike read_memory_channel() (MA), which returns
-        ``.registered=False`` for an unprogrammed slot instead of an
-        error, SR's OWN spec entry explicitly lists result code 30 as
-        "Bank unregistered" - a real error, not a placeholder response -
-        so this raises DV10ProtocolError for that case instead of
-        returning a not-registered SearchBankInfo (the ``registered``
-        field/branch in _parse_search_bank_response() is defensive only,
-        for the case of an empty-but-not-erroring response, and isn't
-        expected to be reached in normal use). See this section's opening
-        note for why the response parsing here is otherwise inferred (by
-        analogy with SE's own write layout) rather than confirmed against
-        a documented response shape."""
+        ``.registered=False`` for an unprogrammed slot, SR's own spec entry
+        lists result code 30 as "Bank unregistered" - a real error, not a
+        placeholder - so this raises DV10ProtocolError there instead. (The
+        ``registered`` branch in _parse_search_bank_response() is defensive
+        only.) See this section's opening note for why the response parsing
+        is otherwise inferred rather than confirmed."""
         bank = int(bank)
         resp = self._chan.read(f"SR{bank:02d}")
         return self._parse_search_bank_response(bank, resp.value or "")
@@ -2103,11 +1880,10 @@ class DV10Device:
 
     def get_search_lower_limit(self) -> Optional[int]:
         """Raw SL (bare read): the search range's current lower-limit
-        frequency, in Hz - a SESSION-only value per the spec's own
-        Remarks ("effective until SS command is sent, receive mode
-        changed, or power turned off" - to persist a lower limit, fold it
-        into a search bank via write_search_bank()'s SE form instead).
-        Returns None if the receiver reports nothing parseable."""
+        frequency, in Hz - SESSION-only per the spec's own Remarks
+        ("effective until SS is sent, receive mode changed, or power turned
+        off"); to persist one, fold it into a search bank via
+        write_search_bank(). None if nothing parseable comes back."""
         resp = self._chan.read("SL")
         raw = (resp.value or "").strip()
         return round(float(raw) * 1_000_000) if raw else None
@@ -2120,13 +1896,11 @@ class DV10Device:
 
     def get_search_upper_limit(self) -> Optional[int]:
         """Raw SU (bare read): same session-only caveat as
-        get_search_lower_limit(). Note: the AR-DV1 spec's own SU entry
-        text literally describes its parameter as "low limit frequency"
-        (an apparent copy-paste from the SL entry directly above it in the
-        PDF) - treated here as a documentation typo, not evidence SU
-        secretly means something else; both the command name and its own
-        out-of-range wording ("set frequency is lower than the lower
-        limit frequency") point at upper-limit being the real meaning."""
+        get_search_lower_limit(). Note the AR-DV1 spec's own SU entry
+        describes its parameter as "low limit frequency" (an apparent
+        copy-paste from SL directly above it) - treated as a documentation
+        typo; the command name and its own out-of-range wording both point
+        at upper-limit."""
         resp = self._chan.read("SU")
         raw = (resp.value or "").strip()
         return round(float(raw) * 1_000_000) if raw else None
@@ -2139,12 +1913,10 @@ class DV10Device:
     # -- scan groups (SG search-side / MG memory-side) and their shared
     #    standalone sub-commands (AS auto-store, BK bank-link) --------------
     #
-    # A "scan group" bundles a delay time, free time, and a set of linked
+    # A "scan group" bundles a delay time, free time and a set of linked
     # banks (plus, search-side only, an auto-store flag) under one group
     # number - SG for search banks, MG for memory banks. AS and BK are also
-    # separately documented as usable standalone ("This command may be
-    # used alone"), so both get their own typed get/set here too, not just
-    # as SG/MG sub-fields.
+    # documented as usable standalone, so both get their own typed get/set.
 
     def _parse_scan_group_response(
         self, group: int, text: str, *, has_auto_store: bool
@@ -2170,20 +1942,15 @@ class DV10Device:
         bank_link: Optional[List[int]] = None,
     ) -> None:
         """Raw SG: configure search-side scan group ``group`` - ``SGgg
-        [DLmm] [FRpp] [ASn] [BKbbb...]``. Group-number range 00-19 is
-        confirmed via the sibling MG command's own spec entry, which
-        states it explicitly where SG's page does not repeat it - applied
-        here by analogy.
+        [DLmm] [FRpp] [ASn] [BKbbb...]``. The 00-19 group range is confirmed
+        via the sibling MG entry, which states it where SG's page does not -
+        applied here by analogy.
 
         ``bank_link`` follows the SAME omit-convention as every other
-        parameter here: ``None`` (the default) leaves the BK sub-field out
-        entirely, so the group's existing bank-link list is left
-        unchanged - it does NOT mean "disable all links". To actually
-        disable all links, pass an EMPTY list (``[]``); _format_bank_link()
-        then sends the BK sub-command's own documented "99" shorthand for
-        that. (A previous version of this docstring incorrectly implied
-        ``None`` also cleared the list - fixed after a test caught the
-        mismatch between the two.)"""
+        parameter: ``None`` (the default) leaves the BK sub-field out
+        entirely, so the group's existing bank-link list is UNCHANGED - it
+        does NOT mean "disable all links". To disable all links pass an EMPTY
+        list (``[]``); _format_bank_link() then sends BK's documented "99"."""
         parts = []
         if delay_ds is not None:
             parts.append(f"DL{int(delay_ds):02d}")
@@ -2216,13 +1983,9 @@ class DV10Device:
         """Raw MG: configure memory-side scan group ``group`` (00-19) -
         ``MGgg [DLmm] [FRpp] [BKbbb...]``. Unlike SG, MG has NO auto-store
         sub-field at all per the AR-DV1 spec - there is deliberately no
-        ``auto_store`` parameter here to avoid implying one exists.
-
-        ``bank_link`` follows the same omit-convention as
-        write_search_scan_group()'s own ``bank_link`` - see that
-        docstring: ``None`` leaves the group's existing bank-link list
-        unchanged, an empty list (``[]``) sends BK's "99" (disable all)
-        shorthand."""
+        ``auto_store`` parameter here. ``bank_link`` follows the same
+        omit-convention as write_search_scan_group(): ``None`` leaves the
+        existing list unchanged, ``[]`` sends BK's "99" (disable all)."""
         parts = []
         if delay_ds is not None:
             parts.append(f"DL{int(delay_ds):02d}")
@@ -2236,18 +1999,14 @@ class DV10Device:
         self._chan.write("MG", value)
 
     def read_memory_scan_group(self, group: int) -> ScanGroupInfo:
-        """Raw MG (bare-group read): query memory-side scan group
-        ``group``'s configuration. ``.auto_store`` is always None here -
-        see write_memory_scan_group()'s docstring.
+        """Raw MG (bare-group read): query memory-side scan group ``group``.
+        ``.auto_store`` is always None here - see write_memory_scan_group().
 
-        UNCONFIRMED read direction, same gap as get_memory_bank_info()
-        (MW): re-checked directly against the AR-DV1 spec PDF, MG's own
-        result-code text says only "20 --- Set completed" - unlike SG's
-        sibling entry, which explicitly says "20 --- Setting / Reading
-        completed". Modelled as a bare-group read anyway, consistent with
-        every other RW command here, but treat this one as less certain
-        than read_search_scan_group() (SG) until checked against real
-        hardware."""
+        UNCONFIRMED read direction, same gap as get_memory_bank_info() (MW):
+        MG's own result-code text says only "20 --- Set completed", unlike
+        SG's "20 --- Setting / Reading completed". Modelled as a bare-group
+        read anyway, but treat it as less certain than
+        read_search_scan_group() (SG) until checked against real hardware."""
         group = int(group)
         resp = self._chan.read(f"MG{group:02d}")
         return self._parse_scan_group_response(group, resp.value or "", has_auto_store=False)
@@ -2298,26 +2057,20 @@ class DV10Device:
         selected by which of ``frequency_hz``/``bank``/``all_banks`` are
         given:
 
-        * neither ``frequency_hz`` nor ``bank`` (bare "PW"): while VFO
-          search is active and stopped on a busy channel, marks the
-          CURRENT receive frequency as a VFO-search pass frequency.
-        * ``frequency_hz`` only ("PWffff.ffff"): marks that specific
-          frequency as a VFO-search pass frequency, independent of what's
-          currently being received.
-        * ``bank`` only, no ``frequency_hz`` ("PWbb"): while a program
-          search over ``bank`` is active and stopped on a busy channel,
-          marks the CURRENT receive frequency as a pass frequency in that
-          bank.
-        * both ``bank`` and ``frequency_hz`` ("PWbbffff.ffff"): marks that
-          specific frequency as a pass frequency in ``bank``, independent
-          of what's currently being received.
+        * neither (bare "PW"): while VFO search is stopped on a busy
+          channel, marks the CURRENT receive frequency for VFO search.
+        * ``frequency_hz`` only ("PWffff.ffff"): marks that frequency for
+          VFO search, independent of what's being received.
+        * ``bank`` only ("PWbb"): while a program search over ``bank`` is
+          stopped on a busy channel, marks the CURRENT receive frequency as
+          a pass frequency in that bank.
+        * both ("PWbbffff.ffff"): marks that frequency in ``bank``.
 
-        ``all_banks=True`` sends "%%" instead of a bank number - the
-        spec's own "apply to every search bank" wildcard, valid on both
-        the bank-only and bank+frequency shapes above. Raises
-        DV10ProtocolError (result code 30) if the designated pass
-        frequency can't be set in the current receive mode, or if that
-        list has already reached its documented maximum of 50 entries."""
+        ``all_banks=True`` sends "%%" instead of a bank number - the spec's
+        "every search bank" wildcard, valid on both bank shapes. Raises
+        DV10ProtocolError (result code 30) if the pass frequency can't be
+        set in the current receive mode, or that list has already reached
+        its documented maximum of 50 entries."""
         if all_banks and bank is not None:
             raise ValueError("pass bank=<n> and all_banks=True together - use one or the other")
         bank_token = "%%" if all_banks else (f"{int(bank):02d}" if bank is not None else None)
@@ -2332,18 +2085,15 @@ class DV10Device:
     ) -> List[PassFrequencyEntry]:
         """Raw PR: list all 50 pass-frequency slots for VFO search
         (``bank=None``, bare "PR") or for a specific program-search bank
-        (``bank=<n>``, "PRbb"). Empty slots come back with
-        ``frequency_hz=None`` (the spec's own "- - -" placeholder).
+        ("PRbb"). Empty slots come back with ``frequency_hz=None`` (the
+        spec's own "- - -" placeholder).
 
-        Same multi-line shape as read_memory_bank() (MA bank-form): the
-        spec's own PR result codes include 21 ("Read partial list, to be
-        continued") alongside 20 ("Read list completely"), reliably
-        distinguishable only with RE on - so, exactly like
-        read_memory_bank(), this temporarily forces RE on for the
-        duration of the read and restores whatever it was before, even on
-        error. See read_memory_bank()'s docstring for the same caveat
-        applying here: not safe against another thread sending commands
-        on this same device concurrently during the read."""
+        Same multi-line shape as read_memory_bank() (MA bank-form): PR's
+        result codes include 21 ("to be continued") alongside 20, reliably
+        distinguishable only with RE on - so this temporarily forces RE on
+        for the read and restores it, even on error. Same concurrency caveat
+        as read_memory_bank(): not safe against another thread using this
+        device during the read."""
         bank_i = None if bank is None else int(bank)
         code = "PR" if bank_i is None else f"PR{bank_i:02d}"
         prev_re = (self._chan.read("RE").value or "0").strip()
@@ -2397,20 +2147,17 @@ class DV10Device:
         index: Optional[int] = None,
         all_banks: bool = False,
     ) -> None:
-        """Raw PD: delete pass frequencies. Exactly the 3 documented
-        shapes:
+        """Raw PD: delete pass frequencies. The 3 documented shapes:
 
         * ``bank=None, index=None`` (bare "PD"): delete every VFO-search
           pass frequency.
-        * ``bank=<n>, index=None`` ("PDbb"), or ``all_banks=True`` ("PD%%")
-          instead of a specific bank: delete every pass frequency in that
-          bank, or in every bank at once.
-        * ``bank=<n>, index=<i>`` ("PDbbnn"): delete one specific pass
-          frequency by its list index.
+        * ``bank=<n>, index=None`` ("PDbb"), or ``all_banks=True`` ("PD%%"):
+          delete every pass frequency in that bank, or in every bank.
+        * ``bank=<n>, index=<i>`` ("PDbbnn"): delete one by list index.
 
-        Raises ValueError for ``index`` given without a ``bank`` - the
-        spec has no "delete just index nn of the VFO-search list" form,
-        only "delete the whole VFO-search list" (bare PD)."""
+        Raises ValueError for ``index`` without a ``bank`` - the spec has no
+        "delete just index nn of the VFO-search list" form, only the whole
+        list (bare PD)."""
         if all_banks and bank is not None:
             raise ValueError("pass bank=<n> and all_banks=True together - use one or the other")
         if index is not None and bank is None and not all_banks:
@@ -2442,24 +2189,20 @@ class DV10Device:
         self._chan.write("PO", "1" if on else "0")
 
     def get_priority_channel(self) -> str:
-        """The priority channel, as a "BANK-CH" pair (e.g. "00-01") -
-        decoded from PP's raw wire value (a plain "bbcc" 4-digit string,
-        see set_priority_channel()) by inserting the "-" for readability;
-        that hyphen is display-only, not part of what's sent/received."""
+        """The priority channel as a "BANK-CH" pair (e.g. "00-01"), decoded
+        from PP's raw "bbcc" 4-digit wire value - the hyphen is display-only,
+        not part of what's sent/received."""
         raw = (self._chan.read("PP").value or "").strip()
         if len(raw) == 4 and raw.isdigit():
             return f"{raw[:2]}-{raw[2:]}"
         return raw
 
     def set_priority_channel(self, bank: int, channel: int) -> None:
-        """Corrected against the AR-DV1 wire-protocol spec's own PP entry:
-        ``PPbbcc`` - bank and channel run together with NO separator,
-        unlike this project's original guess of a "bb-cc" hyphenated form
-        (modelled, understandably, after how MemoryChannel.bank_channel
-        and the manual's own BANK-CH notation display it - but that's a
-        display convention, not the wire format). Every write this
-        project's original set_priority_channel() ever sent would have
-        been rejected by real hardware."""
+        """Per the AR-DV1 wire spec's PP entry: ``PPbbcc`` - bank and channel
+        run together with NO separator, unlike this project's original
+        "bb-cc" guess (modelled on the manual's BANK-CH display notation,
+        which is not the wire format). Every write the original
+        set_priority_channel() sent would have been rejected by hardware."""
         self._chan.write("PP", f"{int(bank):02d}{int(channel):02d}")
 
     def get_priority_interval(self) -> str:
@@ -2473,13 +2216,11 @@ class DV10Device:
 
     def get_volume_limit(self) -> str:
         """Raw AV value, 00 (max) - 15 (most attenuated), default 05 - the
-        front panel's "VOL ATT" setting (manual 5.2), which caps how loud
-        the physical volume knob can go. This is very likely the *actual*
-        remotely-controllable "volume" on this receiver: AG (audio gain)
-        is confirmed non-functional on real hardware (see get_volume()'s
-        docstring), and the manual makes clear the primary volume control
-        is the analog knob itself, which no CI command can turn - AV only
-        sets its ceiling."""
+        front panel's "VOL ATT" (manual 5.2), which caps how loud the
+        physical volume knob can go. Very likely the *actual* remotely
+        controllable "volume": AG is confirmed non-functional on real
+        hardware (see get_volume()) and the knob itself is analog, so AV
+        only sets its ceiling."""
         return self._chan.read("AV").value or ""
 
     def set_volume_limit(self, level: int) -> None:
@@ -2496,27 +2237,23 @@ class DV10Device:
 
     def get_manual_gain(self) -> str:
         """Raw RG value: the manual-gain level used when AGC
-        (get_agc_speed()) is set to "3"/RF-G. Range/default corrected
-        against the AR-DV1 wire-protocol spec's own RG entry (``RGnnn``,
-        nnn: 000 (minimum) - 110 (maximum), default 099) - the wire
-        FORMAT (3-digit zero-padded) already matched this project's
-        original manual-sourced guess, but the valid range/default didn't
-        (000-255, no default, per the AR-DV10 operating manual 10.2 - a
-        different real AOR document; still unconfirmed against real
-        AR-DV10 hardware which range actually applies)."""
+        (get_agc_speed()) is "3"/RF-G. Range/default per the AR-DV1 wire
+        spec's RG entry (``RGnnn``, 000 (min) - 110 (max), default 099); the
+        3-digit zero-padded format already matched this project's
+        manual-sourced guess but the range did not (AR-DV10 operating manual
+        10.2 says 000-255, no default) - still unconfirmed against real
+        AR-DV10 hardware which applies."""
         return self._chan.read("RG").value or ""
 
     def set_manual_gain(self, level: int) -> None:
         self._write_with_hint("RG", f"{int(level):03d}")
 
     def get_lcd_contrast(self) -> str:
-        """Raw LN value. Range/default corrected against the AR-DV1
-        wire-protocol spec's own LN entry (``LNnn``, nn: 00 (lightest) -
-        63 (darkest), default 25) - the wire FORMAT (2-digit zero-padded)
-        already matched this project's original manual-sourced guess
-        (00-40, default 30, per the AR-DV10 operating manual 11.2); still
-        unconfirmed against real AR-DV10 hardware which range actually
-        applies."""
+        """Raw LN value. Range/default per the AR-DV1 wire spec's LN entry
+        (``LNnn``, 00 (lightest) - 63 (darkest), default 25); the 2-digit
+        zero-padded format already matched this project's manual-sourced
+        guess (00-40, default 30, AR-DV10 operating manual 11.2) but the
+        range did not - unconfirmed against real hardware which applies."""
         return self._chan.read("LN").value or ""
 
     def set_lcd_contrast(self, level: int) -> None:
@@ -2554,26 +2291,19 @@ class DV10Device:
 
     def write_recording_timer(self, timer: RecordingTimer) -> None:
         """Raw TR (write): configure the scheduled recording/alarm timer -
-        see aor_dv10.timer's module docstring for the significant
-        reconstruction/ambiguity caveats this command carries (the AR-DV1
-        spec PDF's own table entry for TR is internally inconsistent -
-        its syntax cell omits the XE sub-field entirely, recoverable only
-        from the same entry's Remarks/Default prose).
+        see aor_dv10.timer's module docstring for the reconstruction/
+        ambiguity caveats (the AR-DV1 spec PDF's TR entry is internally
+        inconsistent: its syntax cell omits the XE sub-field entirely,
+        recoverable only from the same entry's Remarks/Default prose).
 
-        Modelled as a SINGLE, unnumbered timer (no timer-number argument
-        here) - the spec never gives "n" (in "TRn") a range, and the read
-        direction is bare "TR<CR>" with no index, unlike every genuinely
-        numbered/indexed read elsewhere in this spec (SRbb, SGgg, PRbb,
-        ...) - see aor_dv10.timer's docstring for why this project reads
-        that as "there is one timer", not confirmed fact.
+        Modelled as a SINGLE, unnumbered timer - the spec never gives "n"
+        (in "TRn") a range, and the read direction is bare "TR<CR>" with no
+        index, unlike every genuinely numbered read here (SRbb, SGgg, PRbb).
+        Read as "there is one timer", not confirmed fact.
 
         ``timer.action`` ("off"/"alarm"/"recording") is always sent (XE);
-        every other RecordingTimer field is omitted from the write when
-        left at its default None/empty - build one with
-        aor_dv10.timer.receive_mode_vfo()/receive_mode_vfo_search()/
-        receive_mode_search_bank()/receive_mode_memory_channel()/
-        receive_mode_memory_scan() for ``receive_mode``, and
-        format_once_time()/format_weekly_time() for ``start``/``end``."""
+        every other RecordingTimer field is omitted when left at its default
+        - see aor_dv10.timer's builders for ``receive_mode``/``start``/``end``."""
         self._chan.write("TR", format_timer_value(timer))
 
     def read_recording_timer(self) -> RecordingTimer:
@@ -2589,29 +2319,21 @@ class DV10Device:
 
     # -- SD card management ---------------------------------------------
     #
-    # Notably SD DIR's per-file line shape (WAV vs. non-WAV), the
-    # "SYSYEM" (sic) backup-kind token, and why SD LGR/SD TYP are
-    # deliberately left `raw`-only (the spec's own summary table marks
-    # them "No function" on this receiver, with no detailed page anywhere
-    # in the full command reference - unlike every other SD command here,
-    # which does have one).
+    # Notably SD DIR's per-file line shape (WAV vs. non-WAV), the "SYSYEM"
+    # (sic) backup-kind token, and why SD LGR/SD TYP stay `raw`-only (the
+    # spec's summary table marks them "No function" here and there is no
+    # detailed page anywhere, unlike every other SD command).
 
     def _sd_action(self, code: str, value: Optional[str] = None) -> str:
-        """Sends an SD-card "start something" command (SD REC/SD PLY/SD
-        MMW/SD MMR) with RE temporarily forced on for the call, then
-        restores whatever RE was before - even on error - exactly the same
-        RE-forcing technique read_vfo_info()/list_pass_frequencies() use
-        for multi-line reads, applied here for a different reason: several
-        of these commands' own spec text says a *successful* start/stop
-        produces "no response" at all on the wire. If that's ever
-        literally true (rather than just old RE-off-mode manual language)
-        it would make CommandChannel.send() time out, attempt its
-        documented resync-and-retry-once recovery, and then incorrectly
-        raise DV10ResyncNeeded for what was actually a successful
-        operation. Forcing RE on makes a parseable numeric-prefixed
-        response line highly likely regardless, since that's the confirmed
-        universal RE-on behaviour for every other command in this project.
-        Unconfirmed against real hardware."""
+        """Sends an SD-card "start something" command (SD REC/PLY/MMW/MMR)
+        with RE temporarily forced on, restoring RE afterwards even on error.
+        Reason: several of these commands' spec text says a *successful*
+        start/stop produces "no response" at all, which would make
+        CommandChannel.send() time out, attempt its resync-and-retry-once
+        recovery, and raise DV10ResyncNeeded for a successful operation.
+        Forcing RE on makes a parseable numeric-prefixed line likely, that
+        being the confirmed RE-on behaviour everywhere else. Unconfirmed
+        against real hardware."""
         prev_re = (self._chan.read("RE").value or "0").strip()
         restore_re = prev_re != "1"
         if restore_re:
@@ -2625,17 +2347,12 @@ class DV10Device:
 
     def sd_dir(self, timeout: float = 5.0) -> List[SdCardFile]:
         """Raw SD DIR: list every file on the SD card, one entry per file
-        plus a trailing "nnnFILE(S)" count line this method consumes
-        rather than returning (``len(result)`` gives the same count).
+        plus a trailing "nnnFILE(S)" count line this method consumes rather
+        than returning (``len(result)`` gives the same count).
 
-        Same 21-continuing multi-line shape as read_memory_bank()/
-        list_pass_frequencies()/read_vfo_info(): temporarily forces RE on
-        for the duration of the read and restores whatever it was before,
-        even on error - see read_memory_bank()'s docstring for the same
-        concurrency caveat (not safe against another thread sending
-        commands on this same device during the read).
-
-        Raises DV10ProtocolError for CARDBUSY/NOCARD/FAT12 (see
+        Same 21-continuing multi-line shape as read_memory_bank(): forces RE
+        on for the read and restores it, even on error - same concurrency
+        caveat. Raises DV10ProtocolError for CARDBUSY/NOCARD/FAT12 (see
         _check_sd_error())."""
         prev_re = (self._chan.read("RE").value or "0").strip()
         restore_re = prev_re != "1"
@@ -2728,12 +2445,11 @@ class DV10Device:
         self._sd_action("SD REC", "/")
 
     def sd_play(self, name: str) -> None:
-        """Raw SD PLY<name>: start playback of ``name`` (no file
-        extension - "Alphabet (upper case) and numbers can be used" per
-        the spec; sent exactly as given, not case-folded, since the spec
-        doesn't say lowercase is rejected, only that uppercase+digits is
-        the documented charset). See sd_play_stop() for the "/" stop
-        convention. Raises DV10ProtocolError for CARDBUSY/NOCARD/NOFILE."""
+        """Raw SD PLY<name>: start playback of ``name`` (no file extension).
+        The spec documents "Alphabet (upper case) and numbers"; sent exactly
+        as given, not case-folded, since the spec never says lowercase is
+        rejected. See sd_play_stop() for the "/" stop convention. Raises
+        DV10ProtocolError for CARDBUSY/NOCARD/NOFILE."""
         self._sd_action("SD PLY", name)
 
     def sd_play_stop(self) -> None:
@@ -2745,14 +2461,13 @@ class DV10Device:
 
 
     def sd_backup(self, kind: str) -> None:
-        """Raw SD MMW<kind>: back up one category of receiver settings to
-        the SD card. ``kind`` must be one of the five documented tokens -
-        see the SD_BACKUP_KIND_* constants above (SD_BACKUP_KIND_ALL is
-        the literal "SYSYEM" - a spec typo for "SYSTEM", confirmed via two
-        independent extraction methods, not a mistake introduced by this
-        project). This is the mechanism behind AOR's "serial backup"
-        feature - it turns out not to need any undocumented MY* command
-        at all. Raises DV10ProtocolError for CARDBUSY/NOCARD/CARDFULL."""
+        """Raw SD MMW<kind>: back up one category of receiver settings to the
+        SD card. ``kind`` must be one of the five documented tokens - see the
+        SD_BACKUP_KIND_* constants (SD_BACKUP_KIND_ALL is the literal
+        "SYSYEM", a confirmed spec typo, not a mistake introduced here). This
+        is the mechanism behind AOR's "serial backup" feature - no
+        undocumented MY* command is needed. Raises DV10ProtocolError for
+        CARDBUSY/NOCARD/CARDFULL."""
         kind_u = kind.strip().upper()
         if kind_u not in _SD_BACKUP_KINDS:
             raise ValueError(
@@ -2762,14 +2477,11 @@ class DV10Device:
         self._sd_action("SD MMW", kind_u)
 
     def sd_restore(self, name: str) -> None:
-        """Raw SD MMR<name>: restore receiver settings previously backed
-        up with sd_backup(). ``name`` is documented as "original file
-        name" - unlike sd_backup()'s ``kind``, the spec does not constrain
-        this to the 5 known tokens, so this project doesn't validate it
-        either (in practice it's typically one of the SD_BACKUP_KIND_*
-        constants, since that's what sd_backup() names the file it
-        creates - unconfirmed against real hardware exactly what file name
-        sd_backup() itself produces on the card). No file extension is
+        """Raw SD MMR<name>: restore receiver settings previously backed up
+        with sd_backup(). ``name`` is documented as "original file name";
+        unlike sd_backup()'s ``kind`` the spec doesn't constrain it to the 5
+        known tokens, so it isn't validated (exactly what file name
+        sd_backup() produces on the card is unconfirmed). No extension is
         given - "There is no need to specify the file extension" per the
         spec. Raises DV10ProtocolError for CARDBUSY/NOCARD/NOFILE."""
         self._sd_action("SD MMR", name.strip())
@@ -2777,9 +2489,7 @@ class DV10Device:
     def get_sd_squelch_skip(self) -> str:
         """Raw SD RSQ value ("0"=no skip, "1"=skip [default]) - whether
         squelched (no-signal) audio segments are skipped during SD
-        playback. Not in task 13's original scope list, but simple and
-        fully documented in the same spec section as the rest of SD card
-        management, so typed alongside it rather than left raw."""
+        playback."""
         resp = self._chan.read("SD RSQ")
         text = (resp.value or "").strip()
         if text.upper().startswith("SD RSQ"):
@@ -2792,36 +2502,24 @@ class DV10Device:
 
     # -- Frequency scope: FD / GL --------------------------------------
     #
-    # IMPORTANT CAVEAT: both FD and GL are documented as only succeeding
-    # while the receiver is "in scope mode" (result code 30, "Not in scope
-    # mode", is the documented error otherwise). Every AR-DV10/AR-DV1
-    # reference document available to this project - the full command
-    # list, both command-summary PDFs, the AR8200/AR-DV3/GSSI command
-    # lists, the manual addendum, the command-list-additions document, and
-    # critically the full AR-DV10 *operating manual* itself - was searched
-    # for any command or front-panel procedure that enters "scope mode",
-    # and NONE was found. The operating manual never mentions "scope" or
-    # "bandscope" as a feature at all. This strongly suggests these two
-    # commands may be non-functional/unreachable on the AR-DV10 via any
-    # documented mechanism. They are implemented here exactly as specified,
-    # for completeness and because the simulator can still exercise the
-    # wire-format decoding logic (via its test-only ``scope_mode`` toggle),
-    # but this should be one of the first things checked against real
-    # hardware before relying on it.
+    # IMPORTANT CAVEAT: both FD and GL only succeed while the receiver is
+    # "in scope mode" (result code 30, "Not in scope mode", otherwise).
+    # Every AR-DV10/AR-DV1 reference available to this project - including
+    # the full AR-DV10 operating manual, which never mentions "scope" or
+    # "bandscope" at all - was searched for a command or front-panel
+    # procedure that enters scope mode, and NONE was found, so these two may
+    # be unreachable on the AR-DV10. Implemented exactly as specified for
+    # completeness (the simulator exercises the decoding via its test-only
+    # ``scope_mode`` toggle); check against real hardware before relying on it.
 
     def read_scope_data_fast(self) -> List[int]:
-        """FD: fast-speed frequency scope data - a single line of
-        concatenated 3-digit dBm chunks (same chunking convention as LM's
-        S-meter reading: dbm = -int(chunk)). A trailing incomplete chunk
-        (line length not a multiple of 3) is silently dropped rather than
-        raised, since the spec gives no guidance on how a short trailing
-        chunk should be interpreted. Unlike GL, FD has no 21 "continue"
-        result code documented, so this is a single-line read.
-
-        See the section docstring above for the "no known way to enter
-        scope mode" caveat - expect a DV10ProtocolError (result code 30,
-        "Not in scope mode") on real hardware absent some undocumented
-        procedure."""
+        """FD: fast-speed frequency scope data - one line of concatenated
+        3-digit dBm chunks (same convention as LM: dbm = -int(chunk)). A
+        trailing incomplete chunk is dropped silently, the spec giving no
+        guidance. Unlike GL, FD documents no 21 "continue" code, so this is a
+        single-line read. See the section comment above for the "no known way
+        to enter scope mode" caveat - expect result code 30 on real
+        hardware."""
         resp = self._chan.read("FD")
         text = (resp.value or "").strip()
         if text.upper().startswith("FD"):
@@ -2831,21 +2529,17 @@ class DV10Device:
 
     def read_scope_data_normal(self, timeout: float = 5.0) -> List[ScopeLine]:
         """GL: normal-speed frequency scope data - one line per scan point,
-        each shaped "Ffffff.fffffLkkc" (frequency in MHz, 2-digit level,
-        1-digit squelch state - see ScopeLine's docstring re: the 2-digit
-        level width being narrower than LM/FD's 3-digit convention, and
-        unconfirmed against real hardware).
+        "Ffffff.fffffLkkc" (MHz frequency, 2-digit level, 1-digit squelch
+        state; see ScopeLine on that level width being narrower than LM/FD's
+        3 digits, unconfirmed).
 
-        Same 21-continuing multi-line shape as sd_dir()/read_memory_bank()/
-        list_pass_frequencies()/read_vfo_info(): temporarily forces RE on
-        for the duration of the read and restores whatever it was before,
-        even on error. A bare "/" line (also seen in some of the spec's
-        own worked examples) is treated as an explicit terminator in
-        addition to the normal 21/20 result-code convention, and skipped
-        rather than parsed as a scan point.
+        Same 21-continuing multi-line shape as sd_dir(): forces RE on for the
+        read and restores it, even on error. A bare "/" line (seen in the
+        spec's own worked examples) is treated as an extra terminator and
+        skipped rather than parsed.
 
-        See the section docstring above for the "no known way to enter
-        scope mode" caveat."""
+        See the section comment above for the "no known way to enter scope
+        mode" caveat."""
         prev_re = (self._chan.read("RE").value or "0").strip()
         restore_re = prev_re != "1"
         if restore_re:
@@ -2894,12 +2588,10 @@ class DV10Device:
 
     def get_write_protect(self) -> str:
         """Raw PT value. NOTE: the manual's PROTECT toggles for individual
-        memory channels/banks/search banks (chapters 7.1/7.5/7.6/9.1) look
-        to be per-record fields written as part of MX/MW/SE, not this
-        top-level PT command - PT is more likely the MENU-CONFIG page 2
-        "auto-store on shutdown" PROTECT flag (manual 11.2, item 7:
-        ON=auto-store OFF, OFF(default)=auto-store ON). Unconfirmed either
-        way."""
+        memory channels/banks/search banks (7.1/7.5/7.6/9.1) look to be
+        per-record fields written as part of MX/MW/SE, not this top-level PT
+        - PT is more likely MENU-CONFIG page 2's "auto-store on shutdown"
+        PROTECT flag (11.2 item 7: ON=auto-store OFF). Unconfirmed."""
         return self._chan.read("PT").value or ""
 
     def set_write_protect(self, on: bool) -> None:
@@ -2925,23 +2617,15 @@ class DV10Device:
 
     # -- proposal items 19-28: previously raw-console-only commands ---------
     #
-    # aor_dv10.protocol.commands has each of these registered (so "raw <code>
-    # <value>" in the console already reaches them), but none had a typed
-    # get_*/set_* wrapper until now, and this project has no confirmed
-    # field-format detail for most of them beyond the one-line description
-    # in that registry (no fuller AR-DV1/AR-DV10 spec transcription exists
-    # here for this group the way there is for, say, memory channels or
-    # search banks). Rather than inventing digit counts/ranges/enums that
-    # would just be guesses, every wrapper below is a thin, literal
-    # passthrough: reads return whatever raw string the device sends,
-    # writes send whatever string the caller gives (stripped, nothing
-    # else). Where the registry's own description says "ON/OFF" outright
-    # (AN, OX, ZS) this uses the same bool/_on_off-style convention as
-    # every other confirmed on/off command elsewhere in this file - not a
-    # new guess, just this project's standard boolean encoding ("1"/"0").
-    # EXPERIMENTAL in the sense that none of this has been exercised
-    # against real hardware; see each method's own docstring for its
-    # specific caveat.
+    # All of these are registered in aor_dv10.protocol.commands (so "raw
+    # <code> <value>" already reaches them) but had no typed wrapper, and no
+    # confirmed field-format detail exists here beyond that registry's
+    # one-line description. Rather than inventing digit counts/ranges, every
+    # wrapper below is a literal passthrough: reads return the raw string,
+    # writes send what they are given (stripped). Where the registry says
+    # "ON/OFF" outright (AN, OX, ZS), this project's standard "1"/"0"
+    # boolean encoding is used. EXPERIMENTAL: none of this has been
+    # exercised against real hardware.
 
     def get_earphone_antenna(self) -> str:
         """Raw AN value: earphone antenna ON/OFF (FM 64-108MHz only, per
@@ -3061,11 +2745,9 @@ class DV10Device:
     def get_comm_speed(self) -> str:
         """Raw SB value: "Communication speed (baud)" - EXPERIMENTAL,
         literal passthrough, no confirmed value set. DANGEROUS to write
-        remotely: if this actually reconfigures the serial link's own baud
-        rate, changing it through that same link would sever the
-        connection this app is using to send the command in the first
-        place, requiring physical access to recover - see
-        set_comm_speed()."""
+        remotely: if SB really changes the serial link's own baud rate,
+        changing it over that link severs the connection this app is using
+        and needs physical access to recover - see set_comm_speed()."""
         return self._chan.read("SB").value or ""
 
     def set_comm_speed(self, value: str) -> None:
@@ -3077,53 +2759,35 @@ class DV10Device:
 
     def register_last_channel(self, completion_timeout: float = 5.0) -> int:
         """Raw MM (write-only, no value): register the currently-tuned
-        VFO/bank/channel as the receiver's own "last channel memory" (what
-        it powers back up on) - see PT's write-protect remark ("MM command
-        will also become invalid" when write protect is on) and manual
-        power-on behaviour.
+        VFO/bank/channel as the receiver's "last channel memory" (what it
+        powers back up on) - see PT's write-protect remark ("MM command will
+        also become invalid" when write protect is on).
 
-        This required a CommandChannel fix: per the AR-DV1 wire-protocol
-        spec, MM is the one command in this project's whole command set
-        whose single request provokes TWO response lines - an immediate
-        21 ("registration started") followed, once registration actually
-        completes, by 20 ("registration completed"). Every other command
-        here follows the "one request, one response line" pattern
-        CommandChannel.send() assumes; naively calling send("MM") alone
-        would read only the 21 and leave the eventual 20 sitting unread in
-        the transport's buffer, silently corrupting whatever command gets
-        sent next (it would receive MM's leftover "20" as if it were ITS
-        own response). This method closes that gap explicitly: it sends MM
-        once, and if the result is 21 (not 20 - some paths may complete
-        immediately), follows up with exactly one CommandChannel
-        .read_pending() call to consume the completion line, bounded by
-        ``completion_timeout`` seconds.
+        Per the AR-DV1 spec, MM is the one command here whose single request
+        provokes TWO response lines: an immediate 21 ("registration started")
+        then 20 on completion. CommandChannel.send() assumes one line, so a
+        naive send("MM") would leave the 20 unread in the transport buffer
+        and silently corrupt the NEXT command's response. This sends MM once
+        and, if the result is 21, follows with exactly one read_pending()
+        bounded by ``completion_timeout``.
 
         Returns the final result code (20 on success). Raises
-        DV10ProtocolError on 30 (write protect enabled - see PT) or 50
-        (format error). Raises DV10ResyncNeeded if a 21 was seen but no
-        completion line arrived within ``completion_timeout``.
+        DV10ProtocolError on 30 (write protect - see PT) or 50 (format
+        error), DV10ResyncNeeded if a 21 was seen but no completion line
+        arrived in time.
 
-        Two things remain genuinely unconfirmed against real hardware
-        (the spec's own text doesn't say, and this project has no AR-DV1/
-        AR-DV10 unit handy to observe it on): whether the 20 truly arrives
-        unprompted (as modelled here) or only in answer to re-sending MM,
-        and how long registration actually takes. Because MM has a real
-        side effect on the device (it registers whatever is currently
-        tuned), this method deliberately does NOT guess at a resend/poll
-        loop beyond the one explicit follow-up read - re-sending MM
-        speculatively while an unknown-duration registration is already in
-        progress risks a second, unintended registration. Also note: with
-        RE (see set_result_code_prefixing()) left off, 20 and 21 are both
-        just an empty ack - indistinguishable - so this method can't tell
-        "completed" from "started" in that mode and simply returns after
-        the one line it gets; turn RE on first to get real two-phase
-        completion tracking."""
+        UNCONFIRMED against real hardware: whether the 20 truly arrives
+        unprompted (as modelled) or only in answer to re-sending MM, and how
+        long registration takes. Because MM has a real side effect this
+        deliberately does NOT poll or resend beyond the one follow-up read -
+        a speculative resend risks a second, unintended registration. With RE
+        off, 20 and 21 are both a bare ack and indistinguishable, so this
+        just returns after the one line it gets."""
         first = self._chan.send("MM")
         code = first.result_code
         if code != 21:
-            # Either a definitive 20/30/50 (30/50 already raised as a
-            # DV10ProtocolError by send() itself), or RE is off and there's
-            # nothing left to disambiguate - either way, done.
+            # Either a definitive 20/30/50 (30/50 already raised by send()),
+            # or RE is off and there's nothing left to disambiguate.
             return code if code is not None else 20
         second = self._chan.read_pending(timeout=completion_timeout)
         if second is None:
@@ -3135,27 +2799,19 @@ class DV10Device:
 
     def read_vfo_info(self, timeout: float = 5.0) -> List[VfoInfo]:
         """Raw VI: read all three VFOs (A/B/Z) in one call - a 3-line
-        multi-response, terminated by result code 20 with continuation
-        lines flagged 21, same shape this project already handles for
-        MA's bank form and PR - see read_memory_bank()'s docstring for the
-        "reliably distinguishable only with RE on" caveat this applies
-        here too (temporarily forces RE on for the read, restores it
-        after, even on error).
+        multi-response terminated by result code 20, continuation lines
+        flagged 21, same shape as MA's bank form and PR (see
+        read_memory_bank() for the RE caveat; RE is forced on for the read
+        and restored after, even on error).
 
-        The AR-DV1 spec PDF's own VI table has a corrupted second column:
-        it's a verbatim copy-paste of the VE entry directly above it
-        ("VE DLmm FRpp ASn") rather than a real VI request syntax - a
-        THIRD instance of this exact kind of table corruption in this same
-        document, alongside SE's (see write_search_bank()'s docstring) and
-        TR's field list dropping its own XE sub-field (see
-        aor_dv10.timer's module docstring). VI's real shape is only
-        recoverable from its "Details" prose, which spells out the
-        response lines directly: "VI VFA RFffff.fffff STggg.gg SHhhh.hh
-        MDdan" / "VI VFB ..." / "VI VFZ ...". Request syntax is inferred
-        to be bare "VI<CR>" (matching the spec's own summary table, which
-        lists VI as read-only "R", and matching every other read-only
-        command in this project) - not literally confirmed since the
-        table's own request cell is unusable."""
+        The AR-DV1 spec PDF's VI table has a corrupted second column: a
+        verbatim copy of the VE entry above it ("VE DLmm FRpp ASn") - a THIRD
+        instance of this corruption in the same document, alongside SE's and
+        TR's dropped XE sub-field. VI's real shape comes from its "Details"
+        prose: "VI VFA RFffff.fffff STggg.gg SHhhh.hh MDdan" (then VFB, VFZ).
+        The request is inferred to be bare "VI<CR>" (the summary table lists
+        VI read-only) - not confirmed, that table's request cell being
+        unusable."""
         prev_re = (self._chan.read("RE").value or "0").strip()
         restore_re = prev_re != "1"
         if restore_re:
@@ -3203,12 +2859,12 @@ class DV10Device:
     # -- diagnostics ---------------------------------------------------
 
     def set_result_code_prefixing(self, on: bool) -> None:
-        """Toggle RE: when on, the device is meant to prefix responses with
-        a numeric result code (10=unrelated message, 20=OK, +1=more lines
-        follow, 30=cannot set due to current conditions, 40=format error,
-        50=out of range, 60=command does not exist) instead of just a bare
-        "?" on failure - per the AR-DV3 spec. Not yet tried on real DV10;
-        useful for narrowing down mysteries like AG's bare-read "?"."""
+        """Toggle RE: when on, the device prefixes responses with a numeric
+        result code (10=unrelated message, 20=OK, +1=more lines follow,
+        30=cannot set in current conditions, 40=format error, 50=out of
+        range, 60=command does not exist) instead of a bare "?" on failure -
+        per the AR-DV3 spec. Confirmed usable on real hardware (an RE-on read
+        gave result code 60 for AG)."""
         self._chan.write("RE", "1" if on else "0")
 
     # -- power -----------------------------------------------------------
@@ -3223,12 +2879,10 @@ class DV10Device:
 
     def power_off(self) -> Response:
         """Send QP (power off/disconnect). Unlike ZP, QP's real-hardware
-        response has never been confirmed - PROTOCOL.md has no documented
-        reply shape for it; the simulator models an empty ack (grouped
-        with EX), but that's an unverified guess, not a confirmation.
-        Returns the full Response so callers can surface whatever the
-        device actually sends back (or report if it goes silent/errors)
-        instead of assuming a fixed shape."""
+        response has never been confirmed - PROTOCOL.md documents no reply
+        shape, and the simulator's empty ack (grouped with EX) is a guess.
+        Returns the full Response so callers can surface whatever the device
+        actually sends."""
         return self._chan.send("QP")
 
     # -- snapshot ----------------------------------------------------------
@@ -3238,13 +2892,11 @@ class DV10Device:
             try:
                 return fn()
             except (DV10Error, ValueError, TypeError):
-                # DV10Error: a command failed / device replied with an error
-                # code. ValueError/TypeError: the device returned a value we
-                # didn't expect for this field (e.g. reading RF while the
-                # radio is browsing a memory channel returns an "MX...."
-                # record rather than a bare frequency). In both cases the
-                # field just reads as "unknown" instead of taking down the
-                # whole status poll.
+                # DV10Error: the command failed. ValueError/TypeError: an
+                # unexpected value for this field (e.g. reading RF while
+                # browsing a memory channel returns an "MX...." record).
+                # Either way the field reads as "unknown" instead of taking
+                # down the whole status poll.
                 return None
 
         return Status(
@@ -3296,14 +2948,11 @@ class DV10Device:
         return describe_result_code(code)
 
     # -- protocol tracing ---------------------------------------------------
-    # Thin passthroughs to CommandChannel's always-on trace ring buffer -
-    # see codec.CommandChannel._log_trace()'s docstring for why every
-    # TX/RX line is recorded unconditionally rather than only while a sink
-    # is attached. Every get/set/raw() call on this device goes through
-    # the same one CommandChannel, so the CLI's "debug" verb and the web
-    # panel's debug forwarding both see the exact same trace regardless of
-    # which interface actually issued a given command - useful when
-    # reproducing something noticed in one interface from the other.
+    # Thin passthroughs to CommandChannel's always-on trace ring buffer - see
+    # codec.CommandChannel._log_trace() for why every TX/RX line is recorded
+    # unconditionally. Every call on this device shares one CommandChannel,
+    # so the CLI's "debug" verb and the web panel's debug forwarding see the
+    # same trace whichever interface issued a given command.
 
     def set_trace_sink(self, sink: Optional[Callable[[str], None]]) -> None:
         """Register (``None`` to unregister) a callback that receives every
@@ -3332,11 +2981,8 @@ class DV10Device:
     # -- Smaller typed commands: KL/IF/DL/FR/RN ------------------------------
     # KL (key backlight color), IF (per-mode IF bandwidth), DL/FR (the
     # standalone delay/free-time commands - distinct from the same-named
-    # sub-fields inside the SG/MG scan-group composites handled by
-    # read/write_search_scan_group()/read/write_memory_scan_group() - see
-    # those methods' docstrings for why the two aren't interchangeable),
-    # and RN (AR-DV1 serial number, with an access
-    # correction - see get_serial_number()'s docstring).
+    # sub-fields inside the SG/MG composites), and RN (AR-DV1 serial number,
+    # with an access correction - see get_serial_number()).
 
     def get_key_backlight_color(self) -> str:
         """Raw KL value (0-7) - see KEY_BACKLIGHT_COLORS for the
@@ -3349,16 +2995,13 @@ class DV10Device:
         self._chan.write("KL", str(int(n)))
 
     def get_if_bandwidth(self) -> str:
-        """Raw IF value - a bare digit string whose meaning depends on
-        the currently active demodulation mode (see IF_BANDWIDTH_HZ).
-        Kept as a raw string rather than int(): the spec's own IF
-        section documents its response shape as "Response: IFn, IFnn" -
-        i.e. potentially a 2-digit value - even though every documented
-        n range (0-4) only ever needs one digit, so always parsing as
-        exactly 1 digit risks silently mis-parsing a real 2-digit reply.
-        Result code 30 ("Invalid decode mode") is documented as a
-        possible error, implying at least one demodulation mode has no
-        IF-bandwidth concept at all - unconfirmed which."""
+        """Raw IF value - a bare digit string whose meaning depends on the
+        active demodulation mode (see IF_BANDWIDTH_HZ). Kept as a string,
+        not int(): the spec documents the response as "IFn, IFnn" - possibly
+        2 digits - so always parsing exactly 1 digit risks mis-parsing a real
+        reply. Result code 30 ("Invalid decode mode") is documented, implying
+        some demodulation mode has no IF-bandwidth concept - unconfirmed
+        which."""
         return (self._chan.read("IF").value or "").strip()
 
     def set_if_bandwidth(self, n) -> None:
@@ -3366,37 +3009,24 @@ class DV10Device:
         self._chan.write("IF", str(n))
 
     def get_if_bandwidth_options_hz(self) -> dict:
-        """The IF bandwidth choices - as ``{raw_digit: hz}`` - valid for
-        whichever analog demodulation type MD currently has selected
-        (``get_mode_info().analog_select``, e.g. "FM"/"AM"/"USB"/...),
-        looked up in IF_BANDWIDTH_HZ. Empty if the current analog mode
-        isn't recognised, IF_BANDWIDTH_HZ has no entry for it, OR a
-        digital mode is currently selected (see below) - callers/UIs
-        that just check "any choices at all?" (e.g. the web panel's
-        bandwidth <select>, which disables itself when this is empty)
-        get the right "nothing to offer" behaviour in every one of
-        those cases without needing to know which one applies.
+        """The IF bandwidth choices - ``{raw_digit: hz}`` - valid for the
+        analog demodulation type MD currently has selected
+        (``get_mode_info().analog_select``), from IF_BANDWIDTH_HZ. Empty if
+        that mode isn't recognised, has no table, OR a digital mode is
+        selected, so a UI that just asks "any choices at all?" (the web
+        panel's bandwidth <select>) behaves correctly in every case.
 
-        The AR-DV10's IF selector is one raw register shared across every
-        demodulation type (see set_mode()'s IF-bandwidth-restore
-        docstring above) - so this isn't "the choices IF itself offers",
-        it's "the choices that make sense to offer right now, given
-        what's currently selected". Meant for building a mode-aware
-        bandwidth picker (the web panel's Mode section) instead of
-        requiring a caller to already know that raw digit "3" means
-        15 kHz in FM but 3.8 kHz in AM.
+        The DV10's IF selector is one register shared across every
+        demodulation type (see set_mode()), so this is "what makes sense to
+        offer right now", not "what IF itself offers" - e.g. raw digit "3"
+        means 15 kHz in FM but 3.8 kHz in AM.
 
-        Digital modes: confirmed against real hardware (see
-        IF_BANDWIDTH_HZ's own comment above) that IF is not user-settable
-        at all while MD's digital_select field is anything other than
-        "Digital off" - the receiver auto-selects the filter itself, and
-        rejects a manual write with result code 30 regardless of the
-        value sent. Deliberately returns {} rather than a digital-specific
-        table (6/15/30 kHz per the manual) in that case: no live test has
-        actually gotten a manual write to succeed with ANY value while
-        digital is active, so offering those three as if they were
-        selectable would be documenting a guess, not a confirmed
-        capability - worth revisiting if that ever changes."""
+        Digital modes: confirmed against real hardware (see IF_BANDWIDTH_HZ)
+        that IF is not user-settable while digital_select is anything but
+        "Digital off" - the receiver auto-selects the filter and rejects a
+        manual write with result code 30. Returns {} rather than the manual's
+        digital table (6/15/30 kHz): no live test has ever gotten a manual
+        write to succeed while digital is active."""
         info = self.get_mode_info()
         if info.digital_select and info.digital_select != "Digital off":
             return {}
@@ -3445,12 +3075,10 @@ class DV10Device:
         )
 
     def get_delay_time_ds(self) -> int:
-        """Raw DL value, in deciseconds (0.1s ticks; 000-099, or the
-        special value 100 meaning "unlimited" per the spec - returned
-        as-is, not specially interpreted, so callers can check for it
-        explicitly). This is the standalone DL command - distinct from
-        the DL sub-field inside the SG/MG scan-group composites (task
-        11) - see this section's docstring above."""
+        """Raw DL value in deciseconds (0.1s ticks; 000-099, or the special
+        value 100 meaning "unlimited" per the spec, returned as-is). The
+        standalone DL command - distinct from the DL sub-field inside the
+        SG/MG scan-group composites."""
         return int((self._chan.read("DL").value or "0").strip())
 
     def set_delay_time_ds(self, deciseconds) -> None:
@@ -3459,10 +3087,9 @@ class DV10Device:
         self._chan.write("DL", f"{int(deciseconds):03d}")
 
     def get_free_time_s(self) -> int:
-        """Raw FR value, in seconds (00-60; 0 means OFF). This is the
-        standalone FR command - distinct from the FR sub-field inside
-        the SG/MG scan-group composites (task 11) - see
-        get_delay_time_ds()'s docstring for the same caveat."""
+        """Raw FR value in seconds (00-60; 0 means OFF). The standalone FR
+        command - distinct from the FR sub-field inside the SG/MG
+        scan-group composites."""
         return int((self._chan.read("FR").value or "0").strip())
 
     def set_free_time_s(self, seconds) -> None:
@@ -3470,25 +3097,19 @@ class DV10Device:
         self._chan.write("FR", f"{int(seconds):02d}")
 
     def get_serial_number(self) -> str:
-        """Raw RN value: an AR-DV1 serial-number string (the spec's own
-        worked example: "RN0952zzzz" - an 8-character body after the
-        code echo; the meaning of the individual characters isn't
-        documented beyond that one example, so this is returned as an
-        opaque string, same convention as get_receiver_id()/ZI).
+        """Raw RN value: an AR-DV1 serial-number string (spec example
+        "RN0952zzzz" - an 8-character body after the code echo; the
+        characters' meaning is undocumented, so it is returned opaque, same
+        convention as get_receiver_id()/ZI).
 
-        CORRECTED: the AR-DV1 command summary table lists RN as R/W, but
-        its own detailed section ("AR-DV1 SERIAL NUMBER") documents only
-        a read - "To read: RN<CR>", "Response: RN0952zzzz" - with no
-        write syntax and none of the format/range-error result codes
-        every genuinely-writable command in this spec does list.
-        Implemented read-only here, trusting the detailed section over
-        the summary table - same precedent as SE's access correction.
+        CORRECTED: the AR-DV1 summary table lists RN as R/W, but its own
+        detailed section documents only a read ("To read: RN<CR>",
+        "Response: RN0952zzzz") - no write syntax, none of the format/range
+        result codes every writable command lists. Implemented read-only,
+        trusting the detailed section over the summary table (same precedent
+        as SE's access correction).
 
-        See also: "SN" ("Output serial number") was investigated and
-        deliberately NOT given a typed method - it has no detailed
-        section anywhere in any reference document available to this
-        project, and its own summary-table row is missing even a
-        page-number reference (every other genuinely-documented command
-        in that table has one, even the ones marked "No function"). It
-        stays `raw`-only."""
+        "SN" ("Output serial number") was deliberately NOT given a typed
+        method: no detailed section in any available document, and its
+        summary-table row lacks even a page reference. It stays `raw`-only."""
         return (self._chan.read("RN").value or "").strip()
