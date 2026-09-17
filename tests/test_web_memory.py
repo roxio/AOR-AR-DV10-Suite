@@ -1,12 +1,3 @@
-"""Tests for the web panel's "mem" REST endpoints (/api/memory/*) - the
-web-GUI counterpart of the CLI's "mem" verb family, both built on
-aor_dv10.memory. Same style as test_web_integration.py: a real embedded
-uvicorn server in a background thread, polled/hit with urllib.request so
-this doesn't need extra test dependencies (no requests, no TestClient/
-httpx - the project's [web] extra doesn't include either).
-
-Skipped entirely if the [web] extra (fastapi/uvicorn) isn't installed.
-"""
 
 import json
 import time
@@ -63,6 +54,15 @@ def _get(url: str):
         return exc.code, exc.read()
 
 
+def _delete(url: str):
+    req = urllib.request.Request(url, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
 @pytest.fixture
 def panel():
     from aor_dv10.web import server as webserver
@@ -70,7 +70,7 @@ def panel():
     dev = DV10Device.open_simulator()
     dev.connect()
     p = webserver.start_in_thread(dev, host="127.0.0.1", port=18790, mdns=False)
-    _get_json(f"{p.url}api/status")  # wait for it to actually be up
+    _get_json(f"{p.url}api/status")
     try:
         yield p, dev
     finally:
@@ -78,6 +78,38 @@ def panel():
         dev.disconnect()
         webserver._memory_banks = []
         webserver._memory_channels = []
+
+
+def test_reconnect_endpoint(panel):
+    p, dev = panel
+    status, body = _post(f"{p.url}api/reconnect")
+    assert status == 200
+    assert body["connected"] is True
+    dev.set_frequency_hz(145_500_000)
+    assert dev.get_frequency_hz() == 145_500_000
+
+
+def test_memory_autolabel_fills_blank_names(panel):
+    p, _dev = panel
+    from aor_dv10.memory import MemoryChannel
+    from aor_dv10.web import server as webserver
+
+    webserver._memory_banks = []
+    webserver._memory_channels = [
+        MemoryChannel(bank=0, channel=0, frequency_hz=145_500_000, mode="0F0", name=""),
+        MemoryChannel(bank=0, channel=1, frequency_hz=433_500_000, mode="0F0", name="KEEP"),
+    ]
+    status, body = _post(f"{p.url}api/memory/autolabel")
+    assert status == 200
+    assert body["labeled"] == 1
+    assert webserver._memory_channels[0].name.startswith("0F0")
+    assert webserver._memory_channels[1].name == "KEEP"
+
+
+def test_memory_autolabel_404_before_import(panel):
+    p, _dev = panel
+    status, _ = _post(f"{p.url}api/memory/autolabel")
+    assert status == 404
 
 
 def test_memory_endpoints_404_before_import(panel):
@@ -128,13 +160,10 @@ def test_memory_tune_moves_the_shared_device(panel):
     assert dev.get_frequency_hz() == 145_500_000
     assert dev.get_mode() == "000"
 
-    # bank 04 channel 00 is a confirmed-empty slot in the real export
     status, body = _post(f"{p.url}api/memory/tune/4/0")
     assert status == 400
     assert "unprogrammed" in body["detail"]
 
-    # in-range bank/channel that's simply not in the fixture's programmed
-    # set still resolves to a 400 (unprogrammed), never a 404 (unknown)
     status, body = _post(f"{p.url}api/memory/tune/39/49")
     assert status in (200, 400)
 
@@ -162,9 +191,6 @@ def test_memory_live_export_rejects_bad_bank(panel):
 
 
 def test_memory_live_export_reads_the_live_device(panel):
-    """Proposal item 17: /api/memory/live_export/<bank> reads the LIVE
-    receiver (MA), not the imported CSV state - no import needed at all
-    for this endpoint to work."""
     p, dev = panel
     dev.write_memory_channel(
         3, 5, frequency_hz=146_520_000, mode="F0", tag="LIVE CH", write_protect=True
@@ -177,13 +203,12 @@ def test_memory_live_export_reads_the_live_device(panel):
     banks, channels = parse_backup_csv(body.decode("utf-8"))
     assert len(banks) == 1
     assert banks[0].index == 3
-    assert len(channels) == 50  # one bank's worth, not the full 2000
+    assert len(channels) == 50
 
     ch5 = next(c for c in channels if c.channel == 5)
     assert ch5.frequency_mhz == 146.52
     assert ch5.name == "LIVE CH"
     assert ch5.protect is True
-    # every other slot in the bank is still empty
     assert sum(1 for c in channels if not c.is_empty) == 1
 
 
@@ -202,16 +227,9 @@ def test_memory_diff_rejects_bad_bank(panel):
 
 
 def test_memory_diff_reports_only_changed_channels(panel):
-    """Proposal item 18: diff shows what changed on the receiver since
-    the CSV backup - importing the real fixture, then writing ONE live
-    channel in that same bank to a different frequency/name, should
-    surface exactly that one channel as a difference."""
     p, dev = panel
     _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
 
-    # Bank 00 channel 00 is a known-programmed fixture slot (145.5 MHz,
-    # "CH-001"). The simulator starts with no live memory and importing the
-    # fixture doesn't write the device, so the live side differs from it.
     status, body = _get(f"{p.url}api/memory/diff/0")
     assert status == 200
     result = json.loads(body)
@@ -220,9 +238,144 @@ def test_memory_diff_reports_only_changed_channels(panel):
     assert result["differences"] > 0
     assert any(d["bank_channel"] == "00-00" for d in result["channels"])
 
-    # Write the live device to match the fixture's ch 00-00 exactly and
-    # confirm that one channel drops out of the diff.
     dev.write_memory_channel(0, 0, frequency_hz=145_500_000, mode="000", tag="CH-001")
     status, body = _get(f"{p.url}api/memory/diff/0")
     result = json.loads(body)
     assert not any(d["bank_channel"] == "00-00" for d in result["channels"])
+
+
+
+
+def test_memory_new_export_endpoints_404_before_import(panel):
+    p, _dev = panel
+    for ep in ("export_json", "export_chirp"):
+        status, _ = _get(f"{p.url}api/memory/{ep}")
+        assert status == 404
+
+
+def test_adif_export_404_before_import(panel):
+    p, _dev = panel
+    status, _ = _get(f"{p.url}api/adif/export")
+    assert status == 404
+
+
+def test_adif_export_and_import_roundtrip(panel):
+    p, _dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+    status, body = _get(f"{p.url}api/adif/export")
+    assert status == 200
+    text = body.decode("utf-8")
+    assert "<EOH>" in text and "<FREQ:" in text
+
+    status, resp = _post_bytes(f"{p.url}api/adif/import", body, "text/plain")
+    assert status == 200
+    assert resp["programmed"] == 469
+
+
+def test_adif_import_rejects_garbage(panel):
+    p, _dev = panel
+    status, _ = _post_bytes(f"{p.url}api/adif/import", b"<EOH>nonsense<EOR>", "text/plain")
+    assert status == 400
+
+
+def test_memory_backups_lifecycle(panel, tmp_path, monkeypatch):
+    p, _dev = panel
+    from aor_dv10.web import server as webserver
+
+    monkeypatch.setattr(webserver, "_backup_dir", tmp_path)
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+
+    status, body = _post(f"{p.url}api/memory/backups")
+    assert status == 200
+    name = body["name"]
+    assert (tmp_path / name).exists()
+
+    status, body = _get(f"{p.url}api/memory/backups")
+    assert name in [b["name"] for b in json.loads(body)["backups"]]
+
+    webserver._memory_banks, webserver._memory_channels = [], []
+    status, body = _post(f"{p.url}api/memory/backups/{name}/restore")
+    assert status == 200
+    assert body["programmed"] == 469
+
+    status, body = _delete(f"{p.url}api/memory/backups/{name}")
+    assert status == 200
+    assert not (tmp_path / name).exists()
+
+
+def test_memory_backups_reject_path_traversal(panel, tmp_path, monkeypatch):
+    p, _dev = panel
+    from aor_dv10.web import server as webserver
+
+    monkeypatch.setattr(webserver, "_backup_dir", tmp_path)
+    status, _ = _post(f"{p.url}api/memory/backups/..%2Fevil.json/restore")
+    assert status in (400, 404)
+    status, _ = _delete(f"{p.url}api/memory/backups/..%2Fevil.json")
+    assert status in (400, 404)
+
+
+def test_memory_backups_create_404_before_import(panel, tmp_path, monkeypatch):
+    p, _dev = panel
+    from aor_dv10.web import server as webserver
+
+    monkeypatch.setattr(webserver, "_backup_dir", tmp_path)
+    status, _ = _post(f"{p.url}api/memory/backups")
+    assert status == 404
+
+
+def test_memory_export_json_roundtrips(panel):
+    p, _dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+    status, body = _get(f"{p.url}api/memory/export_json")
+    assert status == 200
+
+    from aor_dv10.memory import backup_from_json
+    banks, channels = backup_from_json(body.decode("utf-8"))
+    assert len(banks) == 40
+    assert len(channels) == 2000
+    assert sum(1 for c in channels if not c.is_empty) == 469
+
+
+def test_memory_import_json_restores_snapshot(panel):
+    p, _dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+    _, snapshot = _get(f"{p.url}api/memory/export_json")
+
+    from aor_dv10.web import server as webserver
+    webserver._memory_banks, webserver._memory_channels = [], []
+
+    status, body = _post_bytes(f"{p.url}api/memory/import_json", snapshot, "application/json")
+    assert status == 200
+    assert body == {"banks": 40, "channels": 2000, "programmed": 469}
+
+
+def test_memory_import_json_rejects_foreign_body(panel):
+    p, _dev = panel
+    status, body = _post_bytes(f"{p.url}api/memory/import_json", b"{}", "application/json")
+    assert status == 400
+
+
+def test_memory_export_chirp_roundtrips(panel):
+    p, _dev = panel
+    _post_bytes(f"{p.url}api/memory/import", FIXTURE.read_bytes())
+    status, body = _get(f"{p.url}api/memory/export_chirp")
+    assert status == 200
+    text = body.decode("utf-8")
+    assert text.splitlines()[0].startswith("Location,Name,Frequency")
+
+    from aor_dv10.memory import parse_chirp_csv
+    _banks, channels = parse_chirp_csv(text)
+    assert sum(1 for c in channels if not c.is_empty) == 469
+
+
+def test_memory_import_freqs_endpoint(panel):
+    p, _dev = panel
+    body = b"Frequency,Name,Mode,Step\n145.500000,CALL,FM,12.5\n7.030000,CW QRP,CW,5\n"
+    status, resp = _post_bytes(f"{p.url}api/memory/import_freqs", body, "text/csv")
+    assert status == 200
+    assert resp["programmed"] == 2
+
+    status, body = _get(f"{p.url}api/memory?q=CALL")
+    result = json.loads(body)
+    assert result["channels"][0]["name"] == "CALL"
+    assert result["channels"][0]["frequency_mhz"] == 145.5

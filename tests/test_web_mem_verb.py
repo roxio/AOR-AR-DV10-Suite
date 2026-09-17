@@ -1,16 +1,3 @@
-"""Regression tests for proposal item 46: the "mem load/find/list/goto/
-export" verb family (aor_dv10.cli.repl.Repl._dispatch_mem's counterpart)
-ported into the web WebSocket dispatcher (_dispatch_plain_mem(), wired
-into _dispatch_plain() under verb "mem") - previously this CSV-backup
-state was reachable only through REST (/api/memory/*), never as a plain
-text command like every other verb here.
-
-Uses _dispatch_plain() directly (real server module, no need for an
-embedded uvicorn server) against a simulator-backed device, exercising
-the same shared module-level _memory_banks/_memory_channels state that
-POST /api/memory/import and GET /api/memory already use - "mem load" here
-is the text-command equivalent of that REST import.
-"""
 
 from pathlib import Path
 
@@ -31,10 +18,6 @@ def make_device() -> DV10Device:
 
 @pytest.fixture(autouse=True)
 def _reset_shared_memory_state():
-    """_dispatch_plain_mem() operates on module-level globals shared with
-    the REST /api/memory/* endpoints - reset them before/after each test
-    so this file's tests can't leak state into (or pick up state left by)
-    any other test module that imports aor_dv10.web.server in-process."""
     web_server._memory_banks = []
     web_server._memory_channels = []
     yield
@@ -116,11 +99,9 @@ def test_mem_export_round_trips_through_shared_state(tmp_path):
     dev = make_device()
     _dispatch_plain(dev, f"mem load {FIXTURE}")
     out_path = tmp_path / "roundtrip.csv"
-    out = _dispatch_plain(dev, f"mem export {out_path}")
+    out = _dispatch_plain(dev, f"mem export '{out_path}'")
     assert "Wrote" in out
     assert out_path.exists()
-    # What got written should parse back to the channel confirmed via "mem
-    # find" above - an end-to-end check, not a re-test of CSV formatting.
     from aor_dv10.memory import parse_backup_csv
     _, channels = parse_backup_csv(out_path.read_text(encoding="utf-8"))
     ch = next(c for c in channels if c.bank == 0 and c.channel == 0)
@@ -142,12 +123,6 @@ def test_mem_unknown_subcommand_is_reported_not_raised():
 
 
 def test_mem_shares_state_with_rest_import_endpoint():
-    """The whole point of item 46: a browser POST to /api/memory/import
-    and a console "mem load" both land in the same _memory_channels list,
-    so GET /api/memory (browser) and "mem list" (console/script) always
-    agree - simulated here by calling the REST handler's own module-level
-    write directly (same thing api_memory_import() does internally) and
-    confirming "mem list" sees it without any "mem load" call at all."""
     dev = make_device()
     from aor_dv10.memory import parse_backup_csv
 

@@ -1,4 +1,3 @@
-"""Rendering of the Yaesu-style "front panel" status header shown in the CLI."""
 
 from __future__ import annotations
 
@@ -9,10 +8,6 @@ from rich.text import Text
 
 from ..device import AGC_SPEEDS, ATTENUATOR_STATES, SQUELCH_MODES, DV10Device, SMeterReading, Status
 
-# S-meter dB range used purely for the width of the bar graph below - not a
-# hardware limit, just a sane display floor. Confirmed via the AR-DV3 spec
-# and real DV10 readings that LM's signal-level digits mean "-vvv dB", e.g.
-# "1001" -> -100 dB, squelch open.
 SMETER_FLOOR_DB = -120
 SMETER_CEILING_DB = 0
 
@@ -43,13 +38,6 @@ def _smeter_bar(reading: SMeterReading | None, width: int = 20) -> Text:
 
 
 def render_status(device: DV10Device, status: Status) -> Panel:
-    """Build a Rich renderable that looks like a compact radio front panel.
-
-    Deliberately styled after the boxed, monospace, all-caps readouts on a
-    Yaesu CAT control panel (frequency in big digits, mode/squelch/AGC as a
-    row of small labelled fields, S-meter as a bar) rather than a literal
-    clone of any one Yaesu model's layout.
-    """
     freq_text = Text(justify="center", style="bold cyan")
     if status.frequency_hz is not None:
         mhz = status.frequency_hz / 1_000_000

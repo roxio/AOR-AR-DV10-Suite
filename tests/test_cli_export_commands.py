@@ -1,12 +1,3 @@
-"""Regression tests for `dv10-cli
---export-commands FORMAT`, a machine-readable dump of the full
-aor_dv10.protocol.commands.COMMANDS registry - useful for cross-checking
-against a future AOR manual revision without hand-diffing PDFs again.
-Deliberately makes no device connection (neither --simulator nor --port),
-since this is pure static data - these tests call main()/export_commands()
-directly with argv/stdout substituted, same style as other CLI tests in
-this project call Repl.dispatch() directly.
-"""
 
 import csv
 import io
@@ -60,8 +51,6 @@ def test_export_commands_rejects_unknown_format():
 
 
 def test_cli_export_commands_flag_exits_zero_without_a_device(capsys, monkeypatch):
-    # No --simulator, no --port: a real serial connection would fail loudly
-    # here, so succeeding proves the export path skips device connection.
     rc = main(["--export-commands", "json"])
     assert rc == 0
     captured = capsys.readouterr()

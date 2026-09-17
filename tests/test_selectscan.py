@@ -1,15 +1,9 @@
-"""Regression tests for aor_dv10.selectscan - the
-purely client-side, AR8200-inspired select-scan feature.
-Nothing here touches a real or simulated device directly; run_select_scan()
-is tested against a fake tune_fn/sleep_fn so it never needs one.
-"""
 
 import pytest
 
 from aor_dv10.selectscan import DEFAULT_MAX_ENTRIES, SelectScanList, run_select_scan
 
 
-# -- SelectScanList -----------------------------------------------------
 
 
 def test_add_appends_in_order():
@@ -23,7 +17,7 @@ def test_add_appends_in_order():
 def test_add_deduplicates_silently():
     lst = SelectScanList()
     lst.add(0, 1)
-    lst.add(0, 1)  # should not raise, should not duplicate
+    lst.add(0, 1)
     assert list(lst) == [(0, 1)]
 
 
@@ -60,7 +54,6 @@ def test_clear_empties_the_list():
     assert len(lst) == 0
 
 
-# -- run_select_scan ------------------------------------------------------
 
 
 def test_run_select_scan_raises_on_empty_list():
@@ -113,7 +106,7 @@ def test_run_select_scan_should_stop_ends_the_loop_early():
         run_select_scan(
             lambda b, c: tuned.append((b, c)),
             entries,
-            cycles=None,  # would loop forever without should_stop
+            cycles=None,
             sleep_fn=lambda s: None,
             should_stop=should_stop,
         )
@@ -122,8 +115,6 @@ def test_run_select_scan_should_stop_ends_the_loop_early():
 
 
 def test_run_select_scan_defaults_sleep_fn_to_real_time_sleep(monkeypatch):
-    # Doesn't actually sleep for real (dwell_s=0), just confirms the
-    # fallback wiring (sleep_fn=None -> time.sleep) doesn't blow up.
     import aor_dv10.selectscan as selectscan_mod
 
     calls = []

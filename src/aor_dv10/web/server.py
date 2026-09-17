@@ -1,63 +1,48 @@
-"""Minimal web panel - phase 2 starting point.
-
-Serves a single page styled as a "graphical command line" (a dark terminal
-readout plus a status header, in the browser) that talks to one shared
-DV10Device over a WebSocket, using the exact same short verbs as the desktop
-CLI (see aor_dv10.cli.repl.HELP). Multiple browser tabs share one device
-connection (there's exactly one physical/simulated receiver, after all).
-
-NOTE: this reimplements a small, plain-text version of the CLI's dispatch
-logic rather than importing aor_dv10.cli.repl.Repl, because that class wraps
-its output in Rich console formatting meant for a terminal. A follow-up
-worth doing is factoring a formatting-agnostic dispatcher both can share.
-
-Run with:  pip install -e ".[web]"  &&  python -m aor_dv10.web.server [--simulator]
-Then open http://127.0.0.1:8000/
-
-Or reach it by a friendly LAN name instead of an IP:port, the same way a
-printer or other LAN appliance shows up as "printer.local": pass --mdns
-(optionally --mdns-name to change the label from the "aordv10" default) and
-open http://aordv10.local:<port>/ from any device on the same LAN. This
-needs the "zeroconf" package (included in the [web] extra) and binds to
-0.0.0.0 by default once --mdns is given, since other devices need to reach
-it - be aware this exposes control of the receiver (including power on/off
-via ZP/QP) to anyone on your LAN, with no authentication.
-
-Integrated with the CLI: run `dv10-cli --web` (see cli/__main__.py) to get
-both the interactive REPL *and* this web panel from one command, sharing
-one DV10Device / one serial connection, via start_in_thread() below -
-rather than each opening (and fighting over) its own connection to the
-same COM port. protocol.codec.CommandChannel.send() is lock-guarded so
-issuing commands from the REPL's thread and this panel's request-handling
-thread concurrently is safe.
-"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import shlex
+import re
 import socket
 import threading
-from dataclasses import dataclass
+import time
+import urllib.request
+from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..cli.repl import _on_off, _parse_clock_digits
+from ..adif import parse_adif, write_adif
+from ..command_utils import (
+    WEEKDAY_BITS,
+    on_off as _on_off,
+    parse_bank_link_tokens as _parse_bank_link_tokens,
+    parse_clock_digits as _parse_clock_digits,
+    split_command as _split_command,
+)
 from ..device import DV10Device, KEY_BACKLIGHT_COLORS, MemoryChannelInfo, SD_CARD_STATUS, TONE_SQUELCH_TYPES
 from ..memory import (
     MemoryBank,
     MemoryChannel,
+    backup_from_json,
+    backup_to_json,
     from_live_channel,
     parse_backup_csv,
+    parse_chirp_csv,
+    parse_generic_freq_csv,
     write_backup_csv,
+    write_chirp_csv,
 )
 from ..protocol.codec import DV10Error
+from ..record_format import format_pass_list, format_scan_group, format_search_bank
 from ..selectscan import SelectScanList, run_select_scan
+from ..verb_registry import render_web_help
 from ..timer import (
     RecordingTimer,
     receive_mode_memory_channel,
@@ -70,21 +55,55 @@ from ..transport.base import TransportError
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="AOR AR-DV10 Web Panel")
+@asynccontextmanager
+async def _lifespan(_app: "FastAPI"):
+    task = asyncio.create_task(_scheduler_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+app = FastAPI(title="AOR AR-DV10 Web Panel", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _device: Optional[DV10Device] = None
 _lock = asyncio.Lock()
+_status_lock = threading.Lock()
 
-# "mem" import state, shared by every browser tab against this one server
-# process. File-format only, like the CLI's "mem" verbs: never touches the live
-# MX/MA wire commands, only replays a loaded channel through f/m/step writes.
 _memory_banks: list[MemoryBank] = []
 _memory_channels: list[MemoryChannel] = []
 
-# Client-side select-scan list, shared by every browser tab, never persisted
-# or written to the receiver. See aor_dv10.selectscan.
 _select_scan_list = SelectScanList()
+
+_backup_dir: Path = Path("dv10_backups")
+
+
+def _safe_backup_path(name: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.json", name or ""):
+        raise HTTPException(400, "invalid backup name")
+    base = _backup_dir.resolve()
+    path = (base / name).resolve()
+    if path.parent != base:
+        raise HTTPException(400, "invalid backup name")
+    return path
+
+
+
+
+@dataclass
+class ScheduledJob:
+    id: str
+    action: str
+    interval_s: float
+    bank: Optional[int] = None
+    enabled: bool = True
+    last_run: float = 0.0
+
+
+_scheduled_jobs: dict = {}
+_hits: list = []
+_HIT_MAX = 1000
 
 
 def get_device() -> DV10Device:
@@ -98,21 +117,17 @@ async def index() -> HTMLResponse:
 
 
 @app.get("/api/status")
-async def api_status():
+def api_status():
     device = get_device()
-    async with _lock:
+    with _status_lock:
         s = device.status()
     def _try(fn):
         try:
             return fn()
         except (DV10Error, ValueError, TypeError):
-            # Mirrors device.status()'s _try: swallow unexpected-format values
-            # so one bad field can't take down the whole /api/status response.
             return None
 
     def _current_offset_freq():
-        # OL requires an explicit slot number, so derive it from OF's
-        # currently-active slot rather than assuming a bare read.
         raw_of = device.get_offset_slot()
         digits = "".join(ch for ch in raw_of if ch.isdigit())
         return device.get_offset_freq(int(digits) if digits else 0)
@@ -126,24 +141,16 @@ async def api_status():
         "smeter": s.smeter,
         "smeter_dbm": s.smeter_reading.dbm if s.smeter_reading else None,
         "squelch_open": s.smeter_reading.squelch_open if s.smeter_reading else None,
-        # LM's raw 0-3 squelch-state digit. squelch_open above collapses 1-3
-        # into one boolean, hiding state 3 ("detecting digital mode"); this lets
-        # the panel show digital detection as its own indicator.
         "squelch_state": s.smeter_reading.squelch_state if s.smeter_reading else None,
         "agc_on": s.agc_on,
         "agc_speed": s.agc_speed,
         "attenuator_state": s.attenuator_state,
         "connected": device.connected,
-        # Extended fields - see aor_dv10.device for the
-        # manual-sourced, not-yet-wire-confirmed methods backing these.
         "squelch_level": _try(device.get_squelch_level),
         "noise_squelch_level": _try(device.get_noise_squelch_level),
         "frequency_step_hz": _try(device.get_frequency_step_hz),
         "step_adjust_hz": _try(device.get_step_adjust_hz),
         "tone_squelch_enabled": _try(device.get_tone_squelch_enabled),
-        # Confirmed against real hardware: CI is a 3-value SQL TYPE selector
-        # (OFF/CTCSS/Reverse Tone), not a boolean. tone_squelch_enabled above
-        # stays for the OFF/CTCSS toggle UI; this is the raw 0/1/2 value.
         "squelch_tone_type": _try(device.get_squelch_tone_type),
         "tone_squelch_freq": _try(device.get_tone_squelch_freq),
         "dcs_enabled": _try(device.get_dcs_enabled),
@@ -169,15 +176,8 @@ async def api_status():
         "manual_gain": _try(device.get_manual_gain),
         "lcd_contrast": _try(device.get_lcd_contrast),
         "backlight_mode": _try(device.get_backlight_mode),
-        # Mode-aware IF bandwidth. if_bandwidth_options_hz is {raw_digit: hz};
-        # the panel needs only the Hz values, but the digits are kept in case a
-        # future UI wants the raw value.
         "if_bandwidth_hz": _try(device.get_if_bandwidth_hz),
         "if_bandwidth_options_hz": _try(device.get_if_bandwidth_options_hz),
-        # Device identification, for the nameplate and model-specific UI gating
-        # (e.g. SAH/SAL are not distinct on the DV10). model()/device_family()/
-        # firmware_version() are cached after first read, so polling every 1.5s
-        # does not mean a fresh WI/VR round-trip each time.
         "model": _try(device.model),
         "device_family": _try(device.device_family),
         "firmware_version": _try(device.firmware_version),
@@ -202,18 +202,19 @@ def _channel_json(c: MemoryChannel) -> dict:
     }
 
 
+@app.post("/api/reconnect")
+async def api_reconnect():
+    device = get_device()
+    async with _lock:
+        try:
+            await run_in_threadpool(device.reconnect)
+        except (DV10Error, TransportError, OSError) as exc:
+            raise HTTPException(502, f"reconnect failed: {exc}")
+    return {"connected": device.connected}
+
+
 @app.post("/api/memory/import")
 async def api_memory_import(request: Request):
-    """Load an "AR-DV10 Connect" memory-bank backup CSV export (the file
-    format the companion PC app produces, see aor_dv10.memory) into this
-    server process's shared, in-memory "mem" state - browsed with
-    GET /api/memory and tuned to with POST /api/memory/tune/{bank}/{channel}.
-    Purely a file-format parse; nothing is sent to the device by importing.
-
-    Takes the raw CSV bytes as the request body (not a multipart upload -
-    the browser side just does fetch(..., {method: "POST", body: file}),
-    a File object being a Blob) so this doesn't need the optional
-    "python-multipart" package on top of the [web] extra's dependencies."""
     global _memory_banks, _memory_channels
     raw = await request.body()
     if not raw:
@@ -231,6 +232,19 @@ async def api_memory_import(request: Request):
     return {"banks": len(banks), "channels": len(channels), "programmed": programmed}
 
 
+@app.post("/api/memory/autolabel")
+async def api_memory_autolabel():
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    labeled = 0
+    for c in _memory_channels:
+        if c.is_empty or (c.name or "").strip():
+            continue
+        c.name = f"{c.mode or ''} {c.frequency_mhz:.4f}".strip()[:12]
+        labeled += 1
+    return {"labeled": labeled}
+
+
 @app.get("/api/memory")
 async def api_memory_list(
     q: Optional[str] = Query(None, description="case-insensitive substring match on channel name"),
@@ -238,10 +252,6 @@ async def api_memory_list(
     include_empty: bool = Query(False),
     limit: int = Query(200, ge=1, le=2000),
 ):
-    """List/search the currently-imported memory database (see
-    /api/memory/import). Capped at 2000 rows (the DV10's own total
-    channel count) and 200 by default, since the full database is large
-    enough that the browser shouldn't render it unbounded."""
     if not _memory_channels:
         raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
     rows = _memory_channels
@@ -274,11 +284,6 @@ async def api_memory_banks():
 
 @app.post("/api/memory/tune/{bank}/{channel}")
 async def api_memory_tune(bank: int, channel: int):
-    """Tune the live device to an imported channel by replaying its
-    frequency/mode/step through the ordinary, already-confirmed f/m/step
-    writes (enter_vfo_mode() first, matching the precondition those writes
-    already have) - NOT a live MX/MA memory-channel read, see
-    aor_dv10.memory's module docstring."""
     if not _memory_channels:
         raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
     match = next((c for c in _memory_channels if c.bank == bank and c.channel == channel), None)
@@ -303,10 +308,6 @@ async def api_memory_tune(bank: int, channel: int):
 
 @app.get("/api/debug/trace")
 async def api_debug_trace(n: int = Query(50, ge=1, le=2000)):
-    """Retroactive protocol trace - see the WS "debug last"/"debug save"
-    verbs' comment in _dispatch_plain() and CommandChannel's always-on
-    trace ring buffer. Every raw TX/RX line from either interface is
-    recorded regardless of whether anyone asked for it beforehand."""
     device = get_device()
     return {"lines": device.trace_lines(n)}
 
@@ -323,18 +324,283 @@ async def api_memory_export():
     )
 
 
+def _load_memory_snapshot(text: str):
+    try:
+        return backup_from_json(text)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(400, f"invalid memory JSON backup: {exc}")
+
+
+@app.get("/api/memory/export_json")
+async def api_memory_export_json():
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    body = backup_to_json(_memory_banks, _memory_channels)
+    return PlainTextResponse(
+        body,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="ardv10_memory_backup.json"'},
+    )
+
+
+@app.post("/api/memory/import_json")
+async def api_memory_import_json(request: Request):
+    global _memory_banks, _memory_channels
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "empty request body - expected the JSON backup")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, f"not a text file (expected UTF-8): {exc}")
+    _memory_banks, _memory_channels = _load_memory_snapshot(text)
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"banks": len(_memory_banks), "channels": len(_memory_channels), "programmed": programmed}
+
+
+@app.get("/api/memory/export_chirp")
+async def api_memory_export_chirp():
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    csv_text = write_chirp_csv(_memory_channels)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="ardv10_chirp_export.csv"'},
+    )
+
+
+@app.post("/api/memory/import_chirp")
+async def api_memory_import_chirp(request: Request):
+    global _memory_banks, _memory_channels
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "empty request body - expected the CHIRP CSV")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, f"not a text file (expected UTF-8): {exc}")
+    try:
+        _memory_banks, _memory_channels = parse_chirp_csv(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"banks": len(_memory_banks), "channels": len(_memory_channels), "programmed": programmed}
+
+
+@app.post("/api/memory/import_freqs")
+async def api_memory_import_freqs(request: Request):
+    global _memory_banks, _memory_channels
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "empty request body - expected the frequency CSV")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, f"not a text file (expected UTF-8): {exc}")
+    try:
+        _memory_banks, _memory_channels = parse_generic_freq_csv(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"banks": len(_memory_banks), "channels": len(_memory_channels), "programmed": programmed}
+
+
+@app.post("/api/import/url")
+async def api_import_url(request: Request):
+    global _memory_banks, _memory_channels
+    body = await request.json()
+    url = str(body.get("url") or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(400, "url must be http(s)")
+    try:
+        with urllib.request.urlopen(url, timeout=8.0) as resp:  # noqa: S310
+            raw = resp.read(2_000_000)
+        text = raw.decode("utf-8-sig", errors="replace")
+        _memory_banks, _memory_channels = parse_generic_freq_csv(text)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"could not fetch/parse URL: {exc}")
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"banks": len(_memory_banks), "channels": len(_memory_channels), "programmed": programmed}
+
+
+@app.get("/api/adif/export")
+async def api_adif_export():
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    return PlainTextResponse(
+        write_adif(_memory_channels),
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="ardv10_export.adi"'},
+    )
+
+
+@app.post("/api/adif/import")
+async def api_adif_import(request: Request):
+    global _memory_banks, _memory_channels
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(400, "empty request body - expected the ADIF text")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, f"not a text file (expected UTF-8): {exc}")
+    try:
+        _memory_banks, _memory_channels = parse_adif(text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"banks": len(_memory_banks), "channels": len(_memory_channels), "programmed": programmed}
+
+
+
+
+@app.get("/api/memory/backups")
+async def api_backups_list():
+    if not _backup_dir.exists():
+        return {"backups": []}
+    items = []
+    for p in _backup_dir.glob("*.json"):
+        st = p.stat()
+        items.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime})
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"backups": items}
+
+
+@app.post("/api/memory/backups")
+async def api_backups_create():
+    if not _memory_channels:
+        raise HTTPException(404, "no memory database imported yet - POST /api/memory/import first")
+    _backup_dir.mkdir(parents=True, exist_ok=True)
+    name = "dv10_memory_" + time.strftime("%Y%m%d-%H%M%S") + ".json"
+    (_backup_dir / name).write_text(
+        backup_to_json(_memory_banks, _memory_channels), encoding="utf-8"
+    )
+    return {"name": name}
+
+
+@app.post("/api/memory/backups/{name}/restore")
+async def api_backups_restore(name: str):
+    global _memory_banks, _memory_channels
+    path = _safe_backup_path(name)
+    if not path.exists():
+        raise HTTPException(404, f"no such backup: {name}")
+    _memory_banks, _memory_channels = backup_from_json(path.read_text(encoding="utf-8"))
+    programmed = sum(1 for c in _memory_channels if not c.is_empty)
+    return {"restored": name, "programmed": programmed}
+
+
+@app.delete("/api/memory/backups/{name}")
+async def api_backups_delete(name: str):
+    path = _safe_backup_path(name)
+    if path.exists():
+        path.unlink()
+    return {"deleted": name}
+
+
+
+
+@app.post("/api/hits")
+async def api_hits_add(request: Request):
+    body = await request.json()
+    entry = {
+        "time": str(body.get("time") or "")[:40],
+        "mhz": body.get("mhz"),
+        "dbm": body.get("dbm"),
+        "digital": bool(body.get("digital")),
+        "mode": str(body.get("mode") or "")[:8],
+        "tone": str(body.get("tone") or "")[:12],
+    }
+    _hits.append(entry)
+    if len(_hits) > _HIT_MAX:
+        del _hits[:-_HIT_MAX]
+    return {"count": len(_hits)}
+
+
+@app.get("/api/hits")
+async def api_hits_list(limit: int = Query(200, ge=1, le=1000)):
+    return {"hits": _hits[-limit:]}
+
+
+@app.delete("/api/hits")
+async def api_hits_clear():
+    _hits.clear()
+    return {"count": 0}
+
+
+
+
+async def _run_scheduled_job(job: "ScheduledJob") -> str:
+    global _memory_banks, _memory_channels
+    if job.action == "backup":
+        if not _memory_channels:
+            return "no memory database imported"
+        _backup_dir.mkdir(parents=True, exist_ok=True)
+        name = "dv10_memory_" + time.strftime("%Y%m%d-%H%M%S") + ".json"
+        (_backup_dir / name).write_text(
+            backup_to_json(_memory_banks, _memory_channels), encoding="utf-8"
+        )
+        return f"backup {name}"
+    if job.action == "scan":
+        if job.bank is None:
+            return "scan job has no bank"
+        device = get_device()
+        async with _lock:
+            await run_in_threadpool(device.execute_search, int(job.bank))
+        return f"search bank {job.bank:02d} started"
+    return f"unknown action {job.action!r}"
+
+
+@app.get("/api/scheduler/jobs")
+async def api_jobs_list():
+    return {"jobs": [asdict(j) for j in _scheduled_jobs.values()]}
+
+
+@app.post("/api/scheduler/jobs")
+async def api_jobs_create(request: Request):
+    body = await request.json()
+    job_id = str(body.get("id") or "").strip()
+    action = str(body.get("action") or "").strip()
+    if not job_id or action not in ("backup", "scan"):
+        raise HTTPException(400, "id and action ('backup'|'scan') required")
+    try:
+        interval = float(body.get("interval_s") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "interval_s must be a number")
+    if interval <= 0:
+        raise HTTPException(400, "interval_s must be > 0")
+    bank = body.get("bank")
+    job = ScheduledJob(
+        id=job_id, action=action, interval_s=interval,
+        bank=int(bank) if bank is not None else None,
+        enabled=bool(body.get("enabled", True)),
+        last_run=time.monotonic(),
+    )
+    _scheduled_jobs[job_id] = job
+    return {"job": asdict(job)}
+
+
+@app.delete("/api/scheduler/jobs/{job_id}")
+async def api_jobs_delete(job_id: str):
+    _scheduled_jobs.pop(job_id, None)
+    return {"deleted": job_id}
+
+
+@app.post("/api/scheduler/jobs/{job_id}/run")
+async def api_jobs_run(job_id: str):
+    job = _scheduled_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    try:
+        result = await _run_scheduled_job(job)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"job failed: {exc}")
+    job.last_run = time.monotonic()
+    return {"ran": job_id, "result": result}
+
+
 @app.get("/api/memory/live_export/{bank}")
 async def api_memory_live_export(bank: int):
-    """Export a bank's LIVE content (MA) into this same backup-CSV shape
-    (proposal item 17) - bridging the two separate worlds this project
-    has had until now: the CSV-backup browser above (aor_dv10.memory,
-    populated only by POST /api/memory/import) and the live-read/write
-    rmem WS verbs (MA/MX directly against the receiver). Always reads
-    fresh from the device - nothing cached here the way
-    /api/memory/import's server-side state is. See
-    aor_dv10.memory.from_live_channel()'s docstring for the field
-    caveats this bridge can't fully paper over (mode format, no
-    offset/step-adjust on the live side)."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     device = get_device()
@@ -358,17 +624,6 @@ async def api_memory_live_export(bank: int):
 
 @app.get("/api/memory/diff/{bank}")
 async def api_memory_diff(bank: int):
-    """Compare a CSV-imported bank (see /api/memory/import) against a
-    fresh LIVE re-read (MA) of the same bank, to see what has changed on
-    the receiver since the last backup (proposal item 18). Returns only
-    the channels that actually differ - an empty list means this bank's
-    CSV backup still matches the live receiver (or both sides are fully
-    unprogrammed). See aor_dv10.memory.from_live_channel()'s docstring
-    for what this comparison can't reliably say: there is no live
-    counterpart for offset_khz/step_adjust_hz, and the mode field's
-    exact wire shape isn't confirmed to match between the two worlds, so
-    a reported mode difference is weaker evidence than a frequency/
-    protect/name/pass-flag one."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     if not _memory_channels:
@@ -426,11 +681,6 @@ def _live_channel_json(c: MemoryChannelInfo) -> dict:
 
 
 def _parse_live_channel_write_body(body: dict) -> dict:
-    """Shared field parsing for the two write endpoints below - takes the
-    already-JSON-decoded request body dict and returns the kwargs
-    write_memory_channel() wants, doing the mhz->hz conversion and basic
-    type coercion by hand (no pydantic model - this file otherwise parses
-    request bodies manually too, see api_memory_import())."""
     kwargs: dict = {}
     if body.get("frequency_mhz") is not None:
         kwargs["frequency_hz"] = round(float(body["frequency_mhz"]) * 1_000_000)
@@ -450,20 +700,6 @@ def _parse_live_channel_write_body(body: dict) -> dict:
 
 
 def _complete_write_kwargs(device: DV10Device, bank: int, channel: int, kwargs: dict) -> dict:
-    """Fill any field the request left out from the channel's CURRENT stored
-    record, so the MX that goes out is always the receiver's own complete
-    canonical form (MP/RF/ST/SH/MD/PT/TT), never a partial one.
-
-    Real-hardware finding: a partial MX - one missing sub-fields the
-    receiver's own channel dump always carries - comes back error 40
-    (PC_RESULT_FORMAT_ERR), even though the AR-DV1 spec calls those fields
-    optional-and-keep-previous. Rather than trust "keep previous", this
-    reads the record and resends the previous values explicitly, which is
-    also what makes an edit of one field provably leave the rest alone.
-
-    An unregistered slot has nothing to carry over (every field but
-    bank/channel/registered is meaningless there - see MemoryChannelInfo),
-    so it is programmed from exactly what the request supplied."""
     try:
         current = device.read_memory_channel(bank, channel)
     except DV10Error:
@@ -485,11 +721,6 @@ def _complete_write_kwargs(device: DV10Device, bank: int, channel: int, kwargs: 
 
 @app.get("/api/memory/live_bank/{bank}")
 async def api_memory_live_bank(bank: int):
-    """Bank editor (table view): read every channel slot in a live bank
-    as structured JSON, including the fields the CSV-shaped
-    /api/memory/live_export/{bank} can't carry (step_adjust_hz has no CSV
-    counterpart - see aor_dv10.memory.from_live_channel()'s docstring).
-    Always reads fresh from the device, same as live_export."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     device = get_device()
@@ -510,20 +741,6 @@ async def api_memory_live_bank(bank: int):
 
 @app.post("/api/memory/live_bank/{bank}/batch")
 async def api_memory_live_bank_batch_write(bank: int, request: Request):
-    """Bank editor: write multiple channels in one bank in one request -
-    the "overwrite whole bank" action (the browser loops this endpoint
-    once per selected bank for "overwrite several banks", rather than
-    this project inventing a second cross-bank endpoint for what's really
-    just "do the per-bank thing more than once").
-
-    Body: {"channels": [{"channel": N, ...same fields as the single-write
-    endpoint..., "force": bool}, ...], "force": bool} - a per-item force
-    overrides the batch-level default for that one item. Each channel is
-    attempted independently: one write-protect refusal or device error
-    doesn't abort the rest, so a stuck/protected slot can't turn a whole-
-    bank overwrite into an all-or-nothing operation. Returns per-channel
-    results so the UI can show exactly which rows saved and which
-    didn't."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     body = await request.json()
@@ -560,19 +777,6 @@ async def api_memory_live_bank_batch_write(bank: int, request: Request):
 
 @app.post("/api/memory/live_bank/{bank}/{channel}")
 async def api_memory_live_channel_write(bank: int, channel: int, request: Request):
-    """Bank editor: write one live memory channel (MX) - the per-row Save
-    action. Body: any of frequency_mhz/step_hz/step_adjust_hz/mode/
-    pass_channel/write_protect/tag (all optional, same "omitted = leave
-    unchanged" semantics as write_memory_channel() itself), plus an
-    optional force:true.
-
-    Write-protect guard (same spirit as the WS rmem panel's rmemWrite()
-    JS guard, proposal item 15 - enforced server-side here since this is
-    a stateless per-request API rather than something a JS confirm-arm
-    can straddle across two calls to the SAME endpoint): refuses with 409
-    if the channel is CURRENTLY write-protected and force wasn't set,
-    rather than silently overwriting it. The browser side re-asks the
-    user and retries the same request with force:true."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     if not (0 <= channel <= 49):
@@ -599,9 +803,6 @@ async def api_memory_live_channel_write(bank: int, channel: int, request: Reques
 
 @app.delete("/api/memory/live_bank/{bank}/{channel}")
 async def api_memory_live_channel_delete(bank: int, channel: int):
-    """Bank editor: delete one live memory channel (MQ) - the table's
-    per-row Delete action. Same underlying call as the WS "rmem delete"
-    verb (device.delete_memory_channel())."""
     if not (0 <= bank <= 39):
         raise HTTPException(400, "bank must be 00-39")
     if not (0 <= channel <= 49):
@@ -616,16 +817,7 @@ async def api_memory_live_channel_delete(bank: int, channel: int):
 
 
 def _dispatch_plain(device: DV10Device, line: str) -> object:
-    """Same short-verb grammar as the desktop CLI, plain-text in/out.
-
-    Most verbs return ``str``, but a handful of getters (``step``,
-    ``stepadj``, ...) return whatever DV10Device itself returns - e.g.
-    ``int | None`` for get_frequency_step_hz()/get_step_adjust_hz(). The
-    CLI's REPL prints these fine as-is (rich's Console.print() stringifies
-    anything); the WebSocket endpoint below is the one caller that needs
-    an actual ``str`` to send over the wire, so it does the stringifying
-    itself rather than every verb branch here doing it individually."""
-    parts = shlex.split(line)
+    parts = _split_command(line)
     if not parts:
         return ""
     verb, args = parts[0].lower(), parts[1:]
@@ -638,21 +830,7 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         raise ValueError(f"expected on/off, got {tok!r}")
 
     if verb in ("help", "?"):
-        return (
-            "commands: s|status, f [MHZ], m [MODE], sq [0|1|2] (squelch MODE, not level), "
-            "lq [LEVEL], nq [LEVEL], vol [LEVEL], agc on|off, agcspd [0-3], "
-            "beep on|off, att on|off, attst [0-2], re on|off, vfo [A|B|Z], power on|off, "
-            "step [HZ], stepadj [HZ], tone on|off, tonefreq [VALUE], dcs on|off, "
-            "dcscode [VALUE], dmrcc [00-16], dmrcm on|off, dmrslot [VALUE], "
-            "p25nac [000-FFF], p25pm on|off, nxdnran [00-63], nxdnnm on|off, "
-            "dcrcode [00000-32767], descr on|off, offset [00-39] [+|-], offsetfreq [00-39] [MHZ], "
-            "prio on|off, priochan [BANK] [CH], priointerval [1-99], regchan, beeplvl [0-7], "
-            "vollimit [00-15], digain [01.00-15.94], mgain [000-110], contrast [00-63], "
-            "backlight [VALUE], movenext, moveprev, sp [VALUE], sn, "
-            "mem load/find/list/goto/export, "
-            "debug last [N], debug save PATH, "
-            "raw CODE [VALUE], describe CODE"
-        )
+        return render_web_help()
     if verb in ("s", "status"):
         st = device.status()
         mode_desc = st.mode_info.describe() if st.mode_info else st.mode
@@ -708,9 +886,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_result_code_prefixing(on_off(args[0]))
         return "ok"
     if verb == "vfo":
-        # "vfo [A|B|Z] [mhz] [mode]". On a real DV10 the atomic VF write only
-        # changes the VFO letter - embedded RF/MD fields are a silent no-op - so
-        # frequency/mode go through the standalone RF and MD writes after it.
         vfo = (args[0] if args else "A").strip().upper()
         if vfo not in ("A", "B", "Z"):
             raise ValueError(f'vfo must be "A", "B", or "Z"')
@@ -724,8 +899,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         if not args or args[0].lower() not in ("on", "off"):
             raise ValueError("usage: power on|off")
         resp = device.power_on() if args[0].lower() == "on" else device.power_off()
-        # Surface the device's actual reply instead of a hardcoded "ok": QP's
-        # response was never confirmed and the "ok" was hiding that gap.
         return f"{resp.code} {resp.value or ''}".strip()
     if verb == "raw":
         code, value = args[0], (args[1] if len(args) > 1 else None)
@@ -733,8 +906,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         return f"{resp.code} {resp.value or ''}".strip()
     if verb == "describe":
         return device.describe(args[0])
-    # -- extended verbs - see aor_dv10.device for the
-    # manual-sourced, not-yet-wire-confirmed methods backing these.
     if verb == "step":
         if args:
             device.set_frequency_step_hz(int(float(args[0])))
@@ -754,8 +925,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_dcs_enabled(on_off(args[0]))
         return "ok"
     if verb == "sqltype":
-        # Confirmed against real hardware: CI is 0=OFF/1=CTCSS/2=Reverse Tone,
-        # not a boolean. DCS is independent (DI), not one of these values.
         if args:
             device.set_squelch_tone_type(args[0])
         value = device.get_squelch_tone_type()
@@ -797,15 +966,11 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         device.set_voice_descrambler_enabled(on_off(args[0]))
         return "ok"
     if verb == "offset":
-        # OF takes an explicit direction sign: "offset <slot> [+|-]" (default "+").
         if args:
             direction = args[1] if len(args) > 1 else "+"
             device.set_offset_slot(int(args[0]), direction)
         return device.get_offset_slot()
     if verb == "offsetfreq":
-        # OL always needs an explicit slot number, for reads and writes:
-        # "offsetfreq <slot> [freq_mhz]". With no args, falls back to whatever
-        # slot OF currently has active.
         if len(args) >= 2:
             device.set_offset_freq(int(args[0]), float(args[1]))
         if args:
@@ -816,8 +981,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
             slot = int(digits) if digits else 0
         return device.get_offset_freq(slot)
     if verb == "regchan":
-        # MM: register the current VFO/channel as "last channel memory". Relies
-        # on register_last_channel()'s two-phase-response handling.
         code = device.register_last_channel()
         return f"registration result code: {code}"
     if verb == "prio":
@@ -866,8 +1029,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
     if verb == "moveprev":
         device.move_previous()
         return "ok"
-    # -- ported from the desktop CLI -
-    # see aor_dv10.cli.repl.Repl.dispatch()/_dispatch_* for the originals.
     if verb == "vi":
         lines = []
         for v in device.read_vfo_info():
@@ -899,11 +1060,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
             device.set_if_bandwidth(args[0])
         return device.get_if_bandwidth()
     if verb == "bw":
-        # Mode-aware IF bandwidth by Hz value. Distinct from "ifbw" above,
-        # which takes the raw digit whose meaning depends on the current mode;
-        # this one lets the UI offer a real "15 kHz"/"8 kHz" picker. An empty
-        # option list means either an unrecognised mode or a digital mode that
-        # picks the filter itself - see the choices text.
         if args:
             device.set_if_bandwidth_hz(int(args[0]))
         hz = device.get_if_bandwidth_hz()
@@ -944,8 +1100,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         full = bool(args) and args[0].strip().lower() in ("full", "1")
         device.reset(full=full)
         return "reset sent (full)" if full else "reset sent (system)"
-    # -- previously raw-console-only commands. See DV10Device's get_*/set_*
-    # docstrings for the shared "raw passthrough, format unconfirmed" caveats.
     if verb == "an":
         if args:
             device.set_earphone_antenna(_on_off(args[0]))
@@ -1023,10 +1177,6 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
         return _dispatch_plain_scope(device, args)
     if verb == "select":
         return _dispatch_plain_select(device, args)
-    # -- protocol tracing. CommandChannel always records every TX/RX line, so
-    # these endpoints are retroactive ("what actually happened"), not a live
-    # toggle - a live sink would need broadcast plumbing this doesn't have.
-    # The CLI's "debug on" covers watching it live; both share one trace.
     if verb == "debug":
         if not args:
             return "usage: debug last [N] | debug save <path>"
@@ -1044,11 +1194,9 @@ def _dispatch_plain(device: DV10Device, line: str) -> object:
     return f"unknown command: {verb!r} (try 'help')"
 
 
-_WEEKDAY_BITS = {"sun": 1, "mon": 2, "tue": 4, "wed": 8, "thu": 16, "fri": 32, "sat": 64}
 
 
 def _dispatch_plain_rmem(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_rmem() - see its docstring."""
     if not args:
         return (
             "usage: rmem read <bank> <ch> | rmem readbank <bank> | "
@@ -1151,7 +1299,6 @@ def _dispatch_plain_rmem(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_search(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_search() - see its docstring."""
     if not args:
         return (
             "usage: search write <bank> [lo_mhz] [hi_mhz] [step_hz] [step_adj_hz] "
@@ -1161,13 +1308,7 @@ def _dispatch_plain_search(device: DV10Device, args: list[str]) -> str:
     sub, rest = args[0].lower(), args[1:]
 
     def _fmt_bank(info) -> str:
-        lo = f"{info.lower_limit_hz / 1_000_000:.4f}" if info.lower_limit_hz is not None else "?"
-        hi = f"{info.upper_limit_hz / 1_000_000:.4f}" if info.upper_limit_hz is not None else "?"
-        return (
-            f"bank {info.bank:02d}: {lo}-{hi} MHz  step={info.step_hz}  "
-            f"stepadj={info.step_adjust_hz}  mode={info.mode}  "
-            f"protect={info.write_protect}  {info.tag!r}"
-        )
+        return format_search_bank(info)
 
     if sub == "write":
         if not rest:
@@ -1215,15 +1356,7 @@ def _dispatch_plain_search(device: DV10Device, args: list[str]) -> str:
     return f"unknown 'search' subcommand: {sub!r}"
 
 
-def _parse_bank_link_tokens(tokens: list[str]):
-    """Ported from Repl._parse_bank_link_tokens() - see its docstring."""
-    if tokens == ["clear"]:
-        return []
-    return [int(t) for t in tokens]
-
-
 def _dispatch_plain_scan(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_scan() - see its docstring."""
     if not args:
         return (
             "usage: scan sread <group> | "
@@ -1235,10 +1368,7 @@ def _dispatch_plain_scan(device: DV10Device, args: list[str]) -> str:
     sub, rest = args[0].lower(), args[1:]
 
     def _fmt_group(info, *, kind: str) -> str:
-        return (
-            f"{kind} group {info.group:02d}: delay={info.delay_ds} free={info.free_time_s} "
-            f"autostore={info.auto_store} banks={list(info.bank_link)}"
-        )
+        return format_scan_group(info, kind=kind)
 
     if sub == "sread":
         if not rest:
@@ -1284,7 +1414,6 @@ def _dispatch_plain_scan(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_pass(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_pass() - see its docstring."""
     if not args:
         return (
             "usage: pass mark [mhz] | pass mark bank <bank> [mhz] | "
@@ -1313,11 +1442,7 @@ def _dispatch_plain_pass(device: DV10Device, args: list[str]) -> str:
         return "marked"
     if sub == "list":
         bank = int(rest[0]) if rest else None
-        entries = device.list_pass_frequencies(bank=bank)
-        used = [e for e in entries if e.frequency_hz is not None]
-        lines = [f"{e.index:02d}: {e.frequency_hz / 1_000_000:.4f} MHz" for e in used]
-        lines.append(f"({len(used)} of {len(entries)} slots used)")
-        return "\n".join(lines)
+        return format_pass_list(device.list_pass_frequencies(bank=bank))
     if sub == "delete":
         if rest and rest[0].lower() == "bank":
             if len(rest) < 2:
@@ -1336,25 +1461,6 @@ def _dispatch_plain_pass(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_mem(device: DV10Device, args: list[str]) -> str:
-    """Proposal item 46: the "mem ..." verb family (load/find/list/goto/
-    export - see Repl._dispatch_mem() for the original) was reachable only
-    through REST (/api/memory/*), never as a text command like every other
-    verb here - awkward from the Raw Console or a script. Ported to operate
-    on this module's shared _memory_banks/_memory_channels (the same state
-    POST /api/memory/import fills and GET /api/memory reads), so importing
-    from the browser and "mem list"-ing from the console see the same data.
-
-    Deliberately separate from "rmem ..." (the live MX/MA/MR/MW/MB/MQ wire
-    commands, see _dispatch_plain_rmem()) - same file-format-only split as
-    the CLI, see aor_dv10.memory's module docstring and
-    aor_dv10.device.MemoryChannelInfo's docstring for why the two field
-    layouts aren't interchangeable.
-
-    "mem load <path>" reads a file from the SERVER's filesystem (the same
-    machine this process runs on) - consistent with "debug save <path>"
-    already doing server-side file I/O from this same console. Browser
-    uploads go through POST /api/memory/import instead; either path fills
-    the same shared state."""
     global _memory_banks, _memory_channels
     if not args:
         return (
@@ -1458,9 +1564,6 @@ def _dispatch_plain_mem(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_timer(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_timer() - see its docstring, and
-    aor_dv10.timer's module docstring for the significant
-    spec-reconstruction caveats around TR."""
 
     def _fmt_timer(t: RecordingTimer) -> str:
         return (
@@ -1509,7 +1612,7 @@ def _dispatch_plain_timer(device: DV10Device, args: list[str]) -> str:
         weekdays: tuple = ()
         if days_arg and days_arg != "-":
             try:
-                weekdays = tuple(_WEEKDAY_BITS[d.strip().lower()] for d in days_arg.split(","))
+                weekdays = tuple(WEEKDAY_BITS[d.strip().lower()] for d in days_arg.split(","))
             except KeyError as exc:
                 return f"unknown weekday {exc.args[0]!r} - use sun,mon,tue,wed,thu,fri,sat"
 
@@ -1526,7 +1629,6 @@ def _dispatch_plain_timer(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_sd() - see its docstring."""
     if not args:
         return "usage: sd dir|info|status|rec|play|rsq|backup|restore ..."
     sub, rest = args[0].lower(), args[1:]
@@ -1553,8 +1655,6 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
         if rest[0].lower() == "start":
             device.sd_record_start()
             return "recording started"
-        # AR-DV1's documented remote stop (SD REC /) WEDGES an AR-DV10 -
-        # recording stops with the front-panel key only. Deny rather than send.
         if device.device_family() == "DV10":
             raise ValueError(
                 "sd rec stop is not supported on the AR-DV10 - "
@@ -1581,7 +1681,6 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
     if sub == "backup":
         if not rest:
             return "usage: sd backup <kind> - one of SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM"
-        # SD MMW (file backup) is "No function" on the AR-DV10, AR-DV1/DV3 only.
         if device.device_family() == "DV10":
             raise ValueError(
                 "sd backup is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
@@ -1591,7 +1690,6 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
     if sub == "restore":
         if not rest:
             return "usage: sd restore <name>"
-        # SD MMR (file restore) is "No function" on the AR-DV10, AR-DV1/DV3 only.
         if device.device_family() == "DV10":
             raise ValueError(
                 "sd restore is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
@@ -1602,8 +1700,6 @@ def _dispatch_plain_sd(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_scope(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_scope() - see its docstring re: the "no
-    known way to enter scope mode" caveat, which applies here identically."""
     if not args or args[0].lower() not in ("fast", "normal"):
         return "usage: scope fast|normal"
     sub = args[0].lower()
@@ -1638,9 +1734,6 @@ def _dispatch_plain_scope(device: DV10Device, args: list[str]) -> str:
 
 
 def _dispatch_plain_select(device: DV10Device, args: list[str]) -> str:
-    """Ported from Repl._dispatch_select() - see its docstring. Uses the
-    module-level _select_scan_list (shared by every browser tab against
-    this one server process), unlike the CLI's per-Repl-instance one."""
     if not args:
         return (
             "usage: select add <bank> <ch> | select remove <bank> <ch> | "
@@ -1679,11 +1772,6 @@ def _dispatch_plain_select(device: DV10Device, args: list[str]) -> str:
 
 
 def _detect_local_ip() -> str:
-    """Best-effort LAN IP for mDNS advertisement: opens a UDP socket toward
-    a public address (UDP "connect" sends no packets) purely to ask the OS
-    which local interface/IP it would route through - the standard
-    cross-platform trick for this. Falls back to loopback if there's no
-    route (e.g. offline)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
@@ -1695,13 +1783,6 @@ def _detect_local_ip() -> str:
 
 
 def _start_mdns(name: str, port: int):
-    """Advertise this web panel on the LAN as "<name>.local", so it can be
-    reached at http://<name>.local:<port>/ instead of an IP address - the
-    same pattern printers and other LAN appliances use. Returns a
-    (Zeroconf, ServiceInfo) pair to unregister on shutdown, or (None, None)
-    if the "zeroconf" package isn't installed or registration otherwise
-    fails - the server still runs either way, just without the friendly
-    name (reachable by IP:port as before)."""
     try:
         from zeroconf import ServiceInfo, Zeroconf
     except ImportError:
@@ -1734,11 +1815,8 @@ def _start_mdns(name: str, port: int):
 
 @dataclass
 class EmbeddedWebPanel:
-    """A web panel running in a background thread against a device this
-    process already owns - returned by :func:`start_in_thread`. Call
-    :meth:`stop` to shut it (and any mDNS advertisement) back down."""
 
-    server: "object"  # uvicorn.Server - typed loosely so importing this module doesn't require uvicorn
+    server: "object"
     thread: threading.Thread
     host: str
     port: int
@@ -1755,14 +1833,27 @@ class EmbeddedWebPanel:
         return f"http://{self.mdns_name}.local:{self.port}/" if self.mdns_name else None
 
     def stop(self, timeout: float = 3.0) -> None:
-        """Ask the background uvicorn server to shut down and wait (up to
-        ``timeout`` seconds) for its thread to exit, then unregister any
-        mDNS advertisement. Safe to call even if startup failed partway."""
         self.server.should_exit = True
         self.thread.join(timeout=timeout)
         if self._zc is not None:
             self._zc.unregister_service(self._zc_info)
             self._zc.close()
+
+
+async def _scheduler_loop() -> None:
+    while True:
+        await asyncio.sleep(1.0)
+        if _device is None:
+            continue
+        now = time.monotonic()
+        for job in list(_scheduled_jobs.values()):
+            if not job.enabled or now - job.last_run < job.interval_s:
+                continue
+            job.last_run = now
+            try:
+                await _run_scheduled_job(job)
+            except Exception:  # noqa: BLE001 - one bad job must not kill the loop
+                pass
 
 
 def start_in_thread(
@@ -1773,21 +1864,6 @@ def start_in_thread(
     mdns: bool = False,
     mdns_name: str = "aordv10",
 ) -> EmbeddedWebPanel:
-    """Run this web panel in a background thread against an ALREADY-CONNECTED
-    device, for embedding into another entry point - see cli/__main__.py's
-    ``--web`` flag, the reason this exists: the CLI and the web panel share
-    one DV10Device / one serial connection instead of each opening (and
-    fighting over) its own, which usually wouldn't even work - most OSes
-    only let one process hold a serial port open at a time.
-
-    Does NOT call device.connect()/disconnect() - the caller owns the
-    device's lifecycle and should call EmbeddedWebPanel.stop() before
-    disconnecting it. Raises ImportError with a friendly message if the
-    "zeroconf" package is needed (mdns=True) but not installed - matching
-    _start_mdns()'s standalone behaviour, except here it's surfaced as an
-    exception rather than a print+continue, since the caller (the CLI) is
-    better placed to decide how to report it alongside its own output.
-    """
     global _device
     _device = device
 
@@ -1828,12 +1904,9 @@ async def ws_endpoint(websocket: WebSocket) -> None:
             line = await websocket.receive_text()
             async with _lock:
                 try:
-                    reply = _dispatch_plain(device, line)
+                    reply = await run_in_threadpool(_dispatch_plain, device, line)
                 except (DV10Error, ValueError, IndexError) as exc:
                     reply = f"error: {exc}"
-            # _dispatch_plain() returns non-str for a few numeric getters and
-            # send_text() needs a str - stringify here rather than in every one
-            # of its verb branches.
             if reply is None:
                 reply = ""
             elif not isinstance(reply, str):

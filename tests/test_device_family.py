@@ -1,12 +1,3 @@
-"""Regression tests for device_family()/analog_modes_without_distinction() -
-model detection (via WI/model()) used to gate model-specific UI quirks, the
-first of which is SAH/SAL not being functionally distinct on the AR-DV10
-(per user report against real hardware - see the
-ANALOG_MODES_WITHOUT_DISTINCTION_BY_FAMILY comment block in device.py).
-All against the simulator; nothing here has been checked against real DV1
-hardware (only DV10 - see the same comment block for why DV1 is a
-presumption, not a confirmed finding).
-"""
 
 import pytest
 
@@ -21,14 +12,11 @@ def dev():
 
 
 def test_device_family_detects_dv10_from_default_simulator_model(dev):
-    # Simulator default WI value ("AR-DV10") - see transport/simulator.py.
     assert dev.model()
     assert dev.device_family() == "DV10"
 
 
 def test_device_family_checks_dv10_before_dv1_substring(dev):
-    # "DV1" is a substring of "DV10": a real "AOR AR-DV10" response must not be
-    # misidentified as a DV1 by checking the shorter substring first.
     assert "DV1" in dev.model().upper()
     assert dev.device_family() == "DV10"
 
@@ -39,8 +27,6 @@ def test_device_family_detects_dv1_when_model_string_says_so(dev):
 
 
 def test_device_family_detects_dv3_when_model_string_says_so(dev):
-    # DV3 is the family that additionally offers the 10dB attenuator
-    # (web-panel ATT gating keys off device_family()=="DV3").
     dev._transport.state["WI"] = "AOR AR-DV3"  # noqa: SLF001
     assert dev.device_family() == "DV3"
 
@@ -51,9 +37,6 @@ def test_device_family_unrecognised_model_returns_empty_string(dev):
 
 
 def test_model_is_cached_after_first_read(dev):
-    # WI can't change mid-connection and the web panel polls model() every
-    # 1.5s, so it is cached: mutating the simulator's state after the first
-    # read must NOT show up until a reconnect.
     first = dev.model()
     dev._transport.state["WI"] = "something completely different"  # noqa: SLF001
     assert dev.model() == first

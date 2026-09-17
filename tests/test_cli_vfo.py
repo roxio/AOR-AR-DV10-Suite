@@ -1,7 +1,5 @@
-"""Regression tests for the CLI verbs: extended
-"vfo", and new "vi"/"vs"/"ve" - see src/aor_dv10/cli/repl.py's dispatch()
-and tests/test_vfo.py for the underlying device.py API these wrap.
-"""
+
+import os
 
 from rich.console import Console
 
@@ -12,7 +10,7 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -27,8 +25,6 @@ def test_cli_vfo_atomic_frequency_and_mode():
     repl = make_repl()
     assert repl.dispatch("vfo B 446.00625 F0") is True
     assert repl.device.get_frequency_hz() == 446_006_250
-    # get_mode() returns MD's raw 3-char "dan" shape, and VF's embedded MD is
-    # written in that same shape, so "F0" was never what the wire carries.
     assert repl.device.get_mode() == "0F0"
 
 

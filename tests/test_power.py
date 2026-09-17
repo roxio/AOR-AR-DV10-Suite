@@ -1,19 +1,3 @@
-"""Regression tests for power_on()/power_off() (ZP/QP) and the "power"
-verb in both the CLI and the web panel's _dispatch_plain().
-
-Added 2026-09-01 after fixing a code-honesty bug: both device.py methods
-used to discard the Response entirely, and the web verb always returned
-a hardcoded "ok" regardless of what the device actually said - see
-docs/PROTOCOL.md's "power off (QP) surfaces a fake ok" entry. These
-tests lock in that the real Response now comes back through, and that
-bad/missing "on"/"off" arguments are rejected with a clear usage error
-instead of a raw IndexError.
-
-All against the simulator; QP's real-hardware response has never been
-confirmed (see PROTOCOL.md) - the simulator's empty-ack model for QP is
-an explicit unverified guess, not a confirmation, so these tests pin
-down current *code* behaviour, not real device behaviour.
-"""
 
 import pytest
 
@@ -40,7 +24,6 @@ def make_web_device() -> DV10Device:
     return d
 
 
-# -- device.py: power_on()/power_off() return the real Response ---------
 
 
 def test_power_on_returns_confirmed_message_response(dev):
@@ -51,14 +34,11 @@ def test_power_on_returns_confirmed_message_response(dev):
 
 
 def test_power_off_returns_a_response_object(dev):
-    # QP's real-hardware reply is unconfirmed; this only pins that the
-    # modelled ack reaches the caller instead of being discarded.
     resp = dev.power_off()
     assert isinstance(resp, Response)
     assert resp.code == "QP"
 
 
-# -- web panel verb dispatch ---------------------------------------------
 
 
 def test_web_power_on_surfaces_the_real_reply_not_a_hardcoded_ok():
@@ -70,8 +50,6 @@ def test_web_power_on_surfaces_the_real_reply_not_a_hardcoded_ok():
 def test_web_power_off_reply_reflects_the_actual_response():
     d = make_web_device()
     out = _dispatch_plain(d, "power off")
-    # Whatever QP's value is, the code echo must be present: the "real reply,
-    # not a fake ok" contract, not a claim about the value itself.
     assert out.startswith("QP")
     assert out != "ok"
 

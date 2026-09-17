@@ -1,11 +1,9 @@
-"""Entry point for the `dv10-cli` console script (also runnable as
-`python -m aor_dv10.cli`).
-"""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import sys
 
@@ -103,10 +101,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def export_commands(fmt: str, out) -> None:
-    """Write aor_dv10.protocol.commands.COMMANDS to ``out`` (a text-mode
-    file-like object, e.g. sys.stdout) as ``fmt`` ("json" or "csv").
-    Pure static data, sorted by code for a stable
-    diff-friendly order - no device connection is made or needed."""
     rows = [
         {
             "code": cmd.code,
@@ -127,13 +121,19 @@ def export_commands(fmt: str, out) -> None:
         raise ValueError(f"unknown --export-commands format: {fmt!r}")
 
 
+def _force_utf8_output() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, io.UnsupportedOperation):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_output()
     args = build_parser().parse_args(argv)
 
     if args.export_commands:
-        # Deliberately before Console()/device connection: a pure data dump
-        # meant to be piped into a file, so nothing else may touch stdout here
-        # and no port or simulator needs to exist.
         export_commands(args.export_commands, sys.stdout)
         return 0
 
@@ -156,8 +156,6 @@ def main(argv: list[str] | None = None) -> int:
 
     web_panel = None
     if args.web or args.mdns:
-        # --mdns implies --web: advertising a panel that isn't running
-        # wouldn't do anything useful.
         try:
             from ..web import server as webserver
         except ImportError as exc:
@@ -176,8 +174,6 @@ def main(argv: list[str] | None = None) -> int:
                 mdns_name=args.mdns_name,
             )
         except ImportError as exc:
-            # e.g. --mdns without "zeroconf": start_in_thread() raises rather
-            # than printing, leaving presentation to the CLI.
             console.print(f"[red]Could not start the web panel:[/red] {exc}")
             device.disconnect()
             return 1
@@ -198,8 +194,6 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[dim]{msg}[/dim]")
     try:
         if args.run:
-            # Same handling as Repl.run(): one --run command's DV10Error/
-            # ValueError shouldn't abort the rest of the batch.
             for cmd in args.run:
                 console.print(f"[dim]DV10> {cmd}[/dim]")
                 try:

@@ -1,12 +1,5 @@
-"""Regression tests for the 18 CLI verbs backported from the web panel's
-_dispatch_plain(): priochan/priointerval, dmrcc/dmrcm/dmrslot,
-p25nac/p25pm, nxdnran/nxdnnm, dcrcode, descr, beeplvl/vollimit/digain/
-mgain/contrast, movenext/moveprev, stepadj. These verbs existed in the
-web panel's terminal dispatcher since the manual-sourced expansion but
-were not ported into the desktop CLI until now - this
-file closes that gap. All against the simulator; nothing here has been
-checked against real hardware.
-"""
+
+import os
 
 from rich.console import Console
 
@@ -17,7 +10,7 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -121,8 +114,6 @@ def test_cli_digain_show_and_set():
 
 
 def test_cli_vollimit_and_digain_are_independent():
-    # AV (vollimit) and DA (digain) must not be confused with each other -
-    # both are "volume-ish" concepts but distinct wire commands.
     repl = make_repl()
     repl.dispatch("vollimit 7")
     repl.dispatch("digain 2.5")
@@ -154,6 +145,4 @@ def test_cli_stepadj_show_and_set():
     repl = make_repl()
     assert repl.dispatch("stepadj") is True
     assert repl.dispatch("stepadj 100") is True
-    # get_step_adjust_hz() now returns int Hz, not the raw wire string -
-    # corrected alongside SH's kHz-decimal wire format fix.
     assert repl.device.get_step_adjust_hz() == 100

@@ -4,6 +4,11 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
 
@@ -24,3 +29,4 @@ session.log
 # Scratch files used while iterating (patch scripts, temp exports, ...)
 _scratch_*
 reasonix.toml
+.reasonix/

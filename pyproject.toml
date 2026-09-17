@@ -26,3 +26,24 @@ dv10-web = "aor_dv10.web.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+branch = true
+source = ["aor_dv10"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70

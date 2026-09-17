@@ -1,5 +1,5 @@
-"""Smoke tests for the CLI dispatcher against the simulator (no real hardware
-and no interactive terminal required)."""
+
+import os
 
 from rich.console import Console
 
@@ -10,7 +10,7 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -18,7 +18,7 @@ def test_repl_frequency_and_mode_roundtrip():
     repl = make_repl()
     assert repl.dispatch("f 145.500000") is True
     assert repl.device.get_frequency_hz() == 145_500_000
-    assert repl.dispatch("m F0") is True  # digital off, analog FM
+    assert repl.dispatch("m F0") is True
     assert repl.device.get_mode() == "0F0"
 
 
@@ -51,10 +51,6 @@ def test_repl_mem_requires_load_first():
 
 
 def test_repl_mem_load_find_and_goto_against_real_export():
-    """End-to-end: load the real backup CSV, find a known channel by
-    name, and "goto" it - confirming the loaded frequency/mode land on
-    the simulator through the ordinary f/m writes (mem.py never touches
-    MX/MA directly, see its module docstring)."""
     repl = make_repl()
     repl.dispatch(f"mem load {_fixture_path()}")
     assert len(repl.memory_channels) == 2000
@@ -71,14 +67,14 @@ def test_repl_mem_goto_unknown_channel_raises():
     repl = make_repl()
     repl.dispatch(f"mem load {_fixture_path()}")
     with pytest.raises(ValueError, match="unprogrammed"):
-        repl.dispatch("mem goto 04-00")  # confirmed empty in the fixture
+        repl.dispatch("mem goto 04-00")
 
 
 def test_repl_mem_export_roundtrips(tmp_path):
     repl = make_repl()
     repl.dispatch(f"mem load {_fixture_path()}")
     out_path = tmp_path / "export.csv"
-    repl.dispatch(f"mem export {out_path}")
+    repl.dispatch(f"mem export '{out_path}'")
 
     from aor_dv10.memory import parse_backup_csv
     reloaded_banks, reloaded_channels = parse_backup_csv(out_path.read_text(encoding="utf-8"))

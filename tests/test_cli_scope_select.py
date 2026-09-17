@@ -1,9 +1,5 @@
-"""Regression tests for the CLI additions: the "scope"
-and "select" verb families, and the "rmem find" extension. See
-tests/test_scope.py and tests/test_selectscan.py for the underlying
-device.py/aor_dv10.selectscan APIs these wrap. All against the simulator;
-nothing here has been checked against real hardware.
-"""
+
+import os
 
 import pytest
 
@@ -17,11 +13,10 @@ from aor_dv10.protocol.codec import DV10ProtocolError
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
-# -- scope ------------------------------------------------------------------
 
 
 def test_cli_scope_requires_a_subcommand():
@@ -55,7 +50,6 @@ def test_cli_scope_fast_and_normal_succeed_in_scope_mode():
     assert repl.dispatch("scope normal") is True
 
 
-# -- select -------------------------------------------------------------
 
 
 def test_cli_select_requires_a_subcommand():
@@ -103,7 +97,6 @@ def test_cli_select_run_tunes_every_entry():
     assert repl.dispatch("select run 1 0") is True
 
 
-# -- rmem find ------------------------------------------------------------
 
 
 def test_cli_rmem_find_requires_an_argument():

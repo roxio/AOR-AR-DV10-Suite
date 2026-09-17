@@ -1,11 +1,3 @@
-"""Regression tests for search banks (SE/SR/SS/SX/
-SL/SU), scan groups (SG/MG) and their standalone sub-commands (AS/BK), and
-pass frequencies (PW/PR/PD) - see
-aor_dv10.device.DV10Device's "search banks"/"scan groups"/"pass
-frequencies" sections. All against the simulator; nothing here has been
-checked against real hardware yet - see the docstrings on the device.py
-methods under test for what's confirmed vs. inferred.
-"""
 
 import pytest
 
@@ -20,7 +12,6 @@ def dev():
         yield d
 
 
-# -- search banks (SE/SR/SS/SX/SL/SU) ----------------------------------------
 
 
 def test_write_then_read_search_bank_roundtrip(dev):
@@ -49,8 +40,6 @@ def test_write_then_read_search_bank_roundtrip(dev):
 
 
 def test_search_bank_mode_is_natural_order_not_reversed(dev):
-    # Same "safety-critical" convention as write_memory_channel() - see
-    # write_search_bank()'s docstring.
     dev.write_search_bank(2, mode="F0")
     info = dev.read_search_bank(2)
     assert info.mode == "F0"
@@ -58,12 +47,12 @@ def test_search_bank_mode_is_natural_order_not_reversed(dev):
 
 def test_write_search_bank_omitted_fields_keep_previous_except_pt(dev):
     dev.write_search_bank(3, lower_limit_hz=144_000_000, upper_limit_hz=148_000_000, write_protect=True)
-    dev.write_search_bank(3, step_hz=25_000)  # SL/SU/PT omitted
+    dev.write_search_bank(3, step_hz=25_000)
     info = dev.read_search_bank(3)
-    assert info.lower_limit_hz == 144_000_000  # kept
-    assert info.upper_limit_hz == 148_000_000  # kept
-    assert info.step_hz == 25_000  # newly written
-    assert info.write_protect is False  # PT resets to 0 when omitted
+    assert info.lower_limit_hz == 144_000_000
+    assert info.upper_limit_hz == 148_000_000
+    assert info.step_hz == 25_000
+    assert info.write_protect is False
 
 
 def test_read_search_bank_not_registered_raises(dev):
@@ -73,7 +62,7 @@ def test_read_search_bank_not_registered_raises(dev):
 
 def test_execute_search(dev):
     dev.write_search_bank(1, lower_limit_hz=144_000_000, upper_limit_hz=148_000_000)
-    dev.execute_search(1)  # must not raise
+    dev.execute_search(1)
 
 
 def test_execute_search_unregistered_raises(dev):
@@ -100,7 +89,6 @@ def test_search_lower_upper_limit_roundtrip(dev):
     assert dev.get_search_upper_limit() == 148_000_000
 
 
-# -- scan groups (SG search-side / MG memory-side) + AS/BK standalone -------
 
 
 def test_write_then_read_search_scan_group_roundtrip(dev):
@@ -112,7 +100,6 @@ def test_write_then_read_search_scan_group_roundtrip(dev):
 def test_write_then_read_memory_scan_group_roundtrip(dev):
     dev.write_memory_scan_group(1, delay_ds=10, free_time_s=2, bank_link=[5])
     info = dev.read_memory_scan_group(1)
-    # MG has no AS sub-field at all - auto_store must stay None, not False.
     assert info == ScanGroupInfo(group=1, delay_ds=10, free_time_s=2, auto_store=None, bank_link=(5,))
 
 
@@ -123,18 +110,16 @@ def test_memory_scan_group_never_gets_an_auto_store_field(dev):
 
 
 def test_bank_link_none_omits_leaving_previous_value_unchanged(dev):
-    # bank_link follows the same omit-convention as every other field here:
-    # None means "don't send BK at all", not "disable it".
     dev.write_search_scan_group(0, bank_link=[1, 2])
     assert dev.read_search_scan_group(0).bank_link == (1, 2)
-    dev.write_search_scan_group(0, delay_ds=30)  # bank_link left at its default (None) -> omitted
-    assert dev.read_search_scan_group(0).bank_link == (1, 2)  # unchanged
+    dev.write_search_scan_group(0, delay_ds=30)
+    assert dev.read_search_scan_group(0).bank_link == (1, 2)
 
 
 def test_bank_link_empty_list_disables_all_links(dev):
     dev.write_search_scan_group(0, bank_link=[1, 2])
     assert dev.read_search_scan_group(0).bank_link == (1, 2)
-    dev.write_search_scan_group(0, bank_link=[])  # explicit empty list -> BK99
+    dev.write_search_scan_group(0, bank_link=[])
     assert dev.read_search_scan_group(0).bank_link == ()
 
 
@@ -154,7 +139,6 @@ def test_standalone_bank_link_roundtrip(dev):
     assert dev.get_bank_link() == []
 
 
-# -- pass frequencies (PW mark / PR list / PD delete) ------------------------
 
 
 def test_mark_bare_pw_uses_current_rf_for_vfo_search(dev):
@@ -177,7 +161,6 @@ def test_mark_frequency_for_a_specific_bank(dev):
     entries = dev.list_pass_frequencies(bank=3)
     assert entries[0].frequency_hz == 146_940_000
     assert entries[0].bank == 3
-    # a separate, VFO-search list is untouched
     assert all(e.frequency_hz is None for e in dev.list_pass_frequencies())
 
 
@@ -201,8 +184,6 @@ def test_list_pass_frequencies_always_returns_fifty_slots(dev):
 
 
 def test_list_pass_frequencies_multiline_response_with_re_on(dev):
-    # Same RE-forcing concern as read_memory_bank(): with RE already on, the
-    # full 50-slot list must still come back, not just the first line.
     dev.set_result_code_prefixing(True)
     for i in range(5):
         dev.mark_pass_frequency(frequency_hz=146_000_000 + i * 25_000)

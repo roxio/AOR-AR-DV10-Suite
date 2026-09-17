@@ -1,14 +1,5 @@
-"""Regression tests for the CLI additions: "klcolor",
-"ifbw", "delay", "freetime", "serial", plus "backlight" (LB - resolving a
-real naming collision: the web panel's terminal dispatcher already had a
-"backlight" verb bound to LB from the manual-sourced expansion, predating
-the KL command's own "backlight" name. Resolved by naming the KL verb
-"klcolor" and giving the CLI its own LB-backed "backlight" to match the
-web panel). See
-tests/test_small_typed_commands.py for the underlying device.py API these
-wrap. All against the simulator; nothing here has been checked against
-real hardware.
-"""
+
+import os
 
 from rich.console import Console
 
@@ -19,7 +10,7 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -38,8 +29,6 @@ def test_cli_klcolor_show_and_set():
 
 
 def test_cli_backlight_and_klcolor_are_independent():
-    # The real bug this project caught: LB and KL must not share storage
-    # or a dispatch branch - writing one must not affect the other.
     repl = make_repl()
     repl.dispatch("backlight 1")
     repl.dispatch("klcolor 5")
@@ -55,10 +44,9 @@ def test_cli_ifbw_show_and_set():
 
 
 def test_cli_bw_show_and_set_by_hz():
-    # "bw" is the mode-aware Hz-based counterpart to "ifbw"'s raw digit.
     repl = make_repl()
     assert repl.dispatch("bw") is True
-    assert repl.dispatch("bw 100000") is True  # FM/IF1 = 100 kHz
+    assert repl.dispatch("bw 100000") is True
     assert repl.device.get_if_bandwidth() == "1"
     assert repl.device.get_if_bandwidth_hz() == 100_000
 

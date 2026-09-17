@@ -1,15 +1,3 @@
-"""Regression tests for the TR scheduled
-recording/alarm timer - both the standalone encode/decode helpers in
-aor_dv10.timer and the device.py glue
-(write_recording_timer()/read_recording_timer()). See aor_dv10.timer's
-module docstring for the significant spec-reconstruction caveats this
-command carries (the AR-DV1 spec PDF's own table entry for TR is
-internally inconsistent) before trusting any particular field, especially
-``timer_type``/TY (its meaning is never defined anywhere in the spec) and
-``weekdays``/WE (the spec never states this field's wire width). All
-against the simulator; nothing here has been checked against real
-hardware.
-"""
 
 import pytest
 
@@ -34,7 +22,6 @@ from aor_dv10.timer import (
 )
 
 
-# -- aor_dv10.timer standalone helpers ---------------------------------------
 
 
 def test_receive_mode_helpers_build_expected_tokens():
@@ -119,7 +106,6 @@ def test_parse_timer_response_roundtrips_format_timer_value():
     assert parsed.alarm_volume == 10
 
 
-# -- device.py glue -----------------------------------------------------------
 
 
 @pytest.fixture
@@ -130,7 +116,6 @@ def dev():
 
 
 def test_read_recording_timer_default_matches_spec_default_line(dev):
-    # AR-DV1 spec's own "Default: TRn XE0 TY0 RMVFA TS01010000 TE01010000".
     t = dev.read_recording_timer()
     assert t.action == "off"
     assert t.receive_mode == "VFA"
@@ -160,11 +145,11 @@ def test_write_recording_timer_omitted_fields_keep_previous(dev):
     dev.write_recording_timer(
         RecordingTimer(action="recording", receive_mode=receive_mode_vfo("B"), start="03150900")
     )
-    dev.write_recording_timer(RecordingTimer(action="alarm"))  # everything else omitted
+    dev.write_recording_timer(RecordingTimer(action="alarm"))
     t = dev.read_recording_timer()
     assert t.action == "alarm"
-    assert t.receive_mode == "VFB"  # kept
-    assert t.start == "03150900"  # kept
+    assert t.receive_mode == "VFB"
+    assert t.start == "03150900"
 
 
 def test_recording_timer_deactivate(dev):

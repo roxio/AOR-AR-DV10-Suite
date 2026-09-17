@@ -1,11 +1,3 @@
-"""Tests for embedding the web panel into another process/thread - see
-web/server.py's start_in_thread() and cli/__main__.py's --web flag, the
-point of which is to let "dv10-cli --web" give one command, one device
-connection, both interfaces (CLI + browser) at once.
-
-Skipped entirely if the [web] extra (fastapi/uvicorn) isn't installed,
-since that's an optional dependency of this project, not a hard one.
-"""
 
 import json
 import time
@@ -20,10 +12,6 @@ from aor_dv10.device import DV10Device  # noqa: E402
 
 
 def _get_json(url: str, timeout: float = 5.0):
-    """Poll a URL until it responds or the timeout elapses - the embedded
-    uvicorn server starts asynchronously in its own thread, so the caller
-    can't assume it's already accepting connections immediately after
-    start_in_thread() returns."""
     deadline = time.monotonic() + timeout
     last_exc = None
     while time.monotonic() < deadline:
@@ -37,10 +25,6 @@ def _get_json(url: str, timeout: float = 5.0):
 
 
 def test_start_in_thread_shares_the_given_device():
-    """The whole point of start_in_thread(): the web panel must answer
-    using the SAME DV10Device the caller already connected, not a second
-    one - proven here by mutating the device directly and checking the web
-    panel's /api/status reflects it, and vice versa via a WS-style verb."""
     from aor_dv10.web import server as webserver
 
     dev = DV10Device.open_simulator()
@@ -55,9 +39,6 @@ def test_start_in_thread_shares_the_given_device():
         assert status["connected"] is True
         assert status["frequency_hz"] == 145_500_000
 
-        # Mutate the device directly (as the CLI's REPL thread would) and
-        # confirm the web panel - running in its own thread - sees it
-        # through the SAME device instance, not a stale/separate one.
         dev.set_frequency_hz(146_520_000)
         status2 = _get_json(f"{panel.url}api/status")
         assert status2["frequency_hz"] == 146_520_000
@@ -74,7 +55,7 @@ def test_embedded_panel_stop_shuts_down_the_background_thread():
     dev.connect()
     try:
         panel = webserver.start_in_thread(dev, host="127.0.0.1", port=18782, mdns=False)
-        _get_json(f"{panel.url}api/status")  # wait for it to actually be up
+        _get_json(f"{panel.url}api/status")
         assert panel.thread.is_alive()
 
         panel.stop(timeout=5.0)
@@ -84,19 +65,6 @@ def test_embedded_panel_stop_shuts_down_the_background_thread():
 
 
 def test_websocket_replies_are_always_strings_even_for_numeric_getters():
-    """Regression test for a real-hardware-discovered bug: ws_endpoint()
-    used to hand _dispatch_plain()'s return value straight to
-    websocket.send_text(), which requires an actual str - but a few verbs
-    (step, stepadj) return int | None straight from the underlying
-    DV10Device getters. Live-tested "step 12500" against a real AR-DV10
-    crashed the ASGI app with AttributeError: 'int' object has no
-    attribute 'encode'.
-
-    Deliberately goes through a REAL embedded server over a REAL
-    WebSocket (unlike test_web_dispatch_ported_verbs.py's direct
-    _dispatch_plain() calls) since that ASGI send_text() boundary is
-    exactly where the bug lived - calling _dispatch_plain() directly in
-    Python never exercises the str-type requirement at all."""
     pytest.importorskip("websockets")
     import asyncio
 
@@ -109,17 +77,15 @@ def test_websocket_replies_are_always_strings_even_for_numeric_getters():
     panel = None
     try:
         panel = webserver.start_in_thread(dev, host="127.0.0.1", port=18783, mdns=False)
-        _get_json(f"{panel.url}api/status")  # wait for it to actually be up
+        _get_json(f"{panel.url}api/status")
 
         async def exchange():
             async with websockets.connect(f"ws://127.0.0.1:{panel.port}/ws") as ws:
-                await ws.recv()  # greeting line
+                await ws.recv()
                 await ws.send("step 12500")
                 assert await ws.recv() == "12500"
                 await ws.send("stepadj 500")
                 assert await ws.recv() == "500"
-                # A verb that returns a bare string still round-trips
-                # normally through the same (now type-agnostic) code path.
                 await ws.send("s")
                 assert isinstance(await ws.recv(), str)
 
@@ -131,12 +97,6 @@ def test_websocket_replies_are_always_strings_even_for_numeric_getters():
 
 
 def test_api_status_includes_model_and_sah_sal_gating_for_dv10():
-    """/api/status exposes DV10Device.model()/device_family()/
-    analog_modes_without_distinction() - see their docstrings in
-    device.py. The web panel's Mode section uses
-    analog_modes_without_distinction to grey out SAH/SAL, since neither
-    is functionally distinct from the other on a real DV10 (per user
-    report)."""
     from aor_dv10.web import server as webserver
 
     dev = DV10Device.open_simulator()
@@ -155,13 +115,6 @@ def test_api_status_includes_model_and_sah_sal_gating_for_dv10():
 
 
 def test_api_status_exposes_raw_squelch_state_for_digital_detection():
-    """/api/status must expose LM's raw 0-3 squelch_state digit (see
-    device.SQUELCH_STATES), not just the collapsed squelch_open boolean -
-    the web panel's SQL pill uses squelch_state == 3 ("detecting digital
-    mode") to show a distinct "digital signal" indicator instead of the
-    generic "open" pill it shows for a plain noise/level/tone squelch
-    opening (squelch_open just checks state != 0, which can't tell the
-    two apart)."""
     from aor_dv10.web import server as webserver
 
     dev = DV10Device.open_simulator()

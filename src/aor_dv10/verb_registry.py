@@ -1,0 +1,98 @@
+
+from __future__ import annotations
+
+from typing import List, Tuple
+
+VERBS: List[Tuple[str, str]] = [
+    ("s", ""),
+    ("status", "show the status panel"),
+    ("f", "[MHZ] show/set frequency (needs VFO mode)"),
+    ("m", "[MODE] show/set raw MD mode code, e.g. F0"),
+    ("sq", "[0|1|2] squelch MODE (0=Auto,1=Noise,2=Level) - not a level"),
+    ("lq", "[LEVEL] level-squelch threshold (00-99)"),
+    ("nq", "[LEVEL] noise-squelch threshold (00-39)"),
+    ("vol", "[LEVEL] volume (audio gain; error 60 on some units)"),
+    ("agc", "on|off legacy AGC (maps to Mid/Fast speed)"),
+    ("agcspd", "[0-3] AGC speed (0=Fast,1=Mid,2=Slow,3=RF-G)"),
+    ("beep", "on|off key beep"),
+    ("att", "on|off legacy attenuator (ATT ON/OFF)"),
+    ("attst", "[0-2] attenuator state (0=OFF,1=ON,2=10dB)"),
+    ("re", "on|off numeric result-code prefixing"),
+    ("vfo", "[A|B|Z] [mhz] [mode] select/set a VFO (way into VFO mode)"),
+    ("raw", "CODE [VALUE] send any raw command"),
+    ("describe", "CODE explain a raw command code"),
+    ("power", "on|off"),
+    ("help", ""),
+    ("quit", ""),
+    ("exit", ""),
+    ("step", "[HZ] tuning step"),
+    ("tone", "on|off CTCSS tone squelch"),
+    ("tonefreq", "[VALUE] CTCSS tone"),
+    ("dcs", "on|off DCS squelch"),
+    ("dcscode", "[VALUE] DCS code"),
+    ("offset", "[SLOT [+|-]] offset slot + direction"),
+    ("offsetfreq", "[SLOT [MHZ]] offset frequency for a slot"),
+    ("prio", "on|off priority-channel monitoring"),
+    ("priochan", "[BANK CH] priority channel"),
+    ("priointerval", "[1-99] priority-check interval (s)"),
+    ("mem", "load/find/list/goto/export - backup CSV browser"),
+    ("rmem", "read/readbank/write/tune/delete/bank/... - live memory"),
+    ("debug", "on [path]|last [n]|save PATH - protocol trace"),
+    ("regchan", "register the last channel"),
+    ("search", "write/read/run/delete <bank> | lolimit/hilimit [mhz]"),
+    ("scan", "sread/swrite/mread/mwrite <group> | autostore | banklink"),
+    ("pass", "mark/list/delete [bank ...]"),
+    ("vi", "show all three VFOs (A/B/Z)"),
+    ("vs", "start a VFO search"),
+    ("ve", "[delay_ds] [free_s] [autostore 0|1] VFO-search settings"),
+    ("timer", "show|off|set <target> ... - scheduled recording/alarm"),
+    ("sd", "dir|info|status|rec|play|rsq|backup|restore"),
+    ("scope", "fast|normal - spectrum scope read"),
+    ("select", "add/remove/list/clear/run - select-scan list"),
+    ("backlight", "[VALUE] LB LCD backlight mode"),
+    ("klcolor", "[0-7] KL key backlight color"),
+    ("ifbw", "[VALUE] IF bandwidth selector (raw digit)"),
+    ("bw", "[VALUE] cycle/set IF bandwidth"),
+    ("delay", "[DS] scan/search delay"),
+    ("freetime", "[S] scan/search free time"),
+    ("serial", "show serial number"),
+    ("id", "show device identification"),
+    ("sqltype", "[0-2] CI squelch tone type (OFF/CTCSS/Reverse)"),
+    ("dmrcc", "[00-16] DMR color code"),
+    ("dmrcm", "on|off DMR mute-by-color-code"),
+    ("dmrslot", "[VALUE] DMR slot selection"),
+    ("p25nac", "[000-FFF] P25 NAC code"),
+    ("p25pm", "on|off P25 mute-by-NAC"),
+    ("nxdnran", "[00-63] NXDN RAN code"),
+    ("nxdnnm", "on|off NXDN mute-by-RAN"),
+    ("dcrcode", "[00000-32767] DCR descramble code"),
+    ("descr", "on|off analog voice descrambler (V.SCR)"),
+    ("beeplvl", "[0-7] BP key-beep volume"),
+    ("vollimit", "[00-15] AV volume ceiling"),
+    ("digain", "[01.00-15.94] DA digital-mode audio gain"),
+    ("mgain", "[000-110] RG manual gain"),
+    ("contrast", "[00-63] LN LCD contrast"),
+    ("movenext", "front-panel Up equivalent"),
+    ("moveprev", "front-panel Down equivalent"),
+    ("stepadj", "[HZ] SH step-adjust"),
+    ("zi", "ZI info"),
+    ("clock", "[YYMMDDHHmm] set/show the clock"),
+    ("writeprotect", "on|off"),
+    ("reset", "system|full reset (DESTRUCTIVE)"),
+    ("an", ""), ("ct", ""), ("dj", ""), ("dk", ""), ("lc", ""), ("lt", ""),
+    ("ox", ""), ("ts", ""), ("vq", ""), ("zs", ""), ("zt", ""), ("rt", ""),
+    ("rx", ""), ("sb", ""),
+    ("sp", "[VALUE] sleep timer (SP)"),
+    ("sn", "show serial number (SN)"),
+]
+
+
+def verb_names() -> List[str]:
+    return [v for v, _ in VERBS]
+
+
+def render_web_help() -> str:
+    parts = []
+    for verb, usage in VERBS:
+        parts.append(f"{verb} {usage}".strip())
+    return "commands: " + ", ".join(parts)

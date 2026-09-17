@@ -1,14 +1,5 @@
-"""Regression tests for proposal items 19-28: the 14 previously
-raw-console-only commands (AN/CT/DJ/DK/LC/LT/OX/TS/VQ/ZS/ZT/RT/RX/SB)
-newly wrapped by DV10Device.get_*/set_* methods, plus their CLI verbs
-(aor_dv10.cli.repl) and web dispatch verbs (aor_dv10.web.server.
-_dispatch_plain()). Only a one-line description exists for these
-commands in aor_dv10.protocol.commands - no fuller AR-DV1 spec detail
-was available to confirm field formats - so every one of these is a
-literal raw passthrough; these tests only confirm the round trip against
-the simulator, not that the values mean what their names suggest on real
-hardware.
-"""
+
+import os
 
 import pytest
 
@@ -27,11 +18,10 @@ def make_device() -> DV10Device:
 
 def make_repl() -> Repl:
     dev = make_device()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
-# -- DV10Device get_*/set_* methods, direct -------------------------------
 
 def test_device_boolean_passthroughs_round_trip():
     dev = make_device()
@@ -67,9 +57,6 @@ def test_device_raw_text_passthroughs_round_trip():
 def test_device_digital_data_output_is_write_only_and_unrelated_to_acquire():
     dev = make_device()
     dev.set_digital_data_output("HELLO")
-    # DK is a separate command from DJ with no confirmed relationship between
-    # them, so this must NOT read back "HELLO" - that would fabricate a link
-    # there is no evidence for.
     assert dev.acquire_digital_data() == ""
 
 
@@ -79,7 +66,6 @@ def test_device_receiver_status_is_read_only():
     assert not hasattr(dev, "set_receiver_status")
 
 
-# -- CLI verbs (aor_dv10.cli.repl.Repl.dispatch) --------------------------
 
 @pytest.mark.parametrize(
     "verb,getter_name",
@@ -131,7 +117,6 @@ def test_cli_dk_and_rx_are_read_only():
     assert repl.dispatch("rx") is True
 
 
-# -- web dispatch verbs (aor_dv10.web.server._dispatch_plain) -------------
 
 @pytest.mark.parametrize(
     "verb,getter_name",

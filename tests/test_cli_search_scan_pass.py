@@ -1,10 +1,5 @@
-"""Regression tests for the CLI verbs: "search ...",
-"scan ...", "pass ...". See src/aor_dv10/cli/repl.py's
-_dispatch_search()/_dispatch_scan()/_dispatch_pass() and
-tests/test_search_scan_pass.py for the underlying device.py API these
-verbs wrap. All against the simulator - see this module's sibling for the
-"nothing confirmed against real hardware yet" caveat.
-"""
+
+import os
 
 from rich.console import Console
 
@@ -15,11 +10,10 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
-# -- search --------------------------------------------------------------
 
 
 def test_cli_search_write_read_run_delete():
@@ -48,7 +42,6 @@ def test_cli_search_lolimit_hilimit_roundtrip():
     assert repl.device.get_search_upper_limit() == 148_000_000
 
 
-# -- scan ------------------------------------------------------------------
 
 
 def test_cli_scan_swrite_sread_roundtrip():
@@ -94,7 +87,6 @@ def test_cli_scan_banklink_roundtrip_and_clear():
     assert repl.device.get_bank_link() == []
 
 
-# -- pass --------------------------------------------------------------------
 
 
 def test_cli_pass_mark_bare_and_list():

@@ -7,7 +7,6 @@ from aor_dv10.transport.simulator import SimulatorTransport
 
 
 def test_command_table_covers_documented_mnemonics():
-    # Spot-check a handful of the officially documented commands are present.
     for code in ("RF", "MD", "SQ", "AG", "LM", "AC", "BP", "VR", "WI", "EX", "ZP", "QP"):
         assert code in COMMANDS
     assert COMMANDS["LM"].access == Access.READ
@@ -25,11 +24,6 @@ def test_channel_write_then_read_roundtrip():
 
 
 def test_no_space_between_code_and_value_on_the_wire():
-    """Confirmed against real AR-DV10 hardware: requests and
-    responses have NO space between the command code and its value, e.g.
-    "RF0145.50000" not "RF 0145.50000". The original space-separated
-    assumption caused a real set-frequency command to be silently ignored
-    by the device."""
     sent = []
 
     class RecordingTransport(SimulatorTransport):
@@ -45,10 +39,6 @@ def test_no_space_between_code_and_value_on_the_wire():
 
 
 def test_response_without_code_echo_is_handled():
-    """Confirmed against real hardware: WI responds with just the value
-    ("AOR AR-DV10"), not "WIAOR AR-DV10". The channel must fall back to
-    treating the whole response as the value when it doesn't start with
-    the command code."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -57,8 +47,6 @@ def test_response_without_code_echo_is_handled():
 
 
 def test_bare_question_mark_is_the_error_indicator():
-    """Confirmed against real hardware: the error/unsupported response is a
-    bare "?", not an "RE ..." result code."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -83,11 +71,6 @@ def test_channel_raises_protocol_error_on_unknown_write():
 
 
 def test_re_enabled_error_responses_decode_to_numeric_result_code():
-    """Confirmed against real DV10 hardware: once "RE 1" is
-    active, a rejected command comes back as "<code>?" (e.g. "60?" for a
-    bare AG read, "40?" for "VF 1") instead of a bare "?" - and this must
-    be raised as an error with the decoded meaning, not silently treated as
-    a successful read with a garbled value."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -111,14 +94,6 @@ def test_re_enabled_error_responses_decode_to_numeric_result_code():
 
 
 def test_re_write_ack_carries_ok_result_code():
-    """Confirmed against real hardware (via a real crash - see
-    codec.py's module docstring: RE prefixes every response, not just
-    errors): once RE-style prefixing is
-    active, EVERY response gets a numeric prefix, not just error ones - a
-    successful write's ack (an empty body under RE off) comes back as just
-    "20" (PC_RESULT_OK) with RE on. Response.result_code carries the
-    decoded 20; Response.value is None since the underlying ack body is
-    empty, same as any other successful write."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -135,11 +110,6 @@ def test_describe_result_code_decodes_base_and_continue_variants():
 
 
 def test_vf_letter_write_succeeds_and_enters_vfo_mode():
-    """Confirmed against real DV10 hardware: "raw VF A"
-    succeeds (bare "VF" ack, no value) - unlike the earlier "VF 0"/"VF 1"
-    guesses, which both failed. VF is presumed to be the way into VFO mode,
-    modelled here by flipping the simulator's
-    vfo_mode flag."""
     t = SimulatorTransport()
     t.open()
     t.vfo_mode = False
@@ -151,8 +121,6 @@ def test_vf_letter_write_succeeds_and_enters_vfo_mode():
 
 
 def test_vf_digit_write_fails_as_format_error_under_re():
-    """Confirmed against real hardware: "VF 1" (the old digit guess) fails
-    with result code 40 (PC_RESULT_FORMAT_ERR) once RE is on."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -166,18 +134,6 @@ def test_vf_digit_write_fails_as_format_error_under_re():
 
 
 def test_re_prefixes_a_normal_read_and_is_stripped_correctly():
-    """Reproduces a real crash reported against real hardware: with RE
-    left on from an earlier session, a plain
-    "RF" read comes back as "20RF0145.50000" (20 = OK, then the normal
-    RF0145.50000 response) instead of just "RF0145.50000". Before this was
-    understood, the codec only recognised the numeric prefix on ERROR
-    responses ("<code>?") and treated everything else as a normal
-    response - so this prefixed-but-successful read fell through to
-    "resp.value = whole raw text", i.e. "20RF0145.50000", which then blew
-    up float("20RF0145.50000") in DV10Device.get_frequency_hz(). The fix:
-    always check for and strip a leading known result code, regardless of
-    whether RE is a success or error code - see codec.py's module
-    docstring."""
     t = SimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=1.0)
@@ -190,24 +146,17 @@ def test_re_prefixes_a_normal_read_and_is_stripped_correctly():
 
 
 def test_re_prefix_stripping_survives_through_dv10device_get_frequency_hz():
-    """End-to-end regression test for the exact crash from the bug report:
-    DV10Device.get_frequency_hz() (and therefore .status()) must not raise
-    ValueError just because RE was left on from an earlier session."""
     from aor_dv10.device import DV10Device
 
     dev = DV10Device.open_simulator()
     with dev:
         dev.raw("RE", "1")
         assert dev.get_frequency_hz() == 145_500_000
-        status = dev.status()  # must not raise
+        status = dev.status()
         assert status.frequency_hz == 145_500_000
 
 
 class _SlowSimulatorTransport(SimulatorTransport):
-    """SimulatorTransport with a tiny artificial delay inserted between the
-    write and read halves of a command, to widen the race window a missing
-    lock would need to actually manifest as cross-talk in a test that has
-    to run fast and reliably in CI."""
 
     def write_line(self, data: bytes) -> None:
         time.sleep(0.002)
@@ -219,15 +168,6 @@ class _SlowSimulatorTransport(SimulatorTransport):
 
 
 def test_command_channel_is_thread_safe_across_concurrent_callers():
-    """Guards against a real class of bug this project just added
-    cross-thread device sharing for: "dv10-cli --web" (see cli/__main__.py)
-    runs the interactive REPL and the web panel's request handling in
-    different threads against the SAME DV10Device / CommandChannel / serial
-    connection (see web/server.py's start_in_thread()). Without a lock
-    around each whole write-then-read cycle in CommandChannel.send(), one
-    thread's request could interleave with another's on the wire, causing a
-    caller to receive a response that actually belongs to a different
-    thread's command - see CommandChannel's class docstring."""
     t = _SlowSimulatorTransport()
     t.open()
     chan = CommandChannel(t, timeout=2.0)
@@ -235,16 +175,12 @@ def test_command_channel_is_thread_safe_across_concurrent_callers():
     stop = threading.Event()
 
     def hammer_unrelated_writes():
-        # Continuously write to a different command, to create interleaving
-        # opportunities for the reader below if send() weren't atomic.
         i = 0
         while not stop.is_set():
             chan.write("RG", str(i % 1000).zfill(3))
             i += 1
 
     def read_static_value():
-        # Nothing writes VR here, so every read must return "1.00"; any other
-        # value means this thread got a concurrent RG write's response.
         for _ in range(25):
             try:
                 resp = chan.read("VR")

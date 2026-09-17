@@ -1,13 +1,3 @@
-"""Regression tests for SD card management - SD
-DIR/INF/PST/REC/PLY/RSQ/MMW/MMR. See src/aor_dv10/device.py's "SD card
-management" section for the significant spec-reconstruction caveats this
-carries (notably the
-"SYSYEM" [sic] backup-kind token, confirmed as a real spec typo via two
-independent extraction methods, and why SD LGR/SD TYP are deliberately
-left `raw`-only - the spec's own summary table marks both "No function"
-on this receiver). All against the simulator; nothing here has been
-checked against real hardware.
-"""
 
 import pytest
 
@@ -30,7 +20,6 @@ def dev():
         yield d
 
 
-# -- SD DIR / SD INF / SD PST --------------------------------------------
 
 
 def test_sd_dir_empty_card(dev):
@@ -53,7 +42,6 @@ def test_sd_status_meanings_cover_all_documented_digits():
     assert set(SD_CARD_STATUS) == {"0", "1", "2", "3", "4"}
 
 
-# -- SD REC / SD PLY -------------------------------------------------------
 
 
 def test_sd_record_start_then_stop_creates_a_wav_file(dev):
@@ -79,7 +67,7 @@ def test_sd_record_start_twice_produces_two_distinct_files(dev):
 
 
 def test_sd_record_stop_when_idle_is_a_benign_no_op(dev):
-    dev.sd_record_stop()  # nothing recording - should not raise
+    dev.sd_record_stop()
     assert dev.sd_dir() == []
 
 
@@ -100,14 +88,12 @@ def test_sd_play_unknown_file_raises_nofile(dev):
 
 
 def test_sd_play_stop_when_idle_is_a_benign_no_op(dev):
-    dev.sd_play_stop()  # nothing playing - should not raise
+    dev.sd_play_stop()
 
 
-# -- SD RSQ -----------------------------------------------------------------
 
 
 def test_sd_squelch_skip_default_matches_spec_default(dev):
-    # AR-DV1 spec: "n:1 --- Skip (default)".
     assert dev.get_sd_squelch_skip() == "1"
 
 
@@ -118,7 +104,6 @@ def test_sd_squelch_skip_roundtrip(dev):
     assert dev.get_sd_squelch_skip() == "1"
 
 
-# -- SD MMW / SD MMR (backup/restore) ---------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -138,19 +123,17 @@ def test_sd_backup_accepts_every_documented_kind(dev, kind):
 
 
 def test_sd_backup_kind_all_is_the_misspelled_wire_token(dev):
-    # Confirmed as a genuine AR-DV1 spec typo (not an OCR artifact) via
-    # both the rendered PDF image and pdftotext's raw text layer.
     assert SD_BACKUP_KIND_ALL == "SYSYEM"
 
 
 def test_sd_backup_rejects_unknown_kind(dev):
     with pytest.raises(ValueError):
-        dev.sd_backup("SYSTEM")  # the correctly-spelled, wrong token
+        dev.sd_backup("SYSTEM")
 
 
 def test_sd_backup_then_restore_roundtrip(dev):
     dev.sd_backup(SD_BACKUP_KIND_SEARCH_BANK)
-    dev.sd_restore(SD_BACKUP_KIND_SEARCH_BANK)  # should not raise
+    dev.sd_restore(SD_BACKUP_KIND_SEARCH_BANK)
 
 
 def test_sd_restore_unknown_name_raises_nofile(dev):
@@ -160,14 +143,10 @@ def test_sd_restore_unknown_name_raises_nofile(dev):
 
 
 def test_sd_restore_does_not_validate_against_the_kind_enum(dev):
-    # Unlike sd_backup()'s kind, sd_restore()'s name is documented as an
-    # arbitrary "original file name" - so an arbitrary (existing) name
-    # must be accepted, not just the 5 known kind tokens.
     dev.sd_backup(SD_BACKUP_KIND_SEARCH_BANK)
-    dev.sd_restore("srchbk")  # case-insensitive, and not kind-validated
+    dev.sd_restore("srchbk")
 
 
-# -- error-token handling (task 13 item 32) ----------------------------------
 
 
 @pytest.mark.parametrize(
@@ -184,8 +163,6 @@ def test_sd_error_injection_is_one_shot(dev):
     dev._transport.sd_error_injection = "CARDBUSY"  # noqa: SLF001
     with pytest.raises(DV10ProtocolError):
         dev.sd_info()
-    # the injected error should have been consumed - a normal call now
-    # succeeds again.
     info = dev.sd_info()
     assert info.total_kb == 30517578
 

@@ -1,20 +1,3 @@
-"""Regression tests for the CLI-only verb families ported into the web
-panel's _dispatch_plain(): the small typed commands (vi/vs/ve/klcolor/
-ifbw/delay/freetime/serial) plus the eight sub-dispatched families
-(rmem/search/scan/pass/timer/sd/scope/select). These existed in the
-desktop CLI (aor_dv10.cli.repl.Repl._dispatch_*) but were not previously
-reachable from the web panel's WebSocket terminal - this file
-closes that gap on the web side, mirroring tests/test_cli_*.py's coverage
-of the same underlying device.py behaviour.
-
-Talks to _dispatch_plain() directly (same style as the CLI tests talk to
-Repl.dispatch() directly) rather than going through a real embedded
-uvicorn server + WebSocket - faster, and the HTTP-server-in-a-thread style
-used by test_web_integration.py/test_web_memory.py is about proving the
-*server plumbing* works, which is orthogonal to what's tested here (the
-dispatcher's command handling). All against the simulator; nothing here
-has been checked against real hardware.
-"""
 
 import pytest
 
@@ -35,7 +18,6 @@ def make_device(*, scope_mode: bool = False) -> DV10Device:
     return dev
 
 
-# -- small typed commands (vi/vs/ve/klcolor/ifbw/delay/freetime/serial) -----
 
 
 def test_web_vi_lists_vfos():
@@ -73,14 +55,10 @@ def test_web_ifbw_show_and_set():
 
 
 def test_web_bw_show_and_set_by_hz():
-    # "bw" is the mode-aware Hz counterpart to "ifbw"'s raw digit; reply text
-    # mirrors the CLI's "bw" formatting.
     dev = make_device()
-    _dispatch_plain(dev, "bw 100000")  # FM/IF1 = 100 kHz
+    _dispatch_plain(dev, "bw 100000")
     out = _dispatch_plain(dev, "bw")
     assert out.startswith("100000 Hz")
-    # the rest of FM's choices - no 200000: confirmed absent on real
-    # hardware (2026-09-01), see IF_BANDWIDTH_HZ's comment in device.py
     assert "6000" in out and "30000" in out
     assert "200000" not in out
     assert _dispatch_plain(dev, "ifbw") == "1"
@@ -89,7 +67,7 @@ def test_web_bw_show_and_set_by_hz():
 def test_web_bw_rejects_value_not_offered_by_current_mode():
     dev = make_device()
     with pytest.raises(ValueError):
-        _dispatch_plain(dev, "bw 3800")  # not an FM choice (default mode)
+        _dispatch_plain(dev, "bw 3800")
 
 
 def test_web_id_shows_model_firmware_and_family():
@@ -116,7 +94,6 @@ def test_web_serial_returns_value():
     assert _dispatch_plain(dev, "serial") == "SIMULATED0001"
 
 
-# -- rmem ---------------------------------------------------------------
 
 
 def test_web_rmem_write_read_tune_delete_roundtrip():
@@ -154,7 +131,6 @@ def test_web_rmem_usage_with_no_args():
     assert _dispatch_plain(dev, "rmem").startswith("usage:")
 
 
-# -- search ---------------------------------------------------------------
 
 
 def test_web_search_write_read_run_delete_roundtrip():
@@ -175,7 +151,6 @@ def test_web_search_lolimit_hilimit():
     assert "148.0000 MHz" in _dispatch_plain(dev, "search hilimit")
 
 
-# -- scan -------------------------------------------------------------------
 
 
 def test_web_scan_sread_swrite_roundtrip():
@@ -206,7 +181,6 @@ def test_web_scan_autostore_and_banklink():
     assert _dispatch_plain(dev, "scan banklink") == "[]"
 
 
-# -- pass ---------------------------------------------------------------
 
 
 def test_web_pass_mark_list_delete_roundtrip():
@@ -218,7 +192,6 @@ def test_web_pass_mark_list_delete_roundtrip():
     assert "0 of" in _dispatch_plain(dev, "pass list")
 
 
-# -- timer --------------------------------------------------------------
 
 
 def test_web_timer_show_and_off():
@@ -242,7 +215,6 @@ def test_web_timer_set_unknown_target():
     assert "unknown target" in out
 
 
-# -- sd -------------------------------------------------------------------
 
 
 def test_web_sd_dir_info_status():
@@ -259,7 +231,6 @@ def test_web_sd_rsq_show_and_set():
     assert "squelch skip: on" in _dispatch_plain(dev, "sd rsq")
 
 
-# -- scope ------------------------------------------------------------------
 
 
 def test_web_scope_fast_and_normal():
@@ -275,12 +246,10 @@ def test_web_scope_usage_on_bad_arg():
     assert _dispatch_plain(dev, "scope sideways").startswith("usage:")
 
 
-# -- select -------------------------------------------------------------
 
 
 def test_web_select_add_list_remove_clear():
     dev = make_device()
-    # Start clean - _select_scan_list is module-level/shared across calls.
     webserver._select_scan_list.clear()
     out = _dispatch_plain(dev, "select add 0 1")
     assert "added 00-01" in out
@@ -306,9 +275,6 @@ def test_web_select_run_visits_each_entry():
 
 
 def test_web_select_list_is_shared_across_dispatch_calls():
-    # The point of the module-level _select_scan_list (vs. the CLI's per-Repl
-    # one): two _dispatch_plain() calls, as from two browser tabs against one
-    # server process, must see the same list.
     dev = make_device()
     webserver._select_scan_list.clear()
     _dispatch_plain(dev, "select add 1 2")

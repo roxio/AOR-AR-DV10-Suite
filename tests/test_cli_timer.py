@@ -1,12 +1,5 @@
-"""Regression tests for the CLI "timer" verb - TR,
-the scheduled recording/alarm timer. See src/aor_dv10/cli/repl.py's
-dispatch()/_dispatch_timer() and tests/test_timer.py for the underlying
-aor_dv10.timer/device.py API this wraps, and aor_dv10.timer's module
-docstring for the significant spec-reconstruction caveats (the AR-DV1
-spec PDF's own TR table entry is internally inconsistent) before trusting
-any particular field. All against the simulator; nothing here has been
-checked against real hardware.
-"""
+
+import os
 
 import pytest
 
@@ -19,7 +12,7 @@ from aor_dv10.device import DV10Device
 def make_repl() -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -50,7 +43,7 @@ def test_cli_timer_set_bank_weekly_with_weekdays():
     assert t.action == "alarm"
     assert t.repeat == "weekly"
     assert t.receive_mode == "SS01"
-    assert set(t.weekdays) == {1, 8}  # SUNDAY, WEDNESDAY
+    assert set(t.weekdays) == {1, 8}
     assert t.alarm_volume == 20
 
 

@@ -1,10 +1,5 @@
-"""Regression tests for proposal item 49 (standalone Sleep Timer, SP) and
-item 48 (distinguishing SN from RN): both device.py methods
-(get_sleep_timer()/set_sleep_timer(), serial_number()) already existed but
-had no verb in either dispatcher - "sp"/"sn" wire them up, mirroring the
-existing raw-text ("ts", "vq", "zt") and read-only ("dk", "rx") verb
-patterns respectively.
-"""
+
+import os
 
 from rich.console import Console
 
@@ -21,7 +16,7 @@ def make_device() -> DV10Device:
 
 def make_repl() -> Repl:
     dev = make_device()
-    console = Console(file=open("/dev/null", "w"))
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -33,10 +28,7 @@ def test_device_sleep_timer_round_trip():
 
 def test_device_serial_number_is_distinct_method_from_get_serial_number():
     dev = make_device()
-    # Different simulator state keys (SN vs RN) - setting one must not
-    # affect the other, confirming these really are two separate wire
-    # commands, not two names for the same thing.
-    assert dev.serial_number() != dev.get_serial_number() or True  # both may default equal in sim; see next test
+    assert dev.serial_number() != dev.get_serial_number() or True
     dev._chan.write("SN", "SNTEST01")
     dev._chan.write("RN", "RNTEST02")
     assert dev.serial_number() == "SNTEST01"

@@ -1,12 +1,3 @@
-"""Tests for the web panel's live-memory bank-editor REST endpoints
-(/api/memory/live_bank/*) - the browser-facing table editor for the
-receiver's OWN memory banks (MA/MX/MQ), distinct from the CSV-backup
-/api/memory/* endpoints (aor_dv10.memory) tested in test_web_memory.py.
-
-Same style as test_web_memory.py: a real embedded uvicorn server in a
-background thread, hit with urllib.request (no requests/httpx dependency).
-Skipped entirely if the [web] extra (fastapi/uvicorn) isn't installed.
-"""
 
 import itertools
 import json
@@ -31,10 +22,6 @@ def _get(url: str):
 
 
 def _wait_until_up(url: str, timeout: float = 5.0):
-    """start_in_thread() returns as soon as the background thread is
-    spawned, not once uvicorn has actually bound the port - a single-shot
-    request right after it can race the real startup. Poll instead, same
-    as test_web_memory.py's _get_json()."""
     deadline = time.monotonic() + timeout
     last_exc = None
     while time.monotonic() < deadline:
@@ -75,9 +62,6 @@ def panel():
 
     dev = DV10Device.open_simulator()
     dev.connect()
-    # A fresh port per test avoids a real flake seen while writing this file:
-    # back-to-back bind/stop cycles on one port can hit "address already in
-    # use" before the OS releases the previous test's socket.
     port = next(_next_port)
     p = webserver.start_in_thread(dev, host="127.0.0.1", port=port, mdns=False)
     _wait_until_up(f"{p.url}api/status")
@@ -93,7 +77,7 @@ def test_live_bank_rejects_out_of_range_bank(panel):
     status, _ = _get(f"{p.url}api/memory/live_bank/40")
     assert status == 400
     status, _ = _get(f"{p.url}api/memory/live_bank/-1")
-    assert status in (400, 404, 422)  # FastAPI path-int coercion may 404/422 on "-1"
+    assert status in (400, 404, 422)
 
 
 def test_live_bank_read_all_slots_unprogrammed(panel):
@@ -119,8 +103,6 @@ def test_live_bank_reflects_a_channel_written_directly_on_the_device(panel):
     assert ch["frequency_mhz"] == pytest.approx(146.52)
     assert ch["step_hz"] == 25_000
     assert ch["step_adjust_hz"] == 5_000
-    # MX stores MD in its 3-char "dan" shape, so "F0" goes in and reads back
-    # as "0F0"; the browser table strips the leading read-only "d".
     assert ch["mode"] == "0F0"
     assert ch["pass_channel"] is True
     assert ch["write_protect"] is False
@@ -143,11 +125,10 @@ def test_live_channel_write_round_trips_every_field(panel):
     assert body["frequency_mhz"] == pytest.approx(445.0)
     assert body["step_hz"] == 12500
     assert body["step_adjust_hz"] == 2500
-    assert body["mode"] == "000"  # 2-char "00" padded to the "dan" wire shape
+    assert body["mode"] == "000"
     assert body["pass_channel"] is True
     assert body["tag"] == "REST-WR"
 
-    # Re-fetching the whole bank should agree with the single-write response.
     status, bank_body = _get(f"{p.url}api/memory/live_bank/2")
     assert status == 200
     assert bank_body["channels"][9] == body
@@ -168,7 +149,6 @@ def test_write_protect_guard_refuses_without_force_then_succeeds_with_force(pane
     status, body = _post_json(f"{p.url}api/memory/live_bank/5/3", {"frequency_mhz": 147.0})
     assert status == 409
     assert "write-protected" in body["detail"]
-    # the refused write must not have gone through
     assert dev.read_memory_channel(5, 3).frequency_hz == 146_000_000
 
     status, body = _post_json(f"{p.url}api/memory/live_bank/5/3", {"frequency_mhz": 147.0, "force": True})
@@ -177,10 +157,6 @@ def test_write_protect_guard_refuses_without_force_then_succeeds_with_force(pane
 
 
 def test_write_protect_guard_does_not_apply_to_unregistered_slot(panel):
-    """An unprogrammed slot has write_protect=False by construction (see
-    MemoryChannelInfo's docstring: every field but bank/channel/registered
-    is meaningless when unregistered) - writing to one for the first time
-    must never be refused as "protected"."""
     p, _dev = panel
     status, body = _post_json(f"{p.url}api/memory/live_bank/9/0", {"frequency_mhz": 100.0})
     assert status == 200
@@ -193,7 +169,7 @@ def test_batch_write_reports_per_channel_results(panel):
         "channels": [
             {"channel": 0, "frequency_mhz": 145.0, "mode": "00", "tag": "A"},
             {"channel": 1, "frequency_mhz": 146.0, "mode": "00", "tag": "B"},
-            {"channel": 99, "frequency_mhz": 147.0},  # out of range
+            {"channel": 99, "frequency_mhz": 147.0},
         ],
     })
     assert status == 200
@@ -213,8 +189,8 @@ def test_batch_write_skips_protected_channel_without_force_but_writes_others(pan
 
     status, body = _post_json(f"{p.url}api/memory/live_bank/13/batch", {
         "channels": [
-            {"channel": 4, "frequency_mhz": 200.0},  # protected, no force
-            {"channel": 6, "frequency_mhz": 200.0},  # unprotected, should go through
+            {"channel": 4, "frequency_mhz": 200.0},
+            {"channel": 6, "frequency_mhz": 200.0},
         ],
     })
     assert status == 200
@@ -222,7 +198,6 @@ def test_batch_write_skips_protected_channel_without_force_but_writes_others(pan
     assert results[4]["ok"] is False
     assert "protect" in results[4]["error"]
     assert results[6]["ok"] is True
-    # protected channel's frequency must be unchanged
     assert dev.read_memory_channel(13, 4).frequency_hz == 145_000_000
 
 

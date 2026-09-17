@@ -1,15 +1,3 @@
-"""Minimal PySide6 GUI - phase 2 starting point.
-
-Priority for this project was core protocol + CLI first (see README.md).
-This GUI is a working but intentionally small skeleton: a
-Yaesu-panel-styled readout plus the same handful of controls the CLI exposes,
-built on the identical DV10Device API so nothing here has its own copy of
-protocol logic. Extending it (memory channels, scan, search banks, digital
-mode params, ...) is mostly a matter of adding more widgets that call more
-DV10Device / device.raw(...) methods.
-
-Run with:  pip install -e ".[gui]"  &&  python -m aor_dv10.gui.app [--simulator]
-"""
 
 from __future__ import annotations
 
@@ -50,7 +38,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        # -- big frequency readout, Yaesu-panel style --------------------
         self.freq_label = QLabel("---.------ MHz")
         self.freq_label.setAlignment(Qt.AlignCenter)
         self.freq_label.setStyleSheet(
@@ -59,17 +46,13 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.freq_label)
 
-        # -- S-meter ------------------------------------------------------
         meter_box = QHBoxLayout()
         meter_box.addWidget(QLabel("S-METER"))
         self.smeter_bar = QProgressBar()
-        # LM's confirmed format is "vvvq": vvv = level as -vvv dB, q = squelch
-        # state digit. -120..0 dB is a display range, not a hardware limit.
         self.smeter_bar.setRange(-120, 0)
         meter_box.addWidget(self.smeter_bar)
         layout.addLayout(meter_box)
 
-        # -- controls -------------------------------------------------------
         controls = QGroupBox("Controls")
         grid = QGridLayout(controls)
 
@@ -82,10 +65,6 @@ class MainWindow(QMainWindow):
         set_freq_btn.clicked.connect(self.on_set_frequency)
         grid.addWidget(set_freq_btn, 0, 2)
 
-        # Confirmed against real DV10 hardware: "raw VF A" succeeds and is very
-        # likely how you enter VFO mode - the precondition for the writes above
-        # to succeed instead of failing with "?". A button rather than automatic,
-        # since it is not confirmed safe to call repeatedly from any state.
         vfo_btn = QPushButton("Enter VFO A")
         vfo_btn.setToolTip(
             "Sends VF A - needed before Set (frequency/squelch/AGC/"
@@ -102,9 +81,6 @@ class MainWindow(QMainWindow):
         set_mode_btn.clicked.connect(self.on_set_mode)
         grid.addWidget(set_mode_btn, 1, 2)
 
-        # AC (AGC) is really a 4-state speed selector (Fast/Mid/Slow/RF-G) per
-        # the AR-DV3 spec. This checkbox is a legacy on/off simplification
-        # (on -> Mid, off -> Fast); a proper 4-way selector is future work.
         self.agc_check = QCheckBox("AGC (legacy on/off)")
         self.agc_check.stateChanged.connect(self.on_toggle_agc)
         grid.addWidget(self.agc_check, 2, 0)
@@ -113,17 +89,10 @@ class MainWindow(QMainWindow):
         self.beep_check.stateChanged.connect(self.on_toggle_beep)
         grid.addWidget(self.beep_check, 2, 1)
 
-        # AT is a 3-state selector (0=ATT OFF, 1=ATT ON, 2=10dB ATT); the
-        # labels follow a real DV10's effect (1 engages the ~10dB attenuator).
-        # This checkbox is a legacy on/off simplification that can't reach the
-        # DV3-only 10dB state; a proper 3-way selector is future work.
         self.att_check = QCheckBox("Attenuator (legacy on/off)")
         self.att_check.stateChanged.connect(self.on_toggle_att)
         grid.addWidget(self.att_check, 2, 2)
 
-        # Confirmed against real DV10 hardware: toggling this on ("raw RE 1")
-        # makes rejected commands return a decoded numeric result code instead
-        # of a bare "?". Purely a diagnostic aid.
         self.re_check = QCheckBox("Result codes (diagnostic)")
         self.re_check.stateChanged.connect(self.on_toggle_re)
         grid.addWidget(self.re_check, 2, 3)

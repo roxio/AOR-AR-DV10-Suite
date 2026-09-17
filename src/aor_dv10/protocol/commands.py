@@ -1,19 +1,3 @@
-"""AR-DV10 / AR-DV1 command mnemonic registry.
-
-Sourced from AOR's official "AR-DV10 AND AR-DV1 COMMAND LIST SUMMARY"
-(aorja.com/support/manuals/AR-DV10_AND_AR-DV1_COMMAND_LIST_SUMMARY.pdf).
-That document lists every mnemonic, a short description, and whether it is
-Read-only, Write-only, or Read/Write - but *not* the byte-level value
-encoding for each field (digit widths, units, enumerations). Where the
-encoding is documented elsewhere or inferable with reasonable confidence
-(frequency in Hz, on/off as "0"/"1", etc.) it's noted in ``notes``; otherwise
-treat the value as an opaque string until confirmed against real hardware or
-the full manual.
-
-This table intentionally covers the *entire* published command set (not just
-the handful with typed helpers on :class:`aor_dv10.device.DV10Device`), so
-the CLI's ``raw`` command and tab-completion have full coverage from day one.
-"""
 
 from __future__ import annotations
 
@@ -39,7 +23,6 @@ def _c(code: str, description: str, access: str, notes: str = "") -> Command:
     return Command(code=code, description=description, access=Access(access), notes=notes)
 
 
-# code -> Command
 COMMANDS: dict[str, Command] = {
     cmd.code: cmd
     for cmd in [

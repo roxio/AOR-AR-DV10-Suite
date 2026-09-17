@@ -1,55 +1,39 @@
-"""Parser/writer for the "AR-DV10 Connect" memory-bank/channel backup CSV
-format (``DEPMICRO-BACKUP,MEM BANK,AR-DV10,...`` header, then ``MB``/``MC``
-records) - the file a real user exported from their DV10 via the companion
-PC app.
-
-This is deliberately a FILE-format feature, not a live-device one: it reads
-and writes the backup CSV directly, independent of whatever the live serial
-``MX``/``MA`` commands turn out to want on the wire. That split matters:
-composite, multi-field *device* writes (memory channels among them) are too
-risky to guess at: a wrong guess there doesn't just get rejected, it writes
-plausible-looking garbage into a real memory slot. A backup file has no such
-risk - worst case a re-import fails validation - so it's fair game to
-implement fully from real example data, which is exactly what this module
-does.
-
-Confirmed against the real 2041-line sample file (40 banks x 50 channels
-= 2000 channel records, matching the operating manual's "2000 channels,
-40 banks of 50" exactly):
-
-- ``MB,<bank 00-39>,<protect 0/1>,<title, space-padded to 12 chars>``
-- ``MC,<bank+channel as 4-digit "BBCC">,<protect 0/1 or blank>,``
-  ``<freq "DDDD.DDDDD" MHz or blank>,<step "DDD.DD" kHz or blank>,``
-  ``<offset "DDD.DD" or blank>,<mode 3-char "dan" code or blank>,``
-  ``<pass flag 0/1 or blank>,<name, space-padded to 12 chars>``
-
-An unprogrammed channel still gets an ``MC`` row (so every one of the 2000
-slots is always present) with every field but the bank/channel number and
-name blank. The file is UTF-8 with a BOM and CRLF line endings - this
-module handles both. Channel/bank names are whatever ASCII the receiver
-itself accepts (see manual 10.3 "INPUT CHARACTERS & SYMBOLS" - no
-diacritics); a literal ``?`` in a name is the device's own substitution for
-an unsupported character, not a decoding bug in this module.
-
-Still open, and worth confirming once someone can compare a live ``MA``
-read-back against a matching row in a fresh export of the same channel:
-whether the live wire format matches this file's field layout at all, what
-sign convention the offset field uses (all-zero in the sample data, so
-unobserved), and what the "pass flag" column (all-zero in the sample data)
-actually toggles - it lines up with the manual's per-channel "PASS" flag by
-position, but that's inference, not confirmation.
-"""
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from dataclasses import dataclass
 from typing import Optional
 
+from .constants import BANK_COUNT as _BANK_COUNT, CHANNELS_PER_BANK as _CHANNELS_PER_BANK
 from .device import ANALOG_MODES, DIGITAL_MODES, MemoryChannelInfo
 
 _HEADER_PREFIX = "DEPMICRO-BACKUP"
-_BANK_COUNT = 40
-_CHANNELS_PER_BANK = 50
+_JSON_FORMAT = "aor-dv10-suite.memory"
+
+_CHIRP_HEADER = [
+    "Location", "Name", "Frequency", "Duplex", "Offset", "Tone",
+    "rToneFreq", "cToneFreq", "DtcsCode", "DtcsPolarity", "Mode", "TStep",
+    "Skip", "Comment", "URCALL", "RPT1CALL", "RPT2CALL", "DVCODE",
+]
+_CHIRP_MODE_FROM_ANALOG = {
+    "0": "FM", "1": "AM", "2": "FM", "3": "FM",
+    "4": "USB", "5": "LSB", "6": "CW",
+}
+_ANALOG_FROM_CHIRP_MODE = {
+    "FM": "0", "NFM": "0", "WFM": "0", "AM": "1", "USB": "4",
+    "LSB": "5", "CW": "6", "RTTY": "6", "RTTYR": "6",
+}
+
+_GENERIC_FREQ_ALIASES = {
+    "frequency": "freq", "freq": "freq", "mhz": "freq",
+    "freq_mhz": "freq", "frequency_mhz": "freq",
+    "name": "name", "label": "name", "tag": "name", "title": "name",
+    "mode": "mode", "modulation": "mode",
+    "step": "step", "step_khz": "step", "tstep": "step",
+}
 
 
 def _pad_name(name: str) -> str:
@@ -64,7 +48,6 @@ def _parse_bank_channel(bbcc: str) -> tuple[int, int]:
 
 @dataclass
 class MemoryBank:
-    """One ``MB`` record: a memory bank's title and erase-protect flag."""
 
     index: int
     protect: bool
@@ -76,9 +59,6 @@ class MemoryBank:
 
 @dataclass
 class MemoryChannel:
-    """One ``MC`` record. ``is_empty`` is True for an unprogrammed slot -
-    every other field is then ``None``/``False``/``""`` and should be
-    ignored rather than treated as meaningful zero values."""
 
     bank: int
     channel: int
@@ -92,7 +72,6 @@ class MemoryChannel:
 
     @property
     def bank_channel(self) -> str:
-        """"BB-CC", matching the manual's own BANK-CH field notation."""
         return f"{self.bank:02d}-{self.channel:02d}"
 
     @property
@@ -104,10 +83,6 @@ class MemoryChannel:
         return None if self.frequency_hz is None else self.frequency_hz / 1_000_000
 
     def describe_mode(self) -> str:
-        """Human-readable decode of the raw 3-char mode code, reusing
-        DIGITAL_MODES/ANALOG_MODES from aor_dv10.device - see that
-        module's docstrings for the "dan" layout (receiving/digital-
-        select/analog-select)."""
         if not self.mode or len(self.mode) < 3:
             return "?"
         d, a, n = self.mode[0], self.mode[1], self.mode[2]
@@ -130,30 +105,6 @@ class MemoryChannel:
 
 
 def from_live_channel(info: MemoryChannelInfo) -> MemoryChannel:
-    """Best-effort bridge from a live MX/MA read (aor_dv10.device.
-    MemoryChannelInfo) into this module's own backup-CSV MemoryChannel
-    shape (proposal items 17/18: export a live bank / diff it against an
-    imported backup, in the same file format). Goes device -> CSV shape
-    ONLY - never feed the result into anything that writes back to the
-    device, and see MemoryChannelInfo's own docstring for the confirmed
-    field differences this has to paper over:
-
-    - mode: MemoryChannelInfo.mode is whatever raw string MD's sub-field
-      echoes on a read. write_memory_channel()'s docstring records a
-      real-hardware finding that a DV10 actually stores/echoes MD's
-      3-char "dan" shape (this format's own mode encoding), not the
-      2-char "<digital><analog>" form MemoryChannelInfo's class comment
-      was originally written assuming - but that finding came from a
-      WRITE round-trip, not a fresh read, so it is passed through
-      verbatim here rather than reinterpreted either way.
-      MemoryChannel.to_csv_row() already pads/truncates mode to 3 chars
-      defensively, so a value that turns out to be the shorter 2-char
-      form degrades to a wrong-but-well-formed CSV cell, not a crash.
-    - offset_khz: has no live counterpart at all - MX/MA carry no offset
-      sub-field - so this is always None here.
-    - step_adjust_hz: the reverse gap. MemoryChannelInfo has it (MX/MA's
-      SH sub-field), this CSV format doesn't, so it is silently dropped.
-    """
     if not info.registered:
         return MemoryChannel(bank=info.bank, channel=info.channel)
     return MemoryChannel(
@@ -170,12 +121,7 @@ def from_live_channel(info: MemoryChannelInfo) -> MemoryChannel:
 
 
 def parse_backup_csv(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
-    """Parse an "AR-DV10 Connect" memory-bank backup export (as read from
-    disk with any encoding - pass the decoded text) into
-    (banks, channels). Raises ValueError if the header doesn't match the
-    expected format, so a wrong file is caught early rather than silently
-    producing an empty result."""
-    text = text.lstrip("﻿")  # strip a UTF-8 BOM if present
+    text = text.lstrip("﻿")
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines or not lines[0].startswith(_HEADER_PREFIX):
         raise ValueError(
@@ -226,13 +172,6 @@ def parse_backup_csv(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
 def write_backup_csv(
     banks: list[MemoryBank], channels: list[MemoryChannel], *, timestamp: str = ""
 ) -> str:
-    """Inverse of parse_backup_csv(): render (banks, channels) back into
-    the same textual format, CRLF-terminated to match the real export
-    (no BOM added - callers writing to disk can prepend "\\ufeff"
-    themselves if they specifically need byte-identical AR-DV10 Connect
-    compatibility). ``timestamp`` fills the header's date/time field;
-    left blank if not given, since it's cosmetic and this project has no
-    reason to fabricate one."""
     lines = [f"DEPMICRO-BACKUP,MEM BANK,AR-DV10,P,{timestamp}"]
     lines.extend(b.to_csv_row() for b in sorted(banks, key=lambda b: b.index))
     lines.extend(c.to_csv_row() for c in sorted(channels, key=lambda c: (c.bank, c.channel)))
@@ -240,14 +179,226 @@ def write_backup_csv(
 
 
 def empty_bank_set() -> tuple[list[MemoryBank], list[MemoryChannel]]:
-    """A fresh, fully-populated-but-empty (banks, channels) pair matching
-    the DV10's fixed layout (40 banks x 50 channels) - a starting point
-    for building a new memory database from scratch rather than editing
-    an existing export."""
     banks = [MemoryBank(index=i, protect=False, title="") for i in range(_BANK_COUNT)]
     channels = [
         MemoryChannel(bank=b, channel=c)
         for b in range(_BANK_COUNT)
         for c in range(_CHANNELS_PER_BANK)
     ]
+    return banks, channels
+
+
+
+
+def backup_to_json(banks: list[MemoryBank], channels: list[MemoryChannel]) -> str:
+    data = {
+        "format": _JSON_FORMAT,
+        "version": 1,
+        "banks": [
+            {"index": b.index, "protect": b.protect, "title": b.title}
+            for b in sorted(banks, key=lambda b: b.index)
+        ],
+        "channels": [
+            {
+                "bank": c.bank,
+                "channel": c.channel,
+                "protect": c.protect,
+                "frequency_hz": c.frequency_hz,
+                "step_hz": c.step_hz,
+                "offset_khz": c.offset_khz,
+                "mode": c.mode,
+                "pass_flag": c.pass_flag,
+                "name": c.name,
+            }
+            for c in sorted(channels, key=lambda c: (c.bank, c.channel))
+        ],
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def backup_from_json(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"not valid JSON: {exc}")
+    if not isinstance(data, dict) or data.get("format") != _JSON_FORMAT:
+        raise ValueError("not an aor-dv10-suite memory JSON backup")
+
+    banks, channels = empty_bank_set()
+    by_bank = {b.index: b for b in banks}
+    for b in data.get("banks", []) or []:
+        try:
+            idx = int(b["index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if idx in by_bank:
+            by_bank[idx].protect = bool(b.get("protect"))
+            by_bank[idx].title = str(b.get("title", ""))
+    by_ch = {(c.bank, c.channel): c for c in channels}
+    for c in data.get("channels", []) or []:
+        try:
+            key = (int(c["bank"]), int(c["channel"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        target = by_ch.get(key)
+        if target is None:
+            continue
+        target.protect = bool(c.get("protect"))
+        target.frequency_hz = c.get("frequency_hz")
+        target.step_hz = c.get("step_hz")
+        target.offset_khz = c.get("offset_khz")
+        target.mode = c.get("mode")
+        target.pass_flag = bool(c.get("pass_flag"))
+        target.name = str(c.get("name", ""))
+    return banks, channels
+
+
+
+
+def write_chirp_csv(channels: list[MemoryChannel]) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(_CHIRP_HEADER)
+    loc = 0
+    for c in sorted(channels, key=lambda c: (c.bank, c.channel)):
+        if c.is_empty:
+            continue
+        code = c.mode if (c.mode and len(c.mode) == 3) else "0F0"
+        digital, analog = code[1], code[2]
+        mode = "DV" if digital != "F" else _CHIRP_MODE_FROM_ANALOG.get(analog, "FM")
+        writer.writerow([
+            loc,
+            (c.name or "").strip()[:8],
+            f"{c.frequency_mhz:.6f}",
+            "",
+            "0.000000",
+            "",
+            "88.5",
+            "88.5",
+            "023",
+            "NN",
+            mode,
+            f"{(c.step_hz or 5000) / 1000:.2f}",
+            "S" if c.pass_flag else "",
+            "",
+            "",
+            "",
+            "",
+            "0",
+        ])
+        loc += 1
+    return out.getvalue()
+
+
+def parse_chirp_csv(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
+    text = text.lstrip("\ufeff")
+    reader = csv.reader(io.StringIO(text))
+    rows = [r for r in reader if any(cell.strip() for cell in r)]
+    if not rows:
+        raise ValueError("empty CHIRP CSV")
+    header = [h.strip().lower() for h in rows[0]]
+    if "frequency" not in header:
+        raise ValueError("not a CHIRP CSV - no 'Frequency' column in the header")
+
+    def idx(name: str) -> int:
+        return header.index(name) if name in header else -1
+
+    i_loc, i_name = idx("location"), idx("name")
+    i_freq, i_mode = idx("frequency"), idx("mode")
+    i_step, i_skip = idx("tstep"), idx("skip")
+
+    banks, channels = empty_bank_set()
+    by_ch = {(c.bank, c.channel): c for c in channels}
+    seq = 0
+    for cells in rows[1:]:
+        freq_raw = cells[i_freq].strip() if i_freq >= 0 and i_freq < len(cells) else ""
+        if not freq_raw:
+            continue
+        loc = seq
+        if i_loc >= 0 and i_loc < len(cells) and cells[i_loc].strip():
+            try:
+                loc = int(float(cells[i_loc]))
+            except ValueError:
+                loc = seq
+        seq = loc + 1
+        bank, channel = divmod(loc, _CHANNELS_PER_BANK)
+        if bank >= _BANK_COUNT:
+            continue
+        target = by_ch.get((bank, channel))
+        if target is None:
+            continue
+        try:
+            target.frequency_hz = round(float(freq_raw) * 1_000_000)
+        except ValueError:
+            continue
+        mode_str = cells[i_mode].strip().upper() if 0 <= i_mode < len(cells) else "FM"
+        analog = _ANALOG_FROM_CHIRP_MODE.get(mode_str)
+        target.mode = ("0F" + analog) if analog is not None else "0F0"
+        step_raw = cells[i_step].strip() if 0 <= i_step < len(cells) else ""
+        if step_raw:
+            try:
+                target.step_hz = round(float(step_raw) * 1000)
+            except ValueError:
+                target.step_hz = None
+        target.pass_flag = (0 <= i_skip < len(cells) and cells[i_skip].strip().upper() == "S")
+        target.name = cells[i_name].strip() if 0 <= i_name < len(cells) else ""
+        target.protect = False
+    return banks, channels
+
+
+def parse_generic_freq_csv(text: str) -> tuple[list[MemoryBank], list[MemoryChannel]]:
+    text = text.lstrip("\ufeff")
+    reader = csv.reader(io.StringIO(text))
+    rows = [r for r in reader if any(c.strip() for c in r)]
+    if not rows:
+        raise ValueError("empty CSV")
+    header = [c.strip().lower() for c in rows[0]]
+    mapped = [_GENERIC_FREQ_ALIASES.get(h) for h in header]
+    if "freq" in mapped:
+        col: dict[str, int] = {}
+        for i, key in enumerate(mapped):
+            if key and key not in col:
+                col[key] = i
+        data_rows = rows[1:]
+    else:
+        col = {"freq": 0, "name": 1, "mode": 2, "step": 3}
+        data_rows = rows
+
+    banks, channels = empty_bank_set()
+    by_ch = {(c.bank, c.channel): c for c in channels}
+
+    def cell(cells, key: str) -> str:
+        i = col.get(key, -1)
+        return cells[i].strip() if 0 <= i < len(cells) else ""
+
+    seq = 0
+    for cells in data_rows:
+        freq_raw = cell(cells, "freq")
+        if not freq_raw:
+            continue
+        try:
+            val = float(freq_raw)
+        except ValueError:
+            continue
+        hz = round(val * 1_000_000) if val < 100_000 else round(val)
+        if seq >= _BANK_COUNT * _CHANNELS_PER_BANK:
+            break
+        bank, channel = divmod(seq, _CHANNELS_PER_BANK)
+        target = by_ch[(bank, channel)]
+        target.frequency_hz = hz
+        name = cell(cells, "name")
+        if name:
+            target.name = name
+        analog = _ANALOG_FROM_CHIRP_MODE.get(cell(cells, "mode").upper())
+        target.mode = ("0F" + analog) if analog is not None else "0F0"
+        step_raw = cell(cells, "step")
+        if step_raw:
+            try:
+                target.step_hz = round(float(step_raw) * 1000)
+            except ValueError:
+                target.step_hz = None
+        seq += 1
+
+    if seq == 0:
+        raise ValueError("no usable frequency rows found")
     return banks, channels

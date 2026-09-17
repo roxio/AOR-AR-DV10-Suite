@@ -1,20 +1,20 @@
-"""Interactive REPL: a Yaesu-CAT-flavoured command line for the DV10.
-
-Short, terse verbs (f/m/sq/vol/agc/...) in the spirit of typing commands into
-a Yaesu radio's CAT terminal, plus a live status panel you can redraw with
-`s`, and a `raw` escape hatch that gives access to every command in
-aor_dv10.protocol.commands.COMMANDS even before it has a typed helper.
-"""
 
 from __future__ import annotations
 
-import shlex
 import time
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from rich.console import Console
 
+from ..command_utils import (
+    WEEKDAY_BITS,
+    on_off as _on_off,
+    parse_bank_link_tokens as _parse_bank_link_tokens,
+    parse_clock_digits as _parse_clock_digits,
+    split_command as _split_command,
+)
+from ..verb_registry import verb_names
 from ..device import (
     BACKLIGHT_MODES,
     DV10Device,
@@ -33,6 +33,7 @@ from ..timer import (
     receive_mode_vfo_search,
 )
 from ..memory import MemoryChannel, parse_backup_csv, write_backup_csv
+from ..record_format import format_pass_list, format_scan_group, format_search_bank
 from ..selectscan import SelectScanList, run_select_scan
 from ..protocol.codec import DV10Error
 from ..protocol.commands import COMMANDS
@@ -266,76 +267,28 @@ channel/interval, SD card, backups, ...) don't have a short verb yet - use
 aor_dv10.protocol.commands.COMMANDS for the full mnemonic list.
 """
 
-_VERBS = [
-    "s", "status", "f", "m", "sq", "lq", "nq", "vol", "agc", "agcspd",
-    "beep", "att", "attst", "re", "vfo", "raw", "describe", "power", "help",
-    "quit", "exit",
-    "step", "tone", "tonefreq", "dcs", "dcscode", "offset", "offsetfreq", "prio",
-    "mem", "rmem", "debug", "regchan", "search", "scan", "pass",
-    "vi", "vs", "ve", "timer", "sd", "scope", "select",
-    "backlight", "klcolor", "ifbw", "bw", "delay", "freetime", "serial",
-    "id", "sqltype", "priochan", "priointerval", "dmrcc", "dmrcm", "dmrslot",
-    "p25nac", "p25pm", "nxdnran", "nxdnnm", "dcrcode", "descr",
-    "beeplvl", "vollimit", "digain", "mgain", "contrast",
-    "movenext", "moveprev", "stepadj",
-    "zi", "clock", "writeprotect", "reset",
-    "an", "ct", "dj", "dk", "lc", "lt", "ox", "ts", "vq", "zs", "zt", "rt", "rx", "sb",
-    "sp", "sn",
-]
-
-
-def _on_off(token: str) -> bool:
-    token = token.strip().lower()
-    if token in ("on", "1", "true"):
-        return True
-    if token in ("off", "0", "false"):
-        return False
-    raise ValueError(f"expected on/off, got {token!r}")
-
-
-def _parse_clock_digits(token: str) -> tuple[int, int, int, int, int]:
-    """Accept a clock value as either the raw 10-digit DT wire shape
-    ("2601301500") or a punctuated friendly form ("26-01-30 15:00") and
-    return (yy, mm, dd, hh, minute) for DV10Device.set_clock(). DT's
-    real digit format is unconfirmed against hardware (see
-    DV10Device.get_clock()'s docstring) - this only assumes the front
-    panel's own "YY-MM-DD HH:MM" ordering, it doesn't add a new guess."""
-    digits = "".join(ch for ch in token if ch.isdigit())
-    if len(digits) != 10:
-        raise ValueError(
-            f'clock value must be 10 digits, "YYMMDDHHmm" (e.g. "2601301500" '
-            f'or "26-01-30 15:00") - got {token!r}'
-        )
-    return (
-        int(digits[0:2]), int(digits[2:4]), int(digits[4:6]),
-        int(digits[6:8]), int(digits[8:10]),
-    )
+_VERBS = verb_names()
 
 
 class Repl:
     def __init__(self, device: DV10Device, console: Console | None = None):
         self.device = device
         self.console = console or Console()
-        completer = WordCompleter(_VERBS + list(COMMANDS.keys()), ignore_case=True)
-        self.session = PromptSession("DV10> ", completer=completer)
-        # "mem load"-ed backup CSV, if any. File-format only, never touches the
-        # live MX/MA memory-channel wire commands.
         self.memory_banks: list = []
         self.memory_channels: list[MemoryChannel] = []
-        # Client-side select-scan list: session-only, never persisted or
-        # written to the receiver.
         self.select_scan_list = SelectScanList()
-        # Open log file for "debug on <path>"/--debug <path>, if any - see
-        # the "debug" verb and enable_debug()/disable_debug() below.
         self._trace_file = None
 
     def run(self) -> None:
         print_status(self.console, self.device)
         self.console.print("Type 'help' for commands.\n")
+        session = PromptSession(
+            "DV10> ", completer=WordCompleter(_VERBS + list(COMMANDS.keys()), ignore_case=True)
+        )
         try:
             while True:
                 try:
-                    line = self.session.prompt()
+                    line = session.prompt()
                 except (EOFError, KeyboardInterrupt):
                     break
                 line = line.strip()
@@ -352,8 +305,7 @@ class Repl:
             self.disable_debug()
 
     def dispatch(self, line: str) -> bool:
-        """Returns False to request exit."""
-        parts = shlex.split(line)
+        parts = _split_command(line)
         verb, args = parts[0].lower(), parts[1:]
 
         if verb in ("quit", "exit"):
@@ -412,15 +364,10 @@ class Repl:
                 raise ValueError("usage: re on|off")
             self.device.set_result_code_prefixing(_on_off(args[0]))
         elif verb == "vfo":
-            # "vfo [A|B|Z] [mhz] [mode]". Confirmed by testing: VF's EMBEDDED
-            # RF/ST/SH/MD fields are a silent no-op on a real DV10 ("vfo A
-            # 145.500000 F0" only switches VFO). So frequency/mode go through
-            # the standalone, separately-confirmed RF and MD writes after
-            # entering the chosen VFO.
             vfo = (args[0] if args else "A").strip().upper()
             if vfo not in ("A", "B", "Z"):
                 raise ValueError(f'vfo must be "A", "B", or "Z"')
-            self.device.enter_vfo_mode(vfo)  # bare VFt: select/enter the VFO
+            self.device.enter_vfo_mode(vfo)
             if len(args) > 1:
                 hz = round(float(args[1]) * 1_000_000)
                 self.device.set_frequency_hz(hz)
@@ -492,16 +439,11 @@ class Repl:
                 self.device.set_dcs_code(args[0])
             self.console.print(self.device.get_dcs_code())
         elif verb == "offset":
-            # OF takes an explicit direction sign: "offset <slot 00-39> [+|-]"
-            # (default "+").
             if args:
                 direction = args[1] if len(args) > 1 else "+"
                 self.device.set_offset_slot(int(args[0]), direction)
             self.console.print(self.device.get_offset_slot())
         elif verb == "offsetfreq":
-            # OL always needs an explicit slot number, for reads and writes:
-            # "offsetfreq <slot 00-39> [freq_mhz]". With no args, falls back to
-            # whatever slot OF currently has active.
             if len(args) >= 2:
                 self.device.set_offset_freq(int(args[0]), float(args[1]))
             if args:
@@ -512,9 +454,6 @@ class Repl:
                 slot = int(digits) if digits else 0
             self.console.print(self.device.get_offset_freq(slot))
         elif verb == "regchan":
-            # MM: register the currently-tuned VFO/bank/channel as the
-            # receiver's "last channel memory". Relies on
-            # register_last_channel()'s two-phase-response handling.
             code = self.device.register_last_channel()
             self.console.print(f"registration result code: {code}")
         elif verb == "prio":
@@ -594,8 +533,6 @@ class Repl:
                 self.device.set_step_adjust_hz(int(float(args[0])))
             self.console.print(self.device.get_step_adjust_hz())
         elif verb == "backlight":
-            # LB (LCD backlight mode) - NOT "klcolor" (KL, key backlight
-            # color) just below.
             if args:
                 self.device.set_backlight_mode(args[0])
             mode = self.device.get_backlight_mode()
@@ -617,8 +554,6 @@ class Repl:
             if options:
                 choices = ", ".join(str(v) for v in options)
             else:
-                # Empty options has two different causes, worth telling apart
-                # rather than one generic "none known".
                 digital = self.device.get_mode_info().digital_select
                 if digital and digital != "Digital off":
                     choices = f"none - auto-selected by the receiver while digital ({digital}) is active"
@@ -741,14 +676,6 @@ class Repl:
         return True
 
     def enable_debug(self, path: str | None = None) -> None:
-        """Start live protocol tracing - every raw TX/RX line, printed
-        dimmed to the console as it happens, and (if ``path`` is given)
-        also appended to that file so nothing is lost even if the
-        terminal scrollback isn't enough to copy from later. Safe to call
-        again while already on (e.g. --debug at startup, then "debug on
-        <path>" later to also start logging to a file) - it just replaces
-        the file, if any. Trace lines are recorded regardless of this
-        being called at all - see "debug last"/DV10Device.trace_lines()."""
         if self._trace_file is not None:
             try:
                 self._trace_file.close()
@@ -764,8 +691,6 @@ class Repl:
         self.device.set_trace_sink(self._trace_line)
 
     def disable_debug(self) -> None:
-        """Stop live tracing (recorded history is kept regardless - see
-        "debug last"). Safe to call even if tracing was never on."""
         self.device.set_trace_sink(None)
         if self._trace_file is not None:
             try:
@@ -784,12 +709,6 @@ class Repl:
                 pass
 
     def _dispatch_rmem(self, args: list[str]) -> None:
-        """Handles the "rmem ..." (receiver live memory) verb family - the
-        real MX/MA/MR/MW/MB/MQ wire commands, talking directly to whatever
-        is actually programmed into the receiver right now. Deliberately
-        separate from "mem ..." (the AR-DV10 Connect backup CSV workflow,
-        see aor_dv10.memory) - see aor_dv10.device.MemoryChannelInfo's
-        docstring for why the two field layouts aren't interchangeable."""
         if not args:
             raise ValueError(
                 "usage: rmem read <bank> <ch> | rmem readbank <bank> | "
@@ -864,10 +783,6 @@ class Repl:
             self.device.delete_memory_bank(int(rest[0]))
             self.console.print("bank deleted")
         elif sub == "find":
-            # Deliberately separate from "mem find" (which searches a loaded
-            # CSV's .name field), mirroring the project's mem/rmem split: the
-            # two read different data sources with different field layouts
-            # (MemoryChannelInfo.tag here vs. MemoryChannel.name there).
             if not rest:
                 raise ValueError("usage: rmem find <text> [bank]")
             needle = rest[0].strip().lower()
@@ -888,9 +803,6 @@ class Repl:
             raise ValueError(f"unknown 'rmem' subcommand: {sub!r}")
 
     def _dispatch_search(self, args: list[str]) -> None:
-        """Handles the "search ..." verb family - program-search banks
-        (SE/SR/SS/SX) and the session-only SL/SU range shortcuts - see
-        aor_dv10.device.DV10Device's "search banks" section."""
         if not args:
             raise ValueError(
                 "usage: search write <bank> [lo_mhz] [hi_mhz] [step_hz] [step_adj_hz] "
@@ -900,13 +812,7 @@ class Repl:
         sub, rest = args[0].lower(), args[1:]
 
         def _print_bank(info):
-            lo = f"{info.lower_limit_hz / 1_000_000:.4f}" if info.lower_limit_hz is not None else "?"
-            hi = f"{info.upper_limit_hz / 1_000_000:.4f}" if info.upper_limit_hz is not None else "?"
-            self.console.print(
-                f"bank {info.bank:02d}: {lo}-{hi} MHz  step={info.step_hz}  "
-                f"stepadj={info.step_adjust_hz}  mode={info.mode}  "
-                f"protect={info.write_protect}  {info.tag!r}"
-            )
+            self.console.print(format_search_bank(info))
 
         if sub == "write":
             if not rest:
@@ -960,24 +866,7 @@ class Repl:
         else:
             raise ValueError(f"unknown 'search' subcommand: {sub!r}")
 
-    @staticmethod
-    def _parse_bank_link_tokens(tokens: list[str]):
-        """Shared by "scan swrite/mwrite/banklink": trailing bank-number
-        tokens, or the single literal "clear" to send an explicit empty
-        list (BK's "99" disable-all shorthand) - see
-        DV10Device.write_search_scan_group()'s docstring for why this is
-        NOT the same thing as omitting the bank_link argument entirely
-        (which this helper is simply never asked to produce - the caller
-        passes None itself when there are no tokens at all)."""
-        if tokens == ["clear"]:
-            return []
-        return [int(t) for t in tokens]
-
     def _dispatch_scan(self, args: list[str]) -> None:
-        """Handles the "scan ..." verb family - search-side (SG) and
-        memory-side (MG) scan groups, plus their shared standalone AS
-        (auto-store) and BK (bank-link) sub-commands - see
-        aor_dv10.device.DV10Device's "scan groups" section."""
         if not args:
             raise ValueError(
                 "usage: scan sread <group> | "
@@ -989,10 +878,7 @@ class Repl:
         sub, rest = args[0].lower(), args[1:]
 
         def _print_group(info, *, kind: str) -> None:
-            self.console.print(
-                f"{kind} group {info.group:02d}: delay={info.delay_ds} free={info.free_time_s} "
-                f"autostore={info.auto_store} banks={list(info.bank_link)}"
-            )
+            self.console.print(format_scan_group(info, kind=kind))
 
         if sub == "sread":
             if not rest:
@@ -1007,7 +893,7 @@ class Repl:
             delay_ds = int(rest[1]) if len(rest) > 1 else None
             free_s = int(rest[2]) if len(rest) > 2 else None
             auto_store = _on_off(rest[3]) if len(rest) > 3 else None
-            bank_link = self._parse_bank_link_tokens(rest[4:]) if len(rest) > 4 else None
+            bank_link = _parse_bank_link_tokens(rest[4:]) if len(rest) > 4 else None
             self.device.write_search_scan_group(
                 group, delay_ds=delay_ds, free_time_s=free_s,
                 auto_store=auto_store, bank_link=bank_link,
@@ -1023,7 +909,7 @@ class Repl:
             group = int(rest[0])
             delay_ds = int(rest[1]) if len(rest) > 1 else None
             free_s = int(rest[2]) if len(rest) > 2 else None
-            bank_link = self._parse_bank_link_tokens(rest[3:]) if len(rest) > 3 else None
+            bank_link = _parse_bank_link_tokens(rest[3:]) if len(rest) > 3 else None
             self.device.write_memory_scan_group(
                 group, delay_ds=delay_ds, free_time_s=free_s, bank_link=bank_link,
             )
@@ -1034,16 +920,12 @@ class Repl:
             self.console.print("on" if self.device.get_auto_store() else "off")
         elif sub == "banklink":
             if rest:
-                self.device.set_bank_link(self._parse_bank_link_tokens(rest))
+                self.device.set_bank_link(_parse_bank_link_tokens(rest))
             self.console.print(self.device.get_bank_link())
         else:
             raise ValueError(f"unknown 'scan' subcommand: {sub!r}")
 
     def _dispatch_pass(self, args: list[str]) -> None:
-        """Handles the "pass ..." verb family - pass frequencies (PW mark
-        / PR list / PD delete), the list of frequencies VFO search or a
-        program search should skip past instead of stopping on - see
-        aor_dv10.device.DV10Device's "pass frequencies" section."""
         if not args:
             raise ValueError(
                 "usage: pass mark [mhz] | pass mark bank <bank> [mhz] | "
@@ -1073,10 +955,7 @@ class Repl:
         elif sub == "list":
             bank = int(rest[0]) if rest else None
             entries = self.device.list_pass_frequencies(bank=bank)
-            used = [e for e in entries if e.frequency_hz is not None]
-            for e in used:
-                self.console.print(f"{e.index:02d}: {e.frequency_hz / 1_000_000:.4f} MHz")
-            self.console.print(f"({len(used)} of {len(entries)} slots used)")
+            self.console.print(format_pass_list(entries))
         elif sub == "delete":
             if rest and rest[0].lower() == "bank":
                 if len(rest) < 2:
@@ -1096,18 +975,7 @@ class Repl:
         else:
             raise ValueError(f"unknown 'pass' subcommand: {sub!r}")
 
-    _WEEKDAY_BITS = {
-        "sun": 1, "mon": 2, "tue": 4, "wed": 8, "thu": 16, "fri": 32, "sat": 64,
-    }
-
     def _dispatch_timer(self, args: list[str]) -> None:
-        """Handles the "timer ..." verb family - TR, the scheduled
-        recording/alarm timer - see aor_dv10.timer's module docstring
-        for the significant spec-reconstruction caveats (the AR-DV1 spec
-        PDF's own TR table entry is internally inconsistent) before
-        relying on this for anything real. A friendlier "Schedule" panel
-        (CLI or web) is left for later - this is deliberately the
-        raw-fields version, not a polished one."""
         def _print_timer(t: RecordingTimer) -> None:
             self.console.print(
                 f"action={t.action} type={t.timer_type} repeat={t.repeat} "
@@ -1157,7 +1025,7 @@ class Repl:
             weekdays: tuple = ()
             if days_arg and days_arg != "-":
                 try:
-                    weekdays = tuple(self._WEEKDAY_BITS[d.strip().lower()] for d in days_arg.split(","))
+                    weekdays = tuple(WEEKDAY_BITS[d.strip().lower()] for d in days_arg.split(","))
                 except KeyError as exc:
                     raise ValueError(f"unknown weekday {exc.args[0]!r} - use sun,mon,tue,wed,thu,fri,sat")
 
@@ -1180,12 +1048,6 @@ class Repl:
         raise ValueError(f"unknown 'timer' subcommand: {sub!r}")
 
     def _dispatch_sd(self, args: list[str]) -> None:
-        """Handles the "sd ..." verb family - SD card management:
-        SD DIR/INF/PST/REC/PLY/RSQ/MMW/MMR. See
-        src/aor_dv10/device.py's "SD card management" section for the
-        underlying API and its caveats (notably the misspelled SYSYEM
-        backup token, and the deliberately-raw-only SD LGR/SD TYP, which
-        the spec itself marks "No function" on this receiver)."""
         if not args:
             raise ValueError(
                 "usage: sd dir|info|status|rec|play|rsq|backup|restore ..."
@@ -1226,8 +1088,6 @@ class Repl:
                 self.device.sd_record_start()
                 self.console.print("recording started")
             else:
-                # AR-DV1's documented remote stop (SD REC /) WEDGES an
-                # AR-DV10 - recording stops with the front-panel key only.
                 if self.device.device_family() == "DV10":
                     raise ValueError(
                         "sd rec stop is not supported on the AR-DV10 - "
@@ -1264,8 +1124,6 @@ class Repl:
                 raise ValueError(
                     "usage: sd backup <kind> - one of SRCHBK/SRCHGRP/MEMCH/SCANGRP/SYSYEM"
                 )
-            # SD MMW (file backup) is "No function" on the AR-DV10 and is only
-            # supported on AR-DV1/DV3. Deny rather than poking the radio.
             if self.device.device_family() == "DV10":
                 raise ValueError(
                     "sd backup is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
@@ -1277,7 +1135,6 @@ class Repl:
         if sub == "restore":
             if not rest:
                 raise ValueError("usage: sd restore <name>")
-            # SD MMR (file restore) is "No function" on the AR-DV10 - see above.
             if self.device.device_family() == "DV10":
                 raise ValueError(
                     "sd restore is not supported on the AR-DV10 - it's an AR-DV1/DV3 feature"
@@ -1289,20 +1146,10 @@ class Repl:
         raise ValueError(f"unknown 'sd' subcommand: {sub!r}")
 
     def _dispatch_scope(self, args: list[str]) -> None:
-        """Handles the "scope ..." verb family - FD/GL frequency scope,
-        printed as a text sparkline. See
-        aor_dv10.device.DV10Device's "Frequency scope" section for the
-        significant caveat this whole area carries: no known way to enter
-        the "scope mode" both commands document as a precondition, found
-        anywhere in any AR-DV10/AR-DV1 reference document (including the
-        full operating manual) - expect a DV10ProtocolError (result code
-        30) on real hardware unless/until that turns out to be wrong."""
         if not args or args[0].lower() not in ("fast", "normal"):
             raise ValueError("usage: scope fast|normal")
         sub = args[0].lower()
 
-        # Coarse, dependency-free sparkline: 8 levels, no external charting
-        # library - good enough for a terminal-only quick look.
         ramp = " .:-=+*#%@"
 
         def _spark(values: list) -> str:
@@ -1338,12 +1185,6 @@ class Repl:
         self.console.print(f"{len(lines)} points, {lo_mhz:.5f}-{hi_mhz:.5f} MHz")
 
     def _dispatch_select(self, args: list[str]) -> None:
-        """Handles the "select ..." verb family - a purely client-side,
-        AR8200-inspired select-scan list. See
-        aor_dv10.selectscan's module docstring: nothing in
-        the AR-DV1 spec documents an equivalent wire-level feature, so
-        this loops tune_memory_channel() (MR) over a session-only list
-        rather than talking to any dedicated select-scan command."""
         if not args:
             raise ValueError(
                 "usage: select add <bank> <ch> | select remove <bank> <ch> | "
@@ -1395,15 +1236,6 @@ class Repl:
         raise ValueError(f"unknown 'select' subcommand: {sub!r}")
 
     def _dispatch_debug(self, args: list[str]) -> None:
-        """Protocol tracing: every raw TX/RX line to/from the
-        device, byte-exact via repr() - so a stray space, an unexpected
-        CR/LF, or a non-ASCII byte a real unit sends back is visible
-        rather than silently stripped or decoded away. The point is
-        pasting exact, unambiguous communication back for diagnosis:
-        "debug on" to watch it live, "debug last [N]" to pull recent
-        history at any time (works even without "debug on" - see
-        DV10Device.trace_lines()), "debug save <path>" to dump it all to
-        a file that's easy to attach or paste from."""
         if not args:
             raise ValueError(
                 "usage: debug on [logfile] | debug off | debug last [N] | debug save <path>"
@@ -1435,14 +1267,6 @@ class Repl:
             raise ValueError(f"unknown 'debug' subcommand: {sub!r}")
 
     def _dispatch_mem(self, args: list[str]) -> None:
-        """Handles the "mem ..." verb family - loading/searching/exporting
-        an "AR-DV10 Connect" memory-bank backup CSV, and tuning to a
-        loaded channel by replaying its frequency/mode/step through the
-        already-confirmed f/m/step writes. Deliberately separate from
-        "rmem ..." (the live MX/MA/MR/MW/MB/MQ wire commands - see
-        _dispatch_rmem()) - see aor_dv10.memory's module
-        docstring and aor_dv10.device.MemoryChannelInfo's docstring for
-        why the two field layouts aren't interchangeable."""
         if not args:
             raise ValueError(
                 "usage: mem load <path> | mem find <text> | mem list [bank] | "
@@ -1517,8 +1341,6 @@ class Repl:
             if match.step_hz:
                 self.device.set_frequency_step_hz(match.step_hz)
             if match.mode and len(match.mode) == 3:
-                # CSV mode is "<receiving><digital-select><analog-select>";
-                # set_mode() wants "<digital-select><analog-select>".
                 self.device.set_mode(match.mode[1:3])
             self.console.print(
                 f"Tuned to {match.bank_channel} ({match.name.strip() or 'unnamed'}): "

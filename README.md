@@ -250,6 +250,88 @@ devices on the LAN need to actually reach it.
 > `.local` address) while troubleshooting mDNS/firewall settings on your
 > network.
 
+## Web panel notes & caveats
+
+The web panel keeps its inline hints to one short line; the fuller reasoning -
+and every "unconfirmed on hardware" caveat - lives here.
+
+- **Spectrum scope (FD/GL).** Both only return data while the receiver is
+  already "in scope mode". No command or front-panel procedure to enter that
+  mode is documented anywhere in the AR-DV10/AR-DV1 material (the operating
+  manual never mentions a bandscope feature). On real hardware these buttons
+  will most likely return error 30 ("Not in scope mode") rather than data -
+  established from the documentation trail, not tested live (see
+  `docs/PROTOCOL.md`).
+- **Factory reset (RS).** System reset keeps memory data; Full reset erases
+  everything (manual 11.2 items 4/5). The 0/1 argument encoding is an
+  unconfirmed guess, so either button may behave unexpectedly on a real unit.
+  Use only on hardware you don't mind losing settings/memories on. Both are
+  armed on first click and send on a second click within 3 seconds.
+- **Memory Bank Editor (live MA/MX).** Loads live memory bank(s) from the
+  receiver into the editable table. You can save a single row, or push a whole
+  loaded bank's rows back (MX) with "Overwrite Bank" / "Overwrite All Loaded
+  Banks". Either overwrite action is destructive in the same sense any MX write
+  is: it replaces whatever was in that slot, edited or not. Write-protected rows
+  are skipped unless the "Include write-protected rows" checkbox is on.
+- **Live memory / CSV bridge.** Live MA reads have a different (smaller)
+  confirmed field set than the "AR-DV10 Connect" CSV format: there is no offset
+  and no step-adjust on the live side, and the exact shape of the mode code is
+  not confirmed to match - treat a reported mode difference with that in mind.
+  Frequency / protect / name / pass-flag differences are solid.
+- **SD card (AR-DV10).** Rec Stop / Backup / Restore are disabled in the panel.
+  A real AR-DV10 reportedly wedges if these are sent remotely (per the AR-DV1
+  spec's own `/` stop convention). Stop recording with the front-panel ● key.
+- **Automation.** Interval jobs run server-side - periodic memory backups and
+  periodic program searches, even with no browser open. Each job has a Run-now
+  action.
+- **Comm speed (SB).** Changing this remotely can sever the very serial
+  connection used to send the command. The Set button is armed on first click
+  and sends on a second click within 3 seconds.
+- **Digital codes (CC/CM/OT/PC/PM/NC/NM/DC).** The selection commands (CI/DI)
+  are confirmed against real hardware; the CN/DS tone and code tables are
+  manual-sourced and not wire-confirmed. Every code in the "Digital Codes" panel
+  carries its own confidence-dot tooltip.
+- **Experimental / unused commands.** Only a one-line description exists for
+  these in the command registry - no fuller spec was available to confirm field
+  formats, so every control is a literal raw passthrough. Treat values as
+  unconfirmed.
+- **Visualizations.** Sparkline / squelch history / error log are built purely
+  from data already polled every ~1.5 s. No new device commands; history resets
+  on page reload.
+- **Select-Scan.** The list is client-side only (never written to the receiver).
+  "select run" blocks this browser tab's connection for the whole scan each time
+  it fires; the optional recurring schedule is client-side and stops on reload.
+- **Pass frequencies (PW/PR/PD).** A per-bank or all-banks skip list for program
+  search, separate from memory channels.
+- **Signal log & alerts.** Logs each squelch-open / digital-detect event with
+  frequency, level and mode, kept in this browser's localStorage. Threshold
+  alerts are debounced state-transition alerts and respect browser notification
+  permission.
+- **Serial number (SN vs RN).** SN is a separate command from RN - not a
+  duplicate. Unlike RN it has no dedicated spec section in any reference
+  document available to this project; it may be an orphaned placeholder in the
+  command summary table with nothing confirmed behind it.
+- **Telemetry drawer.** Read-only telemetry commands
+  (AN/VQ/CT/DJ/DK/LD/LU/LC/LT/NR/LS/TS/RT/RX/MDB/ZI/RN) - device status queries
+  only, no write controls.
+- **Command queue.** Shows pending commands with their per-action timeouts.
+  Destructive commands never auto-fire - they require explicit confirmation.
+- **Register last channel (MM).** Registers whatever the receiver is currently
+  tuned to as its own "last channel memory" (what it powers back up on). Real
+  effect on the device; cannot be undone; invalid while write-protect (PT) is
+  on.
+- **Search banks (SE/SR).** A saved frequency range with its own step/mode for
+  program search, separate from memory channels.
+- **VFO panel / templates.** "Set VFO" writes frequency/mode as separate RF/MD
+  commands after selecting the VFO - VF's embedded fields are confirmed to
+  silently no-op on a real DV10. Named VFO targets are stored in the browser's
+  localStorage, not auto-saved to the device.
+- **Scan groups (SG/MG).** Search-side (SG) and memory-side (MG) groups link
+  several banks into one scan pass. SG has its own per-group auto-store field;
+  MG does not - a real protocol asymmetry.
+- **Sleep timer (SP).** Marked "No function" for the DV10 in the official
+  command summary table - kept for completeness; likely a no-op.
+
 ## Protocol notes
 
 A few real-hardware behaviors worth knowing before wiring up a real DV10:

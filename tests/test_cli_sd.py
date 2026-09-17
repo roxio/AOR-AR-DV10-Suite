@@ -1,8 +1,5 @@
-"""Regression tests for the CLI "sd" verb family - SD
-card management. See tests/test_sd_card.py and src/aor_dv10/device.py's "SD
-card management" section for the underlying API this wraps. All against
-the simulator; nothing here has been checked against real hardware.
-"""
+
+import os
 
 import pytest
 
@@ -13,10 +10,12 @@ from aor_dv10.device import DV10Device
 from aor_dv10.protocol.codec import DV10ProtocolError
 
 
-def make_repl() -> Repl:
+def make_repl(model: str = "AOR AR-DV10") -> Repl:
     dev = DV10Device.open_simulator()
     dev.connect()
-    console = Console(file=open("/dev/null", "w"))
+    if model:
+        dev._transport.state["WI"] = model  # noqa: SLF001 - simulator: pick the device family
+    console = Console(file=open(os.devnull, "w"))
     return Repl(dev, console)
 
 
@@ -36,12 +35,20 @@ def test_cli_sd_status():
 
 
 def test_cli_sd_rec_start_stop_roundtrip():
-    repl = make_repl()
+    repl = make_repl("AOR AR-DV1")
     assert repl.dispatch("sd rec start") is True
     assert repl.device.sd_status() == "1"
     assert repl.dispatch("sd rec stop") is True
     assert repl.device.sd_status() == "0"
     assert len(repl.device.sd_dir()) == 1
+
+
+def test_cli_sd_rec_start_only_on_dv10():
+    repl = make_repl()
+    assert repl.dispatch("sd rec start") is True
+    assert repl.device.sd_status() == "1"
+    with pytest.raises(ValueError):
+        repl.dispatch("sd rec stop")
 
 
 def test_cli_sd_rec_bad_subcommand_raises():
@@ -51,7 +58,7 @@ def test_cli_sd_rec_bad_subcommand_raises():
 
 
 def test_cli_sd_play_and_stop():
-    repl = make_repl()
+    repl = make_repl("AOR AR-DV1")
     repl.dispatch("sd rec start")
     repl.dispatch("sd rec stop")
     name = repl.device.sd_dir()[0].name
@@ -83,11 +90,17 @@ def test_cli_sd_rsq_bad_value_raises():
 
 
 def test_cli_sd_backup_and_restore():
-    repl = make_repl()
+    repl = make_repl("AOR AR-DV1")
     assert repl.dispatch("sd backup SRCHBK") is True
     assert repl.dispatch("sd restore SRCHBK") is True
     files = repl.device.sd_dir()
     assert any(f.name == "SRCHBK" for f in files)
+
+
+def test_cli_sd_backup_refused_on_dv10():
+    repl = make_repl()
+    with pytest.raises(ValueError):
+        repl.dispatch("sd backup SRCHBK")
 
 
 def test_cli_sd_backup_bad_kind_raises():
