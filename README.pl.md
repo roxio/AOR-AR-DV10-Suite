@@ -9,7 +9,7 @@ poleceń" w przeglądarce. Wszystkie cztery opierają się na jednym API
 `DV10Device`, więc poprawki protokołu i nowe polecenia wystarczy zrobić
 raz.
 
-<img width="1133" height="471" alt="DV10-webpanel" src="https://github.com/user-attachments/assets/c9062085-49a0-4de0-92e1-10ebbfc8aea1" />
+<img width="1120" height="847" alt="wersja01" src="https://github.com/user-attachments/assets/3fb20cf1-e728-4a88-b51b-e93cfcdebfc0" />
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
