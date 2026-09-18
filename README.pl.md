@@ -9,7 +9,7 @@ poleceń" w przeglądarce. Wszystkie cztery opierają się na jednym API
 `DV10Device`, więc poprawki protokołu i nowe polecenia wystarczy zrobić
 raz.
 
-<img width="1120" height="847" alt="wersja01" src="https://github.com/user-attachments/assets/3fb20cf1-e728-4a88-b51b-e93cfcdebfc0" />
+
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
@@ -27,7 +27,6 @@ raz.
              (real USB)      (fake device, no hardware needed)
 ```
 
-<img width="885" height="338" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/529fa03c-b2b1-4f0a-9f92-369ae52b63ed" />
 
 `dv10-cli --web` uruchamia CLI *oraz* panel webowy razem, jednym
 poleceniem, współdzieląc jeden `DV10Device` / jedno połączenie szeregowe -
@@ -113,7 +112,15 @@ dv10-web --simulator                        # wymaga dodatku [web], następnie o
 dv10-cli                      # automatyczne wykrycie DV10 po VID/PID USB
 dv10-cli --port COM7          # ...lub jawnie wskaż port (Windows)
 dv10-cli --port /dev/ttyACM0  # ...(Linux)
+python -m aor_dv10.gui.app    # Windows GUI
+
 ```
+
+
+<img width="876" height="304" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/398b8665-3b2c-48ee-9933-e93e52eeee6a" />
+
+<img width="1110" height="863" alt="pythonGUI" src="https://github.com/user-attachments/assets/73e5b8ae-2ed2-4071-bc7d-499aecc44c82" />
+
 
 Odbiornik jest wykrywany po identyfikatorach USB (`0x08D0` / `0x0101`);
 podaj `--port` (CLI) lub `--serial-port` (`dv10-web`), aby to
@@ -134,6 +141,11 @@ dv10-cli --web --web-port 9000       # ...na innym porcie
 dv10-cli --mdns                      # implikuje --web, dodatkowo http://aordv10.local:8000/ w LAN
 dv10-cli --simulator --web           # wypróbuj zestaw bez sprzętu
 ```
+
+
+<img width="1120" height="847" alt="wersja01" src="https://github.com/user-attachments/assets/9bb7a935-9a44-436e-9a5f-2dbe87fbc556" />
+
+
 
 Wymaga dodatku `[web]` (`pip install -e ".[web]"`) - jeśli go brak,
 `--web`/`--mdns` wypiszą czytelny komunikat i zakończą pracę, zamiast
