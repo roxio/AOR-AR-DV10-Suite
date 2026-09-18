@@ -35,15 +35,12 @@ patrz „Jedno polecenie, oba interfejsy" poniżej.
 
 ## Status
 
-Rdzeń biblioteki USB/protokołu, konsolowe CLI i panel webowy są gotowe i
-przetestowane na wbudowanym symulatorze (patrz niżej): terminal WebSocket
-panelu webowego i panele przycisków sięgają do każdej rodziny poleceń,
-jaką ma CLI - w tym kanałów/banków pamięci na żywo, banków wyszukiwania,
-grup skanowania, częstotliwości pomijanych, nagrywania VFO/harmonogramu,
-obsługi karty SD, analizatora widma i listy select-scan. Aplikacja
-graficzna (PySide6) to wciąż działający szkielet obejmujący tylko
-pierwotną garść kontrolek - punkt startowy do dalszej pracy, a nie
-skończony produkt.
+Rdzeń biblioteki USB/protokołu, konsolowe CLI, aplikacja graficzna i panel
+webowy są funkcjonalne i przetestowane na wbudowanym symulatorze (patrz
+niżej). Panel webowy i GUI sięgają do każdej rodziny poleceń, jaką ma CLI
+- w tym kanałów/banków pamięci na żywo, banków wyszukiwania, grup
+skanowania, częstotliwości pomijanych, nagrywania VFO/harmonogramu,
+obsługi karty SD, analizatora widma i listy select-scan.
 
 Większość szczegółów protokołu przewodowego została zweryfikowana z
 dokumentacją poleceń AOR i, tam gdzie to możliwe, sprawdzona na prawdziwym
@@ -377,10 +374,117 @@ quit, exit             rozłącz i wyjdź
 
 ## GUI (PySide6)
 
-`python -m aor_dv10.gui.app` (lub z `--simulator`) otwiera minimalne okno
-Qt obejmujące pierwotną garść kontrolek. To **szkielet fazy 2**, nie na
-równi z CLI ani panelem webowym, i następny interfejs przewidziany do
-prawdziwej pracy.
+`python -m aor_dv10.gui.app --simulator` (lub `--port COM7` dla prawdziwego
+sprzętu) otwiera dashboard złożony z kart, zbudowany w tym samym języku
+wizualnym co panel webowy: ta sama zaokrąglona „obudowa", ekran LCD w
+ramce z wyrównaną do prawej częstotliwością monospace, metalowe pokrętło
+strojenia, pigułkowe przełączniki typu rocker dla opcji wł./wył., małe
+przyciski funkcyjne monospace oraz te same palety
+(ciemna/jasna/bursztynowa/nocna). Dołącza te same kroje **Inter** i
+**JetBrains Mono**, które ładuje panel webowy, więc typografia też się
+zgadza. Działa na tym samym API `DV10Device`,
+więc jest zsynchronizowany z CLI i panelem webowym.
+
+```
+python -m aor_dv10.gui.app --simulator
+python -m aor_dv10.gui.app --port COM7
+python -m aor_dv10.gui.app --simulator --theme amber
+```
+
+Przełączniki: `--simulator`, `--port`, `--baud` (domyślnie 115200) oraz
+`--theme` (`dark`, `light`, `amber`, `green`). Motyw zmienia się też z
+listy w nagłówku.
+
+Podobnie jak panel webowy, GUI jest **dwujęzyczne**: lista wyboru języka
+w nagłówku przełącza każdą etykietę, przycisk, nagłówek i tytuł karty
+między angielskim i polskim (wartości pochodzące z urządzenia, np. nazwy
+trybów czy surowe odczyty, pozostają takie, jak raportuje odbiornik).
+
+Okno to przewijany dashboard odzwierciedlający panel webowy od góry:
+najpierw górny pasek, potem pojedynczy **ekran LCD** i panel **Tune**
+obok siebie (dokładnie jak `console-top-row` w panelu webowym,
+LCD ~58% / Tune ~42%), a następnie pozostałe panele pogrupowane w te same
+rozwijane
+grupy co w panelu webowym (*Więcej: Squelch / Poziomy / Kody / Offset ·
+Priorytet*, *Kanały pamięci i pamięć na żywo*, *VFO · Wyszukiwanie ·
+Nagrywanie · Karta SD*, *Banki wyszukiwania · Grupy skanowania ·
+Pomijane*, *Analizator widma · Select-Scan · Ustawienia dodatkowe*,
+*Ulubione · Dziennik sygnałów · Alerty · Migawki · Automatyzacja ·
+Presety*, *Surowa konsola i kolejka poleceń*). W szczegółach:
+
+- **Górny pasek** - tabliczka (dioda połączenia + „AOR AR-DV10" + firmware),
+  rząd kontrolek inline (dźwięk klawiszy, RE, suwaki poziomu dźwięku i
+  kontrastu z chipami odczytu, wybór podświetlenia, zasilanie WŁ./WYŁ.)
+  oraz przełączniki języka / motywu, synchronizacja zegara i ponowne
+  połączenie.
+- **Ekran LCD** - jeden ekran w ramce, dokładnie jak w panelu webowym:
+  blok VFO z tagiem trybu, duża częstotliwość wyrównana do prawej z
+  jednostką MHz, częstotliwości dwóch pozostałych VFO po prawej, chipy
+  trybu (odbiór/cyfrowy/analogowy), segmentowy S-metr ze znacznikami
+  `S1 … +60 dB` i pigułką SQL oraz klikalne chipy statusu (tłumik,
+  prędkość AGC, typ squelch, pasmo IF), które przełączają się po kliknięciu.
+- **Matryca trybów** - siatki przycisków cyfrowych
+  (D-STAR/YAESU/ALINCO/D-CR/P25/dPMR/DMR/TETRA) i analogowych
+  (FM/AM/SAH/SAL/USB/LSB/CW) wewnątrz LCD, z *Digital off* i *Set Mode*.
+- **Tune** - metalowe pokrętło (przeciąganie lub kółko), pole
+  częstotliwości, klawiatura `CE`/`ENT`, przyciski kroków
+  (±1 MHz / ±25 kHz / ±5 kHz), wybór VFO A/B/Z, ruch prev/next z przedniego
+  panelu i wyszukiwanie VFO (`VS`).
+- **Squelch** - przyciski trybu `SQ`, suwaki `LQ`/`NQ`, przełączniki
+  CTCSS (`CI`/`CN`) i DCS (`DI`/`DS`) z pełnymi listami tonów (54 CTCSS)
+  i kodów (106 DCS), w tym `OFF`/`SRCH`.
+- **Poziomy** - prędkość AGC (`AC`), stan tłumika (`AT`), suwaki limitu
+  głośności (`AV`), wzmocnienia cyfrowego (`DA`) i ręcznego (`RG`).
+- **Opcje i zasilanie** - poziom dźwięku (`BP`), kontrast LCD (`LN`),
+  podświetlenie (`LB`), prefiksowanie kodów wyniku (`RE`), write-protect
+  (`PT`), ID odbiornika (`ZI`), zasilanie (`ZP`/`QP`) i uzbrajany
+  dwuklikiem reset fabryczny (`RS`).
+- **Kody cyfrowe / offset / priorytet** - DMR (`CC`/`CM`/`OT`), P25
+  (`PC`/`PM`), NXDN (`NC`/`NM`), rozszyfrowanie D-CR (`DC`), deszyfrator
+  mowy (`SI`), slot/częstotliwość offsetu (`OF`/`OL`) i priorytet
+  (`PO`/`PP`/`TI`).
+- **Kanały pamięci i pamięć na żywo** - import backupowego CSV „AR-DV10
+  Connect", migawki JSON, CSV CHIRP lub pliku ADIF, filtrowanie/przegląd
+  kanałów, dostrojenie kliknięciem i eksport z powrotem do tych formatów.
+- **Edytor banków pamięci na żywo** - wczytanie banku prosto z odbiornika
+  (`MA`) do edytowalnej tabeli i zapis wierszy lub całego banku (`MX`).
+- **Banki wyszukiwania / grupy skanowania / pomijane** - odczyt/zapis
+  banków (`SE`/`SR`/`SS`/`SX`), grup (`SG`/`MG`), częstotliwości
+  pomijanych (`PW`/`PR`/`PD`) i auto-zapisu (`AS`).
+- **Wyszukiwanie VFO / nagrywanie / karta SD** - katalog/info/status SD,
+  nagrywanie/odtwarzanie, pomijanie squelch i ustawienia wyszukiwania VFO
+  (`VE`).
+- **Select-scan** - lista po stronie hosta z nieblokującym runnerem
+  interwałowym.
+- **Analizator widma** - odczyty `FD`/`GL` rysowane jako wypełniony
+  sparkline.
+- **Migawki i automatyzacja** - migawki JSON z sygnaturą czasu w
+  `dv10_backups/` (twórz/przywróć/usuń) oraz zadania cykliczne (backup lub
+  wyszukiwanie programowe) napędzane lokalnym timerem.
+- **Dziennik sygnałów** - zdarzenia otwarcia squelch / wykrycia cyfrowego
+  z częstotliwością, poziomem i trybem, przechwytywane po stronie klienta.
+- **Telemetria** - odczyty statusu urządzenia tylko do odczytu (`AN`/`VQ`/
+  `CT`/`DJ`/`DK`/`LC`/`LT`/`OX`/`TS`/`RT`/`RX`/`ZI`/`RN`, ...).
+- **Porównanie VFO i szablony** - odczyt wszystkich trzech VFO (`VI`) do
+  tabeli obok siebie oraz zapis/zastosowanie/usunięcie nazwanych szablonów
+  VFO (przechowywanych w `QSettings`).
+- **Ustawienia dodatkowe** - pozycje pasma IF dla bieżącego trybu,
+  opóźnienie (`DL`) / czas wolny (`FR`), kolor podświetlenia klawiszy
+  (`KL`), ustawienie zegara (`DT`, „na teraz"), timer uśpienia (`SP`),
+  prędkość transmisji (`SB`, uzbrajana) oraz ruch poprzedni/następny
+  (`ZJ`/`ZK`).
+- **Timer nagrywania (TR)** - odczyt i zapis harmonogramu alarmu/nagrywania
+  (akcja, raz/co tydzień, start/koniec, dni tygodnia, głośność alarmu).
+- **Dziennik błędów** - każde błędne zdarzenie urządzenia/protokołu z GUI,
+  z sygnaturą czasu.
+- **Surowa konsola** - `raw CODE [VALUE]`, `describe CODE`, `debug last N`
+  z historią poleceń, plus **kolejka poleceń** (dodaj kilka poleceń,
+  uruchom po kolei, status per polecenie) i widok **śladu protokołu**
+  (przełącznik na żywo, pokaż ostatnie 50, zapis do pliku).
+
+GUI ma test dymny (`tests/test_gui_smoke.py`), który buduje całe okno na
+symulatorze, stosuje każdy motyw i odświeża każdy panel; jest pomijany
+automatycznie, gdy PySide6 nie jest zainstalowane.
 
 ## Panel webowy
 
@@ -781,7 +885,7 @@ src/aor_dv10/
   protocol/         rejestr poleceń (commands.py), ramkowanie/kodek (codec.py),
                     parsowanie odpowiedzi (parsing.py)
   cli/              interaktywny REPL + runner nieinteraktywny (dv10-cli)
-  gui/              aplikacja PySide6 (szkielet fazy 2)
+  gui/              dashboard PySide6: tokeny motywów + karty w stylu panelu webowego
   web/              panel FastAPI: API statusu, endpointy REST, konsola
                     WebSocket, static/index.html
 tests/              zestaw pytest, działa w całości na symulatorze
@@ -793,9 +897,10 @@ docs/               PROTOCOL.md / ROADMAP.md (trzymane lokalnie, niepublikowane)
 1. Uruchom `dv10-cli --port <twój-port>` na prawdziwym odbiorniku i
    porównaj odpowiedzi z symulatorem; popraw kodowania w `device.py` /
    `serial_transport.py` dla wszystkiego, co się nie zgadza.
-2. Rozbuduj GUI (PySide6) do głębi panelu webowego - to wciąż pierwotny
-   szkielet fazy 2, obecnie jedyny interfejs wyraźnie w tyle za pełną
-   powierzchnią `DV10Device`.
+2. Utrzymuj zestaw kart GUI w kroku z panelem webowym - oba pokrywają już
+   te same rodziny poleceń, ale kilka udogodnień tylko webowych (trwałość
+   migawek i zadań po stronie serwera, bogatsze podpowiedzi) mogłoby
+   jeszcze przejść do GUI.
 3. Wydziel dyspozytor poleceń CLI i panelu webowego do jednego wspólnego,
    niezależnego od formatowania modułu - oba to wciąż ręcznie przenoszone
    kopie siebie nawzajem (`dispatch()` w `cli/repl.py` vs

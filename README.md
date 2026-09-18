@@ -34,15 +34,12 @@ command, both interfaces" below.
 
 ## Status
 
-The core USB/protocol library, the desktop CLI, and the web panel are
-complete and tested against a built-in simulator (see below): the web
-panel's WebSocket terminal and button panels reach every verb family the
-CLI has, including live memory channels/banks, search banks, scan groups,
-pass frequencies, VFO/scheduled recording, SD card management, the
-spectrum scope, and the select-scan list. The desktop GUI (PySide6) is
-still a working skeleton covering only the original handful of controls,
-meant as a starting point for further work rather than a finished
-product.
+The core USB/protocol library, the desktop CLI, the desktop GUI, and the
+web panel are all functional and tested against a built-in simulator (see
+below). The web panel and the GUI reach every verb family the CLI has,
+including live memory channels/banks, search banks, scan groups, pass
+frequencies, VFO/scheduled recording, SD card management, the spectrum
+scope, and the select-scan list.
 
 Most of the wire-protocol details have been cross-referenced against
 AOR's own command-list documentation and, where possible, verified
@@ -370,10 +367,114 @@ quit, exit             disconnect and leave
 
 ## Desktop GUI (PySide6)
 
-`python -m aor_dv10.gui.app` (or with `--simulator`) opens a minimal Qt
-window covering the original handful of controls. It is a **phase-2
-skeleton**, not at parity with the CLI or web panel, and is the next
-interface slated for real work.
+`python -m aor_dv10.gui.app --simulator` (or `--port COM7` for real
+hardware) opens a card-based dashboard built in the same visual language
+as the web panel: the same rounded "chassis", bezelled LCD screen with a
+right-aligned monospace frequency, a metal tuning knob, pill rocker
+switches for on/off toggles, small monospace function buttons, and the
+same dark/light/amber/night-vision palettes. It bundles the same **Inter**
+and **JetBrains Mono** typefaces the web panel loads, so the typography
+matches too. It runs off the same
+`DV10Device` API, so it stays in lock-step with the CLI and web panel.
+
+```
+python -m aor_dv10.gui.app --simulator
+python -m aor_dv10.gui.app --port COM7
+python -m aor_dv10.gui.app --simulator --theme amber
+```
+
+Flags: `--simulator`, `--port`, `--baud` (default 115200), and `--theme`
+(`dark`, `light`, `amber`, `green`). The theme is also switchable from a
+dropdown in the header.
+
+Like the web panel, the GUI is **bilingual**: a language dropdown in the
+header switches every label, button, heading and card title between
+English and Polish (device-derived values such as mode names or raw
+readouts stay as the receiver reports them).
+
+The window is a scrollable dashboard mirroring the web panel top-down: the
+top bar comes first, then the single bezelled **LCD screen** and the
+**Tune** panel sit side by side (exactly like the web panel's
+`console-top-row`, LCD ~58% / Tune ~42%), then the remaining panels are
+grouped into the same collapsible
+accordions as the web panel (*More: Squelch / Levels / Codes / Offset ·
+Priority*, *Memory Channels & Live Memory*, *VFO · Search · Recording ·
+SD Card*, *Search Banks · Scan Groups · Pass Frequencies*, *Spectrum Scope ·
+Select-Scan · Additional Settings*, *Favorites · Signal log · Alerts ·
+Snapshots · Automation · Presets*, *Raw console & Command queue*). In
+detail:
+
+- **Top bar** - the nameplate (connection LED + "AOR AR-DV10" + firmware),
+  a row of inline mini-controls (key beep, RE, beep-level and contrast
+  sliders with readout chips, backlight select, power ON/OFF), and the
+  language / theme switches plus clock-sync and reconnect buttons.
+- **LCD screen** - one bezelled screen, exactly like the web panel's: VFO
+  block with a mode tag, the big right-aligned frequency with its MHz
+  unit, the other two VFOs' frequencies on the right, mode chips
+  (receiving/digital/analog), the segmented S-meter with `S1 … +60 dB`
+  ticks and the SQL open/closed pill, and clickable status chips
+  (attenuator, AGC speed, squelch type, IF bandwidth) that cycle when
+  clicked.
+- **Mode matrix** - digital (D-STAR/YAESU/ALINCO/D-CR/P25/dPMR/DMR/TETRA)
+  and analog (FM/AM/SAH/SAL/USB/LSB/CW) button grids inside the LCD, with
+  *Digital off* and *Set Mode*.
+- **Tune** - the metal tuning knob (drag or wheel), a frequency entry,
+  the `CE`/`ENT` keypad, step buttons (±1 MHz / ±25 kHz / ±5 kHz), VFO
+  A/B/Z selection, front-panel move prev/next and VFO search (`VS`).
+- **Squelch** - `SQ` mode buttons, `LQ`/`NQ` sliders, CTCSS (`CI`/`CN`)
+  and DCS (`DI`/`DS`) toggles with full tone (54 CTCSS) and code (106
+  DCS) pickers, including `OFF`/`SRCH`.
+- **Levels** - AGC speed (`AC`), attenuator state (`AT`), volume limit
+  (`AV`), digital gain (`DA`) and manual gain (`RG`) sliders.
+- **Options & power** - beep level (`BP`), LCD contrast (`LN`),
+  backlight (`LB`), result-code prefixing (`RE`), write-protect (`PT`),
+  receiver ID (`ZI`), power on/off (`ZP`/`QP`) and a two-click-armed
+  factory reset (`RS`).
+- **Digital codes / offset / priority** - DMR (`CC`/`CM`/`OT`), P25
+  (`PC`/`PM`), NXDN (`NC`/`NM`), D-CR descramble (`DC`), voice
+  descrambler (`SI`), offset slot/frequency (`OF`/`OL`) and priority
+  (`PO`/`PP`/`TI`).
+- **Memory channels & live memory** - import an "AR-DV10 Connect" backup
+  CSV, a JSON snapshot, a CHIRP CSV or an ADIF file, filter/browse the
+  channels, tune to one with a click, and export back to any of those
+  formats.
+- **Live memory bank editor** - load a bank straight off the receiver
+  (`MA`) into an editable table and write rows or the whole bank back
+  (`MX`).
+- **Search banks / scan groups / pass** - read/write search banks
+  (`SE`/`SR`/`SS`/`SX`), scan groups (`SG`/`MG`), pass frequencies
+  (`PW`/`PR`/`PD`) and auto-store (`AS`).
+- **VFO search / recording / SD card** - SD directory/info/status,
+  record/play, squelch-skip, and VFO-search settings (`VE`).
+- **Select-scan** - a host-side list with a non-blocking interval runner.
+- **Spectrum scope** - `FD`/`GL` reads drawn as a filled sparkline.
+- **Snapshots & automation** - timestamped JSON snapshots under
+  `dv10_backups/` (create/restore/delete) and interval jobs (backup or
+  program search) driven by a local timer.
+- **Signal log** - squelch-open / digital-detect events with frequency,
+  level and mode, captured client-side.
+- **Telemetry** - read-only device-status queries (`AN`/`VQ`/`CT`/`DJ`/
+  `DK`/`LC`/`LT`/`OX`/`TS`/`RT`/`RX`/`ZI`/`RN`, ...).
+- **VFO compare & templates** - read all three VFOs (`VI`) into a
+  side-by-side table and save/apply/delete named VFO templates
+  (persisted with `QSettings`).
+- **Additional settings** - IF bandwidth entries for the current mode,
+  delay (`DL`) / free time (`FR`), key-backlight colour (`KL`), clock set
+  (`DT`, "set to now"), sleep timer (`SP`), comm speed (`SB`, armed) and
+  the front-panel move prev/next (`ZJ`/`ZK`).
+- **Recording timer (TR)** - read and write the scheduled
+  alarm/recording timer (action, once/weekly, start/end, weekdays, alarm
+  volume).
+- **Error log** - every device/protocol error raised from the GUI, with
+  timestamps.
+- **Raw console** - `raw CODE [VALUE]`, `describe CODE`, `debug last N`
+  with command history, plus a **command queue** (queue several commands,
+  run them in order, per-command status) and a **protocol trace** view
+  (live trace toggle, show last 50, save to file).
+
+The GUI ships a smoke test (`tests/test_gui_smoke.py`) that builds the
+whole window against the simulator, applies every theme and refreshes
+each panel; it is skipped automatically when PySide6 isn't installed.
 
 ## Web panel
 
@@ -752,7 +853,7 @@ src/aor_dv10/
   protocol/         command registry (commands.py), framing/codec (codec.py),
                     response parsing (parsing.py)
   cli/              interactive REPL + non-interactive runner (dv10-cli)
-  gui/              PySide6 desktop app (phase-2 skeleton)
+  gui/              PySide6 dashboard: theme tokens + cards in the web panel's style
   web/              FastAPI web panel: status API, REST endpoints, WebSocket
                     console, static/index.html
 tests/              pytest suite, runs entirely against the simulator
@@ -764,9 +865,10 @@ docs/               PROTOCOL.md / ROADMAP.md (kept locally, not published)
 1. Run `dv10-cli --port <your-port>` against a real receiver and compare
    responses to the simulator; fix up `device.py` / `serial_transport.py`
    encodings for anything that doesn't match.
-2. Flesh out the desktop GUI (PySide6) to the same depth as the web
-   panel - it's still the original phase-2 skeleton, now the one interface
-   visibly behind `DV10Device`'s full surface.
+2. Keep the desktop GUI's card set moving in step with the web panel -
+   both now cover the same verb families, but a few web-only refinements
+   (server-side persistence of snapshots and jobs, richer tooltips) could
+   still cross over.
 3. Factor the CLI's and web panel's command dispatch into one shared,
    formatting-agnostic module - the two are still hand-ported copies of
    each other (`cli/repl.py`'s `dispatch()` vs. `web/server.py`'s

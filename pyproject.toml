@@ -27,6 +27,9 @@ dv10-web = "aor_dv10.web.server:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"aor_dv10.gui" = ["fonts/*.ttf"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
