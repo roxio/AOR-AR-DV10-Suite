@@ -8,8 +8,6 @@ and a web panel that's itself a "graphical command line" in the browser.
 All of them sit on one `DV10Device` API, so protocol fixes and new
 commands only need to be made once.
 
-<img width="1120" height="847" alt="wersja01" src="https://github.com/user-attachments/assets/3fb20cf1-e728-4a88-b51b-e93cfcdebfc0" />
-
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
 │   CLI       │   │   GUI       │   │  Web panel  │
@@ -25,8 +23,6 @@ commands only need to be made once.
             SerialTransport   SimulatorTransport
              (real USB)      (fake device, no hardware needed)
 ```
-
-<img width="885" height="338" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/529fa03c-b2b1-4f0a-9f92-369ae52b63ed" />
 
 `dv10-cli --web` runs the CLI *and* the web panel together, from one
 command, sharing one `DV10Device` / one serial connection - see "One
@@ -103,13 +99,22 @@ python -m aor_dv10.gui.app --simulator      # requires the [gui] extra
 dv10-web --simulator                        # requires the [web] extra, then open http://127.0.0.1:8000/
 ```
 
+
+<img width="1110" height="863" alt="pythonGUI" src="https://github.com/user-attachments/assets/4f20b1d1-4fcc-47fc-9b74-cb44b6c1299c" />
+
+
 ## Use it with a real DV10
 
 ```bash
 dv10-cli                      # auto-detects the DV10 by USB VID/PID
 dv10-cli --port COM7          # ...or specify the port explicitly (Windows)
 dv10-cli --port /dev/ttyACM0  # ...(Linux)
+python -m aor_dv10.gui.app    # open GUI mode with working DV10
 ```
+
+
+<img width="876" height="304" alt="DV10-clipanel" src="https://github.com/user-attachments/assets/f8bc5cdf-587f-4c07-ad1d-49caeba661ea" />
+
 
 The receiver is auto-detected by USB vendor/product ID (`0x08D0` /
 `0x0101`); pass `--port` (CLI) or `--serial-port` (`dv10-web`) to
@@ -130,6 +135,10 @@ dv10-cli --web --web-port 9000       # ...on a different port
 dv10-cli --mdns                      # implies --web, plus http://aordv10.local:8000/ on the LAN
 dv10-cli --simulator --web           # try the combo without hardware first
 ```
+
+
+<img width="1120" height="847" alt="wersja01" src="https://github.com/user-attachments/assets/3fb20cf1-e728-4a88-b51b-e93cfcdebfc0" />
+
 
 Needs the `[web]` extra installed (`pip install -e ".[web]"`) - if it's
 missing, `--web`/`--mdns` print a clear message and exit rather than
